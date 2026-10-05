@@ -1,0 +1,8 @@
+# Local working notes (not published)
+ROADMAP*.md
+PROGRESS.md
+FEATURES.md
+AI-ENGINES.md
+# Local test tooling
+dev/
+node_modules/

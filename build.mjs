@@ -1,0 +1,41 @@
+// Builds dist/echo360-lite.user.js from src/ by plain concatenation, so the published file
+// stays readable (Greasy Fork does not accept minified or obfuscated code).
+//
+//   node build.mjs
+import { readFileSync, writeFileSync, readdirSync, mkdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = dirname(fileURLToPath(import.meta.url));
+const version = readFileSync(join(root, 'VERSION'), 'utf8').trim();
+const srcDir = join(root, 'src');
+const files = readdirSync(srcDir).filter((f) => f.endsWith('.js')).sort();
+
+// Source code stays English-only; translated UI strings will live in their own table.
+const CJK = /[　-〿㐀-鿿豈-﫿＀-￯]/;
+let failed = false;
+const parts = files.map((f) => {
+  const text = readFileSync(join(srcDir, f), 'utf8');
+  text.split('\n').forEach((line, i) => {
+    if (CJK.test(line)) { console.error(`${f}:${i + 1}: CJK characters in source`); failed = true; }
+  });
+  return `// ---- ${f} ----\n${text.trimEnd()}\n`;
+});
+if (failed) process.exit(1);
+
+const meta = readFileSync(join(srcDir, 'meta.txt'), 'utf8').replace('{{VERSION}}', version).trimEnd();
+const out = `${meta}
+
+/* global Hls */
+(function () {
+  'use strict';
+
+  const VERSION = '${version}';
+
+${parts.join('\n')}
+})();
+`;
+
+mkdirSync(join(root, 'dist'), { recursive: true });
+writeFileSync(join(root, 'dist', 'echo360-lite.user.js'), out);
+console.log(`built dist/echo360-lite.user.js v${version} (${files.length} modules, ${out.length} bytes)`);

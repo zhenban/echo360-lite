@@ -1,0 +1,13 @@
+// ==UserScript==
+// @name         Echo360 Lite Player
+// @namespace    echo360-lite
+// @version      {{VERSION}}
+// @description  Replaces the Echo360 lecture player with a lightweight native player (far lower CPU use). Falls back to the original player automatically if anything is not recognised.
+// @license      MIT
+// @match        https://echo360.net.au/lesson/*
+// @require      https://cdn.jsdelivr.net/npm/hls.js@1.7.3/dist/hls.min.js
+// @run-at       document-start
+// @grant        none
+// @inject-into  page
+// @sandbox      raw
+// ==/UserScript==
