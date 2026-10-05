@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.0
+- Slide chapters: the screen view is detected automatically, and every slide change is found and pinned to about a second. Switching briefly to a code editor or a question board and back does not start a new chapter.
+- New "Slides" tab: one card per chapter with a picture, the time and the first thing said on that slide. The current slide is highlighted.
+- Chapter boundaries on the progress bar; hovering the bar shows a preview picture of the slide.
+- `Shift+Left` / `Shift+Right`: previous / next slide.
+- Works in the background without disturbing playback (it reads only the start of each 10 s video segment) and is cached, so it is instant on the next visit. Browsers without WebCodecs get approximate chapters from Echo360's per-minute thumbnails.
+- Fix: the seek-bar tooltip is no longer covered by captions.
+
 ## 0.6.0
 - Silence detection: long pauses (breaks, group work) are shown as hatched stretches on the progress bar, with their length on hover.
 - Entering a silence shows a "Skip silence" button for a few seconds; "Skip silence automatically" (off by default, with Undo) jumps over it during normal playback.

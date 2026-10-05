@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Echo360 Lite Player
 // @namespace    echo360-lite
-// @version      0.6.0
+// @version      0.7.0
 // @description  Replaces the Echo360 lecture player with a lightweight native player (far lower CPU use). Falls back to the original player automatically if anything is not recognised.
 // @license      MIT
 // @match        https://echo360.net.au/lesson/*
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.6.0';
+  const VERSION = '0.7.0';
 
 // ---- 00-util.js ----
 // ===================================================================================
@@ -271,6 +271,12 @@ const STRINGS = {
     audioVoiceDesc: 'Cuts low hum from air conditioning and fans and lifts speech.',
     audioMono: 'Mono',
     audioMonoDesc: 'Plays both channels on both sides (for recordings that are only on one side).',
+    slides: 'Slides',
+    slidesKey: 'Slides (Shift+\u2190 / Shift+\u2192: previous / next)',
+    slideN: 'Slide {n}',
+    slidesFinding: 'Finding slide changes: {pct}%',
+    slidesRough: 'Approximate times from preview pictures. Finding exact changes: {pct}%',
+    slidesFound: '{n} slides, found automatically from the screen recording.',
     silence: 'Silence',
     silenceAuto: 'Skip silence automatically',
     silenceAutoDesc: 'Jumps over long pauses (breaks, group work). Off: a button offers to skip.',
@@ -919,6 +925,7 @@ const ICON = {
   layoutSide: '<rect x="3" y="6" width="8" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="13" y="6" width="8" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/>',
   layoutPip: '<rect x="3" y="5" width="18" height="14" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="12.5" y="11.5" width="6" height="5" rx="1" fill="currentColor"/>',
   cc: '<rect x="3" y="5.5" width="18" height="13" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10.5 10.2a2.2 2.2 0 1 0 0 3.6M16.5 10.2a2.2 2.2 0 1 0 0 3.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
+  slides: '<rect x="3.5" y="5" width="17" height="11.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 16.5v3M8.5 20h7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
   transcript: '<path d="M5 6.5h14M5 10.5h14M5 14.5h9M5 18.5h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
   bookmark: '<path d="M7 4.5h10a1 1 0 0 1 1 1V20l-6-4-6 4V5.5a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
   bookmarkOn: '<path d="M7 4.5h10a1 1 0 0 1 1 1V20l-6-4-6 4V5.5a1 1 0 0 1 1-1z" fill="currentColor" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
@@ -1051,6 +1058,21 @@ select.input option { background: #1b1b20; }
 .audiomenu .choices { display: flex; gap: 4px; padding: 4px 6px 2px; }
 .audiomenu .choices button { width: auto; flex: 1; text-align: center; padding: 6px 0; }
 .sils { position: absolute; inset: 0; }
+.chaps { position: absolute; inset: 0; }
+.chaps i { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: rgba(0,0,0,.75); }
+.tip .pv { display: block; width: 176px; aspect-ratio: 16 / 9; object-fit: cover; margin: 2px 0 4px; border-radius: 4px; background: #000; }
+.tip .pv[hidden] { display: none; }
+.pane[data-pane=slides] { overflow-y: auto; padding: 0 12px 16px; overscroll-behavior: contain; }
+.sstatus { padding: 4px 2px 8px; font-size: 12px; opacity: .65; }
+.slist { display: flex; flex-direction: column; gap: 8px; }
+.scard { display: flex; gap: 10px; align-items: flex-start; width: 100%; padding: 6px; border-radius: 10px; text-align: left; }
+.scard:hover { background: rgba(255,255,255,.07); }
+.scard.cur { background: rgba(79,140,255,.18); box-shadow: inset 0 0 0 1px rgba(79,140,255,.6); }
+.scard img, .scard .noimg { flex: none; width: 128px; aspect-ratio: 16 / 9; border-radius: 6px; background: #222; object-fit: cover; }
+.smeta { min-width: 0; flex: 1; }
+.stitle { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 600; }
+.stitle .st { font-weight: 400; opacity: .65; font-variant-numeric: tabular-nums; }
+.ssaid { margin-top: 3px; font-size: 12px; line-height: 1.35; opacity: .7; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .sils i { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(135deg, rgba(255,255,255,.55) 0 1.5px, transparent 1.5px 4px); opacity: .8; }
 .skipsil { position: absolute; z-index: 5; right: 14px; bottom: 96px; height: 34px; padding: 0 14px; border-radius: 17px; background: var(--panel);
   font-size: 13px; box-shadow: 0 6px 24px rgba(0,0,0,.4); transition: opacity .4s ease; }
@@ -1099,7 +1121,7 @@ video { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-f
 .top, .bottom { position: absolute; left: 0; right: 0; transition: opacity .2s ease; }
 .top { top: 0; display: flex; align-items: center; gap: 8px; padding: 10px 14px 28px;
   background: linear-gradient(rgba(0,0,0,.72), rgba(0,0,0,0)); }
-.bottom { bottom: 0; padding: 28px 14px 8px; background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.78)); }
+.bottom { bottom: 0; z-index: 4; padding: 28px 14px 8px; background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.78)); }
 .idle .top, .idle .bottom { opacity: 0; pointer-events: none; }
 .idle { cursor: none; }
 .back { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; color: inherit; text-decoration: none; flex: none; }
@@ -1193,17 +1215,18 @@ function playerTemplate() {
     <a class="back" title="${t('back')}" aria-label="${t('back')}">${svg('back')}</a>
     <div class="title"></div>
  <button class="chip tbtn" data-open="transcript" hidden aria-pressed="false" title="${t('transcriptKey')}">${svg('transcript')}<span class="lbl">${t('transcript')}</span></button>
+    <button class="chip tbtn" data-open="slides" hidden aria-pressed="false" title="${t('slidesKey')}">${svg('slides')}<span class="lbl">${t('slides')}</span></button>
     <button class="chip tbtn" data-open="notes" hidden aria-pressed="false" title="${t('notes')}">${svg('notes')}<span class="lbl">${t('notes')}</span></button>
     <button class="chip tbtn" data-open="discussion" hidden aria-pressed="false" title="${t('discussion')}">${svg('discussion')}<span class="lbl">${t('discussion')}</span></button>
     <button class="chip orig" title="${t('originalPlayerTitle')}">${t('originalPlayer')}</button>
   </div>
   <div class="bottom">
     <div class="seek" role="slider" aria-label="${t('seek')}" tabindex="0">
-      <div class="rail"><div class="bar buf"></div><div class="sils"></div><div class="bar hov"></div><div class="bar fill"></div></div>
+      <div class="rail"><div class="bar buf"></div><div class="sils"></div><div class="chaps"></div><div class="bar hov"></div><div class="bar fill"></div></div>
       <div class="imarks"></div>
       <div class="marks"></div>
       <div class="knob-track"><div class="knob"></div></div>
-      <div class="tip">0:00</div>
+      <div class="tip"><img class="pv" alt="" hidden><span class="tt">0:00</span></div>
     </div>
     <div class="row">
       <button class="btn play" title="${t('play')}" aria-label="${t('play')}">${svg('play')}</button>
@@ -1261,6 +1284,7 @@ function playerTemplate() {
   <div class="phead">
     <div class="tabs" role="tablist">
       <button role="tab" data-tab="transcript" hidden>${t('transcript')}</button>
+      <button role="tab" data-tab="slides" hidden>${t('slides')}</button>
       <button role="tab" data-tab="notes" hidden>${t('notes')}</button>
       <button role="tab" data-tab="discussion" hidden>${t('discussion')}</button>
     </div>
@@ -1277,6 +1301,7 @@ function playerTemplate() {
     <div class="tlist" tabindex="0"></div>
     <button class="tback" hidden>${t('backToCurrent')}</button>
   </section>
+  <section class="pane" data-pane="slides" hidden></section>
   <section class="pane" data-pane="notes" hidden></section>
   <section class="pane" data-pane="discussion" hidden></section>
 </aside>
@@ -1528,6 +1553,7 @@ class LitePlayer {
     this.reporter = lesson.analytics ? new Reporter(lesson.analytics, this.video, this.played, this.d.child()) : null;
     if (this.reporter) this.reporter.stateFn = () => ({ captions: this.cc.on, transcript: this.sidebar.visible('transcript') });
     this.setupSilence();
+    this.setupSlides();
     this.loadCues();
     this.loadInteractions();
     this.setupAudio();
@@ -1744,11 +1770,12 @@ class LitePlayer {
       const scene = Math.floor(ct / FLAG_SCENE_SECONDS);
       if (scene !== this.flagScene) { this.flagScene = scene; this.renderFlagButton(); }
       this.silenceTick(ct);
+      if (this.slidesPane) this.slidesPane.update(ct);
     };
     on('timeupdate', () => { invalidate(); onTime(); });
     on('seeked', onTime);
     on('progress', invalidate);
-    on('durationchange', () => { this.render(true); this.updateMarkers(); this.renderSilences(); });
+    on('durationchange', () => { this.render(true); this.updateMarkers(); this.renderSilences(); this.renderChapterMarks(); });
     on('ratechange', () => {
       this.$('.speed').textContent = v.playbackRate + 'x';
       for (const b of this.root.querySelectorAll('.speedmenu button')) b.setAttribute('aria-checked', String(+b.dataset.rate === v.playbackRate));
@@ -1973,6 +2000,8 @@ class LitePlayer {
     // Seek bar
     const seekEl = this.seekEl;
     const tip = $('.tip');
+    const tipText = tip.querySelector('.tt');
+    const tipImg = tip.querySelector('.pv');
     let rect = null;
     let lastSeekAt = 0;
     const frac = (x) => clamp((x - rect.left) / rect.width, 0, 1);
@@ -1985,10 +2014,13 @@ class LitePlayer {
       seekEl.style.setProperty('--h', f.toFixed(4));
       nearMarker = this.markers.nearest(f, rect.width, 6);
       const sil = nearMarker ? null : this.silence.silences[silenceIndexAt(this.silence.silences, f * dur)];
-      tip.textContent = nearMarker
+      tipText.textContent = nearMarker
         ? fmtTime(nearMarker.time, dur >= 3600) + ' \u00b7 ' + (nearMarker.label.length > 70 ? nearMarker.label.slice(0, 67) + '\u2026' : nearMarker.label)
         : fmtTime(f * dur, dur >= 3600) + (sil ? ' \u00b7 ' + t('silenceTip', { time: fmtTime(sil.end - sil.start) }) : '');
-      tip.style.left = clamp(f * rect.width, 24, rect.width - 24) + 'px';
+      const pv = this.previewAt(nearMarker ? nearMarker.time : f * dur);
+      if (pv) { if (tipImg.getAttribute('src') !== pv) tipImg.src = pv; tipImg.hidden = false; } else tipImg.hidden = true;
+      const half = pv ? 96 : 24;
+      tip.style.left = clamp(f * rect.width, half, rect.width - half) + 'px';
       return f;
     };
     d.listen(seekEl, 'pointerenter', () => { rect = seekEl.getBoundingClientRect(); });
@@ -2131,8 +2163,8 @@ class LitePlayer {
       let handled = true;
       switch (e.key) {
         case ' ': case 'k': case 'K': this.togglePlay(); break;
-        case 'ArrowLeft': this.seek(v.currentTime - 5); break;
-        case 'ArrowRight': this.seek(v.currentTime + 5); break;
+        case 'ArrowLeft': if (e.shiftKey) handled = this.stepChapter(-1); else this.seek(v.currentTime - 5); break;
+        case 'ArrowRight': if (e.shiftKey) handled = this.stepChapter(1); else this.seek(v.currentTime + 5); break;
         case 'j': case 'J': this.seek(v.currentTime - 10); break;
         case 'l': case 'L': this.seek(v.currentTime + 10); break;
         case 'ArrowUp': v.muted = false; v.volume = clamp(v.volume + 0.05, 0, 1); break;
@@ -2165,6 +2197,7 @@ class LitePlayer {
       this.silence.start(cues);
       if (!cues.length) return;
       this.cues = cues;
+      if (this.slidesPane) this.slidesPane.invalidate();
       if (this.reporter) this.reporter.captionsAvailable = cues.length;
       this.cc.setCues(cues);
       this.transcript.setCues(cues);
@@ -2246,6 +2279,77 @@ class LitePlayer {
       b.querySelector('.state').textContent = on ? t('on') : t('off');
     }
     this.$('.audiobtn').classList.toggle('active', a.anyOn() && !a.reason);
+  }
+
+  // ---- slide chapters ----
+
+  setupSlides() {
+    this.slidesPane = null;
+    this.slides = new SlideAnalyzer({
+      lesson: this.lesson,
+      video: this.video,
+      disposer: this.d,
+      onChange: () => { if (!this.destroyed) this.onSlidesChange(); },
+    });
+    this.slides.start();
+  }
+
+  onSlidesChange() {
+    const a = this.slides;
+    this.renderChapterMarks();
+    if (!a.chapters.length) return;
+    if (!this.slidesPane) {
+      this.slidesPane = new SlidesPane(this, this.$('.pane[data-pane=slides]'));
+      this.d.add(() => this.slidesPane.dispose());
+      this.registerTab('slides', this.slidesPane);
+    }
+    const pct = Math.floor(a.progress * 100);
+    const status = a.state === 'done' ? t('slidesFound', { n: a.chapters.length })
+      : a.state === 'thumbnails' ? t('slidesRough', { pct }) : t('slidesFinding', { pct });
+    this.slidesPane.setChapters(a.chapters, status);
+  }
+
+  renderChapterMarks() {
+    const el = this.$('.chaps');
+    el.textContent = '';
+    const dur = this.duration();
+    if (!dur || !this.slides) return;
+    const frag = document.createDocumentFragment();
+    for (const c of this.slides.chapters) {
+      if (c.start <= 0 || c.start >= dur) continue;
+      const i = document.createElement('i');
+      i.style.left = ((c.start / dur) * 100).toFixed(3) + '%';
+      frag.appendChild(i);
+    }
+    el.appendChild(frag);
+  }
+
+  // Picture for the seek-bar preview: the slide shown at t if chapters are known,
+  // otherwise Echo360's per-minute thumbnail of the main view.
+  previewAt(t) {
+    const chs = this.slides ? this.slides.chapters : [];
+    const k = chapterIndexAt(chs, t);
+    if (k >= 0 && chs[k].thumb) return chs[k].thumb;
+    const src = this.sources[this.primaryPos];
+    const set = (this.lesson.thumbnails || []).find((s) => s.sourceIndex === src.index);
+    if (!set || !Array.isArray(set.timesInSeconds) || !set.timesInSeconds.length) return '';
+    const times = set.timesInSeconds;
+    let pick = times[0];
+    for (const x of times) { if (x <= t) pick = x; else break; }
+    return set.baseUri + '/' + pick + '.' + set.extension;
+  }
+
+  // Previous / next chapter; returns false when there are none (key not handled).
+  stepChapter(dir) {
+    const chs = this.slides ? this.slides.chapters : [];
+    if (!chs.length) return false;
+    const ct = this.video.currentTime;
+    let k = chapterIndexAt(chs, ct);
+    // "Previous" from more than 3 s into a chapter restarts it, like a music player.
+    if (dir < 0 && k >= 0 && ct - chs[k].start > 3) dir = 0;
+    k = clamp(k + dir, 0, chs.length - 1);
+    this.seek(chs[k].start);
+    return true;
   }
 
   // ---- silence ----
@@ -2792,7 +2896,7 @@ class TranscriptPanel {
 
 // ---- 46-sidebar.js ----
 // ===================================================================================
-// Side panel with tabs (transcript, notes, discussion). Each tab is a controller with
+// Side panel with tabs (transcript, slides, notes, discussion). Each tab is a controller with
 // show(visible); only the active tab of an open panel is visible, so hidden tabs do no work.
 // ===================================================================================
 
@@ -2815,7 +2919,7 @@ function h(spec, props, ...children) {
   return el;
 }
 
-const SIDEBAR_TABS = ['transcript', 'notes', 'discussion'];
+const SIDEBAR_TABS = ['transcript', 'slides', 'notes', 'discussion'];
 
 class Sidebar {
   constructor(player, el) {
@@ -3625,38 +3729,11 @@ class AudioChain {
   }
 }
 
-// ---- 54-silence.js ----
+// ---- 53-media-io.js ----
 // ===================================================================================
-// Silence analysis, and the audio-track reader it is built on.
-//
-// Data sources, best first:
-//   1. Transcript timing: gaps between cues. Free, because the cues are loaded anyway.
-//   2. The separate audio rendition (about 46 kbps, 40 MB for two hours): fetched in 60 s
-//      byte ranges only while playback has enough buffer, decoded to 16 kHz mono by the
-//      browser's decoder (which runs off the main thread), and reduced to a loudness
-//      envelope of one value per 0.1 s. The envelope is cached in IndexedDB, so a later
-//      visit shows it at once and an unfinished analysis continues where it stopped.
-//
-// The pieces are meant to be reused by later features that read the same audio and cut it
-// at the same pauses (for example local transcription):
-//   HlsAudioTrack     open(), duration, chunkCount, chunkSpan(i), readChunk(i) -> { start, end, rate, pcm }
-//   Envelope          step, length, db(i), dbAt(t), known(i), fill(start, pcm, rate), coverage()
-//   findSilences(env, opts)            -> { silences: [{ start, end }], noiseDb, speechDb, thresholdDb }
-//   silencesFromCues(cues, dur, opts)  -> [{ start, end }]
-//   speechSpans(silences, dur, env, maxSec) -> speech between silences, each piece at most
-//                                         maxSec long and cut at its quietest moment
-//   SilenceAnalyzer   source, silences, track, env, progress; onChange
+// Shared helpers for background media work: HLS playlist parsing, ranged fetches, an
+// IndexedDB cache, and a gate that keeps background downloads from competing with playback.
 // ===================================================================================
-
-const AUDIO_RATE = 16000;          // speech models expect this; plenty for loudness
-const CHUNK_SEGMENTS = 6;          // 6 x 10 s HLS segments per request and decode
-const ENV_STEP = 0.1;              // envelope resolution in seconds
-const SILENCE_PAD = 0.5;           // seconds kept at each edge so skipping never clips speech
-const SILENCE_BRIDGE = 1.5;        // a louder blip shorter than this inside a pause stays silent
-const SILENCE_MIN_CHOICES = [15, 30, 60, 120];
-const SILENCE_SENSITIVITY = { low: 0.2, normal: 0.3, high: 0.4 };
-
-// ---- HLS playlists ----
 
 function parseAttrs(s) {
   const out = {};
@@ -3664,24 +3741,6 @@ function parseAttrs(s) {
   let m;
   while ((m = re.exec(s))) out[m[1]] = m[2].replace(/^"|"$/g, '');
   return out;
-}
-
-// URI of the audio rendition used by the lowest-bandwidth variant of a master playlist.
-function pickAudioRendition(master) {
-  const groups = new Map();
-  let best = null;
-  const lines = String(master).split(/\r?\n/);
-  for (const line of lines) {
-    if (line.startsWith('#EXT-X-MEDIA:')) {
-      const a = parseAttrs(line.slice(13));
-      if (a.TYPE === 'AUDIO' && a.URI && !groups.has(a['GROUP-ID'])) groups.set(a['GROUP-ID'], a.URI);
-    } else if (line.startsWith('#EXT-X-STREAM-INF:')) {
-      const a = parseAttrs(line.slice(18));
-      const bw = +a.BANDWIDTH || Infinity;
-      if (a.AUDIO && groups.has(a.AUDIO) && (!best || bw < best.bw)) best = { bw, uri: groups.get(a.AUDIO) };
-    }
-  }
-  return best ? best.uri : (groups.size ? groups.values().next().value : null);
 }
 
 // Media playlist -> { init: { url, offset, length } | null, segments: [{ start, dur, url, offset, length }] }.
@@ -3730,6 +3789,128 @@ function fetchOk(url, init) {
 function fetchRange(url, offset, length, signal) {
   const headers = length === null ? {} : { Range: 'bytes=' + offset + '-' + (offset + length - 1) };
   return fetchOk(url, { headers, signal }).then((r) => r.arrayBuffer());
+}
+
+const idbCache = {
+  db: null,
+  open() {
+    if (this.db) return this.db;
+    this.db = new Promise((resolve, reject) => {
+      if (typeof indexedDB === 'undefined') { reject(new Error('no IndexedDB')); return; }
+      const req = indexedDB.open('echo360lite', 1);
+      req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains('cache')) req.result.createObjectStore('cache'); };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    this.db.catch(() => {});
+    return this.db;
+  },
+  tx(mode, fn) {
+    return this.open().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction('cache', mode);
+      const req = fn(tx.objectStore('cache'));
+      tx.oncomplete = () => resolve(req && req.result);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    }));
+  },
+  get(key) { return this.tx('readonly', (s) => s.get(key)).catch(() => undefined); },
+  put(key, value) { return this.tx('readwrite', (s) => s.put(value, key)).catch(() => undefined); },
+};
+
+// Background downloads must never compete with playback: turn() resolves only when the
+// video is paused or has at least minBuffer seconds buffered ahead, after a pause of
+// playingMs (pausedMs while paused). Everything rejects once the signal aborts.
+class BackgroundGate {
+  constructor(video, signal) {
+    this.video = video;
+    this.signal = signal;
+  }
+
+  wait(ms) {
+    const signal = this.signal;
+    return new Promise((resolve, reject) => {
+      if (signal.aborted) { reject(new Error('aborted')); return; }
+      const onAbort = () => { clearTimeout(id); reject(new Error('aborted')); };
+      const id = setTimeout(() => { signal.removeEventListener('abort', onAbort); resolve(); }, ms);
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
+  }
+
+  async turn(playingMs, pausedMs, minBuffer) {
+    const v = this.video;
+    const need = minBuffer || 20;
+    for (;;) {
+      await this.wait(v.paused ? pausedMs : playingMs);
+      if (v.seeking || v.readyState < 2) continue;
+      if (v.paused || bufferedAhead(v) >= need) return;
+    }
+  }
+}
+
+function bufferedAhead(v) {
+  const t = v.currentTime;
+  const b = v.buffered;
+  for (let i = 0; i < b.length; i++) if (b.start(i) <= t + 0.5 && b.end(i) > t) return b.end(i) - t;
+  return 0;
+}
+
+function idle() {
+  return new Promise((resolve) => {
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(() => resolve(), { timeout: 1000 });
+    else setTimeout(resolve, 0);
+  });
+}
+
+// ---- 54-silence.js ----
+// ===================================================================================
+// Silence analysis, and the audio-track reader it is built on.
+//
+// Data sources, best first:
+//   1. Transcript timing: gaps between cues. Free, because the cues are loaded anyway.
+//   2. The separate audio rendition (about 46 kbps, 40 MB for two hours): fetched in 60 s
+//      byte ranges only while playback has enough buffer, decoded to 16 kHz mono by the
+//      browser's decoder (which runs off the main thread), and reduced to a loudness
+//      envelope of one value per 0.1 s. The envelope is cached in IndexedDB, so a later
+//      visit shows it at once and an unfinished analysis continues where it stopped.
+//
+// The pieces are meant to be reused by later features that read the same audio and cut it
+// at the same pauses (for example local transcription):
+//   HlsAudioTrack     open(), duration, chunkCount, chunkSpan(i), readChunk(i) -> { start, end, rate, pcm }
+//   Envelope          step, length, db(i), dbAt(t), known(i), fill(start, pcm, rate), coverage()
+//   findSilences(env, opts)            -> { silences: [{ start, end }], noiseDb, speechDb, thresholdDb }
+//   silencesFromCues(cues, dur, opts)  -> [{ start, end }]
+//   speechSpans(silences, dur, env, maxSec) -> speech between silences, each piece at most
+//                                         maxSec long and cut at its quietest moment
+//   SilenceAnalyzer   source, silences, track, env, progress; onChange
+// ===================================================================================
+
+const AUDIO_RATE = 16000;          // speech models expect this; plenty for loudness
+const CHUNK_SEGMENTS = 6;          // 6 x 10 s HLS segments per request and decode
+const ENV_STEP = 0.1;              // envelope resolution in seconds
+const SILENCE_PAD = 0.5;           // seconds kept at each edge so skipping never clips speech
+const SILENCE_BRIDGE = 1.5;        // a louder blip shorter than this inside a pause stays silent
+const SILENCE_MIN_CHOICES = [15, 30, 60, 120];
+const SILENCE_SENSITIVITY = { low: 0.2, normal: 0.3, high: 0.4 };
+
+// ---- the audio track ----
+
+// URI of the audio rendition used by the lowest-bandwidth variant of a master playlist.
+function pickAudioRendition(master) {
+  const groups = new Map();
+  let best = null;
+  const lines = String(master).split(/\r?\n/);
+  for (const line of lines) {
+    if (line.startsWith('#EXT-X-MEDIA:')) {
+      const a = parseAttrs(line.slice(13));
+      if (a.TYPE === 'AUDIO' && a.URI && !groups.has(a['GROUP-ID'])) groups.set(a['GROUP-ID'], a.URI);
+    } else if (line.startsWith('#EXT-X-STREAM-INF:')) {
+      const a = parseAttrs(line.slice(18));
+      const bw = +a.BANDWIDTH || Infinity;
+      if (a.AUDIO && groups.has(a.AUDIO) && (!best || bw < best.bw)) best = { bw, uri: groups.get(a.AUDIO) };
+    }
+  }
+  return best ? best.uri : (groups.size ? groups.values().next().value : null);
 }
 
 // Reads the separate audio rendition of an HLS stream as PCM, one chunk at a time.
@@ -3976,35 +4157,6 @@ function silenceIndexAt(silences, t) {
   return -1;
 }
 
-// ---- cache ----
-
-const idbCache = {
-  db: null,
-  open() {
-    if (this.db) return this.db;
-    this.db = new Promise((resolve, reject) => {
-      if (typeof indexedDB === 'undefined') { reject(new Error('no IndexedDB')); return; }
-      const req = indexedDB.open('echo360lite', 1);
-      req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains('cache')) req.result.createObjectStore('cache'); };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    });
-    this.db.catch(() => {});
-    return this.db;
-  },
-  tx(mode, fn) {
-    return this.open().then((db) => new Promise((resolve, reject) => {
-      const tx = db.transaction('cache', mode);
-      const req = fn(tx.objectStore('cache'));
-      tx.oncomplete = () => resolve(req && req.result);
-      tx.onerror = () => reject(tx.error);
-      tx.onabort = () => reject(tx.error);
-    }));
-  },
-  get(key) { return this.tx('readonly', (s) => s.get(key)).catch(() => undefined); },
-  put(key, value) { return this.tx('readwrite', (s) => s.put(value, key)).catch(() => undefined); },
-};
-
 // ---- the controller used by the player ----
 
 class SilenceAnalyzer {
@@ -4017,6 +4169,7 @@ class SilenceAnalyzer {
     this.d = opts.disposer;
     this.ac = new AbortController();
     this.d.add(() => this.ac.abort());
+    this.gate = new BackgroundGate(this.video, this.ac.signal);
     this.source = 'pending';     // pending | transcript | audio | unavailable
     this.reason = '';
     this.progress = 0;
@@ -4080,7 +4233,7 @@ class SilenceAnalyzer {
     if (navigator.connection && navigator.connection.saveData) { this.fail('saveData'); return; }
     const key = 'silence-env:' + this.lesson.mediaId;
     const cached = this.lesson.mediaId ? await idbCache.get(key) : undefined;
-    await this.wait(cached ? 0 : 8000); // let playback start first
+    await this.gate.wait(cached ? 0 : 8000); // let playback start first
     const track = await new HlsAudioTrack(this.masterUrl).open(signal);
     this.track = track;
     const data = cached && cached.v === 1 && cached.step === ENV_STEP ? cached.data : null;
@@ -4097,7 +4250,7 @@ class SilenceAnalyzer {
     for (const i of order) {
       const span = track.chunkSpan(i);
       if (this.env.coverageOf(span.start, span.end) > 0.9) continue;
-      await this.waitForTurn();
+      await this.gate.turn(2000, 400);
       const chunk = await track.readChunk(i, signal);
       await idle();
       if (signal.aborted) return;
@@ -4118,40 +4271,738 @@ class SilenceAnalyzer {
     if (this.lesson.mediaId) idbCache.put(key, { v: 1, step: ENV_STEP, data: this.env.data, at: Date.now() });
   }
 
-  wait(ms) {
-    const signal = this.ac.signal;
-    return new Promise((resolve, reject) => {
-      if (signal.aborted) { reject(new Error('aborted')); return; }
-      const onAbort = () => { clearTimeout(id); reject(new Error('aborted')); };
-      const id = setTimeout(() => { signal.removeEventListener('abort', onAbort); resolve(); }, ms);
-      signal.addEventListener('abort', onAbort, { once: true });
+}
+
+// ---- 56-slides.js ----
+// ===================================================================================
+// Slide chapters: find where the screen view changes to a new slide.
+//
+// Sources, best first:
+//   1. Chapter or slide data from Echo360 itself. None of the recordings checked so far had
+//      any (cfg.chapters, slide decks and scenes were all empty), so this is not used yet.
+//   2. Keyframes of the screen view. Every 10 s HLS segment starts with a keyframe; reading
+//      just the start of each segment (about 20 KB at 360p, 15 MB for two hours) and
+//      decoding it with WebCodecs gives the whole lecture at 10 s resolution. Each change is
+//      then pinned to about 1 s by decoding the one segment it happened in. Downloads only
+//      run while playback has enough buffer, and the result is cached in IndexedDB.
+//   3. Echo360's preview thumbnails (one per minute), when WebCodecs is not available.
+//      They are also shown at once while the keyframes are being read.
+//
+// Which view is the screen: slides, code and documents have large flat areas, camera
+// pictures do not (sensor noise), so the view with the most flat area is used.
+//
+// Change detection compares tiny 32 x 18 versions of two frames. Small changes (mouse
+// pointer, laser pointer, ink added to a slide, a small animation, scrolling code) touch
+// only a small share of the pixels and are not a new slide. A run of quick changes (scrolling
+// code, flicking through slides) becomes one chapter instead of many.
+//
+// Reusable pieces (slide text recognition will read sharper keyframes the same way):
+//   HlsVideoReader   open(), segments, segmentAt(t), keyframe(i) -> VideoFrame,
+//                    frames(i, stepSec, onFrame)
+//   frameSignature(img), frameDistance(a, b), sameView(a, b)
+//   buildScenes(samples, duration, opts) -> [{ start, end, rep }]
+//   SlideAnalyzer    chapters: [{ start, end, precise, repTime, thumb }], screenIndex, reader
+// ===================================================================================
+
+const SIG_W = 32;
+const SIG_H = 18;
+const KEYFRAME_PROBE_BYTES = 24 * 1024;  // moof (~2.5 KB) + a 360p keyframe (~17 KB), usually
+const SCENE_MIN_SEC = 20;                // shorter scenes in a row are one chapter
+const SCENE_REVISIT_SEC = 180;           // going back to a view shown this recently is no new chapter
+const SCENE_DETOUR_SEC = 60;             // a shorter excursion that comes back belongs to the chapter
+const SCREEN_FLAT_MIN = 0.35;            // share of flat pixels that marks a screen view
+const CHAPTER_THUMB_W = 192;
+
+// ---- fragmented MP4 ----
+
+function mp4Boxes(dv, start, end) {
+  const out = [];
+  let p = start;
+  while (p + 8 <= end) {
+    let size = dv.getUint32(p);
+    const type = String.fromCharCode(dv.getUint8(p + 4), dv.getUint8(p + 5), dv.getUint8(p + 6), dv.getUint8(p + 7));
+    let hdr = 8;
+    if (size === 1) { size = Number(dv.getBigUint64(p + 8)); hdr = 16; } else if (size === 0) size = end - p;
+    if (size < hdr) break;
+    out.push({ type, start: p, body: p + hdr, end: Math.min(p + size, end), size });
+    p += size;
+  }
+  return out;
+}
+
+function mp4Find(dv, start, end, path) {
+  let box = { body: start, end };
+  for (const type of path) {
+    box = mp4Boxes(dv, box.body, box.end).find((b) => b.type === type);
+    if (!box) return null;
+  }
+  return box;
+}
+
+// Init segment of an H.264 track -> what VideoDecoder.configure() needs.
+function parseVideoInit(buf) {
+  const dv = new DataView(buf);
+  const stsd = mp4Find(dv, 0, dv.byteLength, ['moov', 'trak', 'mdia', 'minf', 'stbl', 'stsd']);
+  const mdhd = mp4Find(dv, 0, dv.byteLength, ['moov', 'trak', 'mdia', 'mdhd']);
+  if (!stsd || !mdhd) throw new Error('unexpected init segment');
+  const entry = mp4Boxes(dv, stsd.body + 8, stsd.end)[0];
+  if (!entry || (entry.type !== 'avc1' && entry.type !== 'avc3')) throw new Error('not H.264: ' + (entry && entry.type));
+  const avcC = mp4Boxes(dv, entry.body + 78, entry.end).find((b) => b.type === 'avcC');
+  if (!avcC) throw new Error('no avcC');
+  const hex = (o) => dv.getUint8(avcC.body + o).toString(16).padStart(2, '0');
+  const v = dv.getUint8(mdhd.body);
+  return {
+    codec: entry.type + '.' + hex(1) + hex(2) + hex(3),
+    description: new Uint8Array(buf.slice(avcC.body, avcC.end)),
+    timescale: dv.getUint32(mdhd.body + (v ? 20 : 12)),
+    width: dv.getUint16(entry.body + 24),
+    height: dv.getUint16(entry.body + 26),
+  };
+}
+
+// Samples of the first track fragment, in decode order: [{ offset, size, time, key }] with
+// offsets relative to the start of `buf` and time in timescale units (presentation time).
+// Samples whose bytes are not in `buf` are still listed (the caller checks the size).
+function parseFragment(buf, segmentOffset) {
+  const dv = new DataView(buf);
+  const moof = mp4Boxes(dv, 0, dv.byteLength).find((b) => b.type === 'moof');
+  if (!moof) throw new Error('no moof');
+  const traf = mp4Find(dv, moof.body, moof.end, ['traf']);
+  const kids = mp4Boxes(dv, traf.body, traf.end);
+  const tfhd = kids.find((b) => b.type === 'tfhd');
+  const tfdt = kids.find((b) => b.type === 'tfdt');
+  const trun = kids.find((b) => b.type === 'trun');
+  if (!tfhd || !trun) throw new Error('unexpected fragment');
+  const hf = dv.getUint32(tfhd.body) & 0xffffff;
+  let p = tfhd.body + 8;
+  let base = moof.start;
+  if (hf & 0x1) { base = Number(dv.getBigUint64(p)) - (segmentOffset || 0); p += 8; }
+  if (hf & 0x2) p += 4;
+  let defDur = 0;
+  let defSize = 0;
+  let defFlags = 0;
+  if (hf & 0x8) { defDur = dv.getUint32(p); p += 4; }
+  if (hf & 0x10) { defSize = dv.getUint32(p); p += 4; }
+  if (hf & 0x20) { defFlags = dv.getUint32(p); p += 4; }
+  let t = 0;
+  if (tfdt) t = dv.getUint8(tfdt.body) ? Number(dv.getBigUint64(tfdt.body + 4)) : dv.getUint32(tfdt.body + 4);
+  const rf = dv.getUint32(trun.body) & 0xffffff;
+  const version = dv.getUint8(trun.body);
+  const count = dv.getUint32(trun.body + 4);
+  p = trun.body + 8;
+  let offset = base;
+  if (rf & 0x1) { offset = base + dv.getInt32(p); p += 4; }
+  let firstFlags = null;
+  if (rf & 0x4) { firstFlags = dv.getUint32(p); p += 4; }
+  const samples = [];
+  for (let i = 0; i < count; i++) {
+    let dur = defDur;
+    let size = defSize;
+    let flags = i === 0 && firstFlags !== null ? firstFlags : defFlags;
+    let cto = 0;
+    if (rf & 0x100) { dur = dv.getUint32(p); p += 4; }
+    if (rf & 0x200) { size = dv.getUint32(p); p += 4; }
+    if (rf & 0x400) { flags = dv.getUint32(p); p += 4; }
+    if (rf & 0x800) { cto = version ? dv.getInt32(p) : dv.getUint32(p); p += 4; }
+    // sample_is_non_sync_sample is bit 16 of the flags.
+    samples.push({ offset, size, time: t + cto, key: !(flags & 0x10000) });
+    offset += size;
+    t += dur;
+  }
+  return { samples, end: offset };
+}
+
+// ---- reading frames from an HLS video stream ----
+
+// Variant URIs of a master playlist with their heights, lowest first.
+function videoVariants(master, base) {
+  const out = [];
+  const lines = String(master).split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i].startsWith('#EXT-X-STREAM-INF:')) continue;
+    const a = parseAttrs(lines[i].slice(18));
+    const uri = (lines.slice(i + 1).find((l) => l && !l.startsWith('#')) || '').trim();
+    const h = a.RESOLUTION ? +a.RESOLUTION.split('x')[1] : 0;
+    if (uri) out.push({ uri: new URL(uri, base).href, height: h, bandwidth: +a.BANDWIDTH || 0 });
+  }
+  return out.sort((x, y) => x.height - y.height || x.bandwidth - y.bandwidth);
+}
+
+class HlsVideoReader {
+  // maxHeight: the tallest rendition to use (the smallest one if none is small enough).
+  constructor(masterUrl, maxHeight) {
+    this.masterUrl = masterUrl;
+    this.maxHeight = maxHeight || 360;
+    this.segments = [];
+    this.info = null;
+  }
+
+  static supported() {
+    return typeof VideoDecoder === 'function' && typeof EncodedVideoChunk === 'function';
+  }
+
+  async open(signal) {
+    const master = await (await fetchOk(this.masterUrl, { signal })).text();
+    let url = this.masterUrl;
+    if (/#EXT-X-STREAM-INF/.test(master)) {
+      const vs = videoVariants(master, this.masterUrl);
+      const fit = vs.filter((v) => v.height && v.height <= this.maxHeight);
+      const pick = fit.length ? fit[fit.length - 1] : vs[0];
+      if (!pick) throw new Error('no video variant');
+      url = pick.uri;
+    }
+    const pl = parseMediaPlaylist(await (await fetchOk(url, { signal })).text(), url);
+    if (!pl.init || !pl.segments.length || pl.segments.some((s) => s.length === null)) throw new Error('unsupported playlist layout');
+    this.segments = pl.segments;
+    const init = await fetchRange(pl.init.url, pl.init.offset, pl.init.length, signal);
+    this.info = parseVideoInit(init);
+    const cfg = { codec: this.info.codec, description: this.info.description };
+    const ok = await VideoDecoder.isConfigSupported(cfg).catch(() => ({ supported: false }));
+    if (!ok.supported) throw new Error('decoder not supported: ' + this.info.codec);
+    const last = this.segments[this.segments.length - 1];
+    this.duration = last.start + last.dur;
+    return this;
+  }
+
+  segmentAt(t) {
+    let lo = 0;
+    let hi = this.segments.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (this.segments[mid].start <= t) lo = mid; else hi = mid - 1;
+    }
+    return lo;
+  }
+
+  // Decodes encoded samples; onFrame(frame) is called in presentation order and the frame
+  // is closed right after it returns.
+  async decode(chunks, onFrame) {
+    let failed = null;
+    const dec = new VideoDecoder({
+      output: (frame) => { try { if (!failed) onFrame(frame); } catch (e) { failed = e; } finally { frame.close(); } },
+      error: (e) => { failed = failed || e; },
+    });
+    try {
+      dec.configure({ codec: this.info.codec, description: this.info.description, optimizeForLatency: true });
+      for (const c of chunks) dec.decode(c);
+      await dec.flush();
+    } finally {
+      if (dec.state !== 'closed') dec.close();
+    }
+    if (failed) throw failed;
+  }
+
+  // First frame of segment i, as a signature-ready callback: fn(frame) is called once.
+  async keyframe(i, signal, fn) {
+    const s = this.segments[i];
+    let buf = await fetchRange(s.url, s.offset, Math.min(s.length, KEYFRAME_PROBE_BYTES), signal);
+    let frag = parseFragment(buf, s.offset);
+    const k = frag.samples[0];
+    if (!k || !k.key) throw new Error('segment does not start with a keyframe');
+    if (k.offset + k.size > buf.byteLength) {
+      buf = await fetchRange(s.url, s.offset, Math.min(s.length, k.offset + k.size), signal);
+      frag = parseFragment(buf, s.offset);
+    }
+    const ts = this.info.timescale;
+    const chunk = new EncodedVideoChunk({ type: 'key', timestamp: Math.round((k.time / ts) * 1e6), data: new Uint8Array(buf, k.offset, k.size) });
+    let got = false;
+    await this.decode([chunk], (f) => { if (!got) { got = true; fn(f, k.time / ts); } });
+    if (!got) throw new Error('no frame decoded');
+  }
+
+  // Every frame of segment i at least stepSec apart: fn(frame, seconds).
+  async frames(i, stepSec, signal, fn) {
+    const s = this.segments[i];
+    const buf = await fetchRange(s.url, s.offset, s.length, signal);
+    const frag = parseFragment(buf, s.offset);
+    const ts = this.info.timescale;
+    const chunks = frag.samples
+      .filter((x) => x.offset + x.size <= buf.byteLength)
+      .map((x, j) => new EncodedVideoChunk({ type: j === 0 || x.key ? 'key' : 'delta', timestamp: Math.round((x.time / ts) * 1e6), data: new Uint8Array(buf, x.offset, x.size) }));
+    let next = -Infinity;
+    await this.decode(chunks, (f) => {
+      const t = f.timestamp / 1e6;
+      if (t + 1e-6 < next) return;
+      next = t + stepSec;
+      fn(f, t);
+    });
+  }
+}
+
+// ---- comparing frames ----
+
+let sigCtx = null;
+function sigContext() {
+  if (!sigCtx) {
+    const c = typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(SIG_W, SIG_H) : Object.assign(document.createElement('canvas'), { width: SIG_W, height: SIG_H });
+    sigCtx = c.getContext('2d', { willReadFrequently: true });
+  }
+  return sigCtx;
+}
+
+// 32 x 18 RGB thumbnail of any drawable (VideoFrame, ImageBitmap, <video>, <img>).
+function frameSignature(img) {
+  const g = sigContext();
+  g.drawImage(img, 0, 0, SIG_W, SIG_H);
+  return Uint8Array.from(g.getImageData(0, 0, SIG_W, SIG_H).data.filter((x, i) => i % 4 !== 3));
+}
+
+// corr: correlation of the two pictures; mad: mean absolute difference (0-255); changed:
+// share of pixels whose brightness moved by more than 40.
+function frameDistance(a, b) {
+  const n = a.length;
+  let ma = 0;
+  let mb = 0;
+  let mad = 0;
+  let changed = 0;
+  for (let i = 0; i < n; i += 3) {
+    const la = a[i] * 0.299 + a[i + 1] * 0.587 + a[i + 2] * 0.114;
+    const lb = b[i] * 0.299 + b[i + 1] * 0.587 + b[i + 2] * 0.114;
+    if (Math.abs(la - lb) > 40) changed++;
+  }
+  for (let i = 0; i < n; i++) { ma += a[i]; mb += b[i]; mad += Math.abs(a[i] - b[i]); }
+  ma /= n;
+  mb /= n;
+  let sab = 0;
+  let saa = 0;
+  let sbb = 0;
+  for (let i = 0; i < n; i++) {
+    const x = a[i] - ma;
+    const y = b[i] - mb;
+    sab += x * y; saa += x * x; sbb += y * y;
+  }
+  return { corr: saa && sbb ? sab / Math.sqrt(saa * sbb) : (saa === sbb ? 1 : 0), mad: mad / n, changed: changed / (n / 3) };
+}
+
+// Same slide? Measured on a real lecture (keyframes 10 s apart): ink added to a slide and
+// scrolling or typing in a code editor change 6-15% of the pixels; a new slide changes at
+// least 16%, switching between slides and an editor more than half.
+function sameView(a, b) {
+  const d = frameDistance(a, b);
+  return d.changed < 0.16 || d.mad <= 8 || (d.corr >= 0.9 && d.mad <= 20);
+}
+
+// Stricter test for "back to the same picture" (see buildScenes).
+function sameViewStrict(a, b) {
+  const d = frameDistance(a, b);
+  return d.changed < 0.06 || d.mad <= 6;
+}
+
+// Share of pixels that equal their right and lower neighbours: high for slides and code,
+// low for camera pictures.
+function flatShare(img) {
+  const W = 160;
+  const H = 90;
+  const c = typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(W, H) : Object.assign(document.createElement('canvas'), { width: W, height: H });
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(img, 0, 0, W, H);
+  const d = g.getImageData(0, 0, W, H).data;
+  let n = 0;
+  let tot = 0;
+  for (let y = 1; y < H - 1; y++) {
+    for (let x = 1; x < W - 1; x++) {
+      const i = (y * W + x) * 4;
+      const l = d[i] + d[i + 1] + d[i + 2];
+      tot++;
+      if (Math.abs(l - d[i + 4] - d[i + 5] - d[i + 6]) <= 3 && Math.abs(l - d[i + W * 4] - d[i + W * 4 + 1] - d[i + W * 4 + 2]) <= 3) n++;
+    }
+  }
+  return n / tot;
+}
+
+// ---- scenes ----
+
+// samples: [{ t, sig }] in time order. Returns scenes [{ start, end, rep }] where rep is the
+// sample that best shows the chapter: the last sample (ink and builds are complete there)
+// of the view it stays on longest. A scene starts at its first sample; refinement moves
+// it earlier.
+//
+// Lecturers often switch back and forth between a slide and a code editor or a question
+// board. Coming back to something shown in the last few minutes is not a new chapter, and
+// a short excursion (under detourSec) that comes back to the previous chapter becomes part
+// of it. The "back to the same picture" test is stricter than the same-slide test, because
+// different slides with the same layout can pass the latter. Of the remaining scenes,
+// several short ones in a row are one chapter, and a single short one (a transition caught
+// mid-way) joins the next.
+function buildScenes(samples, duration, opts) {
+  const o = Object.assign({ minSec: SCENE_MIN_SEC, revisitSec: SCENE_REVISIT_SEC, detourSec: SCENE_DETOUR_SEC, same: sameView, revisit: sameViewStrict }, opts);
+  if (!samples.length) return [];
+  const tAt = (k) => (k < samples.length ? samples[k].t : duration);
+  // Runs of the same view.
+  const runs = [{ a: 0, b: 0 }];
+  for (let k = 1; k < samples.length; k++) {
+    if (o.same(samples[k - 1].sig, samples[k].sig)) runs[runs.length - 1].b = k;
+    else runs.push({ a: k, b: k });
+  }
+  const raw = [{ a: 0, b: runs[0].b, runs: [runs[0]] }];
+  for (let i = 1; i < runs.length; i++) {
+    const r = runs[i];
+    const t0 = samples[r.a].t;
+    let seen = -1;
+    for (let j = i - 1; j >= 0 && seen < 0 && samples[runs[j].b].t >= t0 - o.revisitSec; j--) {
+      if (o.revisit(samples[runs[j].b].sig, samples[r.a].sig) || o.revisit(samples[runs[j].a].sig, samples[r.a].sig)) seen = j;
+    }
+    const cur = raw[raw.length - 1];
+    if (seen < 0) { raw.push({ a: r.a, b: r.b, runs: [r] }); continue; }
+    cur.b = r.b;
+    cur.runs.push(r);
+    // Back to the chapter before a short excursion: the excursion joins that chapter.
+    if (raw.length >= 2 && runs[seen].b < cur.a && t0 - samples[cur.a].t < o.detourSec) {
+      const prev = raw[raw.length - 2];
+      prev.b = cur.b;
+      prev.runs.push(...cur.runs);
+      raw.pop();
+    }
+  }
+  const len = (r) => tAt(r.b + 1) - samples[r.a].t;
+  const merged = [];
+  for (let i = 0; i < raw.length; i++) {
+    const r = { a: raw[i].a, b: raw[i].b, runs: raw[i].runs.slice() };
+    const absorb = (x) => { r.b = x.b; r.runs.push(...x.runs); };
+    if (len(r) < o.minSec) {
+      // Absorb following short scenes into one busy stretch.
+      let j = i;
+      while (j + 1 < raw.length && len(raw[j + 1]) < o.minSec) j++;
+      if (j > i) { for (let q = i + 1; q <= j; q++) absorb(raw[q]); i = j; } else if (i + 1 < raw.length) { absorb(raw[i + 1]); i++; }
+    }
+    merged.push(r);
+  }
+  return merged.map((r, i) => {
+    let best = r.runs[0];
+    for (const x of r.runs) if (tAt(x.b + 1) - samples[x.a].t >= tAt(best.b + 1) - samples[best.a].t) best = x;
+    return {
+      start: i === 0 ? 0 : samples[r.a].t,
+      end: i + 1 < merged.length ? samples[merged[i + 1].a].t : duration,
+      rep: best.b,
+    };
+  });
+}
+
+function chapterIndexAt(chapters, t) {
+  let lo = 0;
+  let hi = chapters.length - 1;
+  let k = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (chapters[mid].start <= t) { k = mid; lo = mid + 1; } else hi = mid - 1;
+  }
+  return k;
+}
+
+// A small copy of a frame, made synchronously (a VideoFrame is only valid in its callback).
+function smallBitmap(img, w) {
+  const c = new OffscreenCanvas(w, Math.round((w * 9) / 16));
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  return c;
+}
+
+function bitmapToBlob(canvas) {
+  return canvas.convertToBlob({ type: 'image/jpeg', quality: 0.8 });
+}
+
+// ---- the controller used by the player ----
+
+class SlideAnalyzer {
+  // opts: { lesson, video, disposer, onChange }
+  constructor(opts) {
+    this.lesson = opts.lesson;
+    this.video = opts.video;
+    this.onChange = opts.onChange || (() => {});
+    this.d = opts.disposer;
+    this.ac = new AbortController();
+    this.d.add(() => this.ac.abort());
+    this.gate = new BackgroundGate(this.video, this.ac.signal);
+    this.state = 'pending';   // pending | thumbnails | keyframes | done | unavailable
+    this.progress = 0;
+    this.chapters = [];
+    this.screenIndex = null;
+    this.reader = null;
+    this.urls = [];
+    this.d.add(() => { for (const u of this.urls) URL.revokeObjectURL(u); });
+  }
+
+  start() {
+    this.run().catch((e) => {
+      if (this.ac.signal.aborted) return;
+      console.warn(TAG, 'slide detection stopped:', e && e.message ? e.message : e);
+      if (!this.chapters.length) { this.state = 'unavailable'; this.onChange(); }
     });
   }
 
-  // Background downloads must never compete with playback: go on only when the video is
-  // paused or has at least 20 s buffered ahead, and pace the requests.
-  async waitForTurn() {
-    const v = this.video;
-    for (;;) {
-      await this.wait(v.paused ? 400 : 2000);
-      if (v.seeking || v.readyState < 2) continue;
-      if (v.paused || bufferedAhead(v) >= 20) return;
+  duration() {
+    const v = this.video.duration;
+    return isFinite(v) && v > 0 ? v : this.lesson.duration;
+  }
+
+  thumbUrl(blob) {
+    if (!this.urlOf) this.urlOf = new Map();
+    let u = this.urlOf.get(blob);
+    if (!u) {
+      u = URL.createObjectURL(blob);
+      this.urlOf.set(blob, u);
+      this.urls.push(u);
     }
+    return u;
+  }
+
+  async run() {
+    const signal = this.ac.signal;
+    const key = 'slides:' + this.lesson.mediaId;
+    const cached = this.lesson.mediaId ? await idbCache.get(key) : undefined;
+    if (cached && cached.v === 1 && Array.isArray(cached.chapters)) {
+      this.screenIndex = cached.screen;
+      this.chapters = cached.chapters.map((c) => Object.assign({}, c, { thumb: c.blob ? this.thumbUrl(c.blob) : c.thumb }));
+      this.state = 'done';
+      this.progress = 1;
+      this.onChange();
+      return;
+    }
+    await this.gate.wait(5000); // let playback start first
+    const screen = await this.findScreen(signal);
+    if (!screen) { this.state = 'unavailable'; this.onChange(); return; }
+    this.screenIndex = screen.source.index;
+    if (screen.thumbs) this.fromThumbnails(screen.thumbs);
+    if (!HlsVideoReader.supported() || (navigator.connection && navigator.connection.saveData)) {
+      if (this.chapters.length) { this.state = 'done'; this.progress = 1; this.onChange(); }
+      return;
+    }
+    await this.fromKeyframes(screen.source, signal);
+    this.save(key);
+  }
+
+  // The source whose thumbnails have the most flat area, if it looks like a screen.
+  async findScreen(signal) {
+    const sets = this.lesson.thumbnails || [];
+    let best = null;
+    for (const src of this.lesson.sources) {
+      const set = sets.find((s) => s.sourceIndex === src.index);
+      if (!set || !Array.isArray(set.timesInSeconds) || !set.timesInSeconds.length) continue;
+      const ts = set.timesInSeconds;
+      const vals = [];
+      for (let k = 0; k < 6; k++) {
+        const t = ts[Math.floor(((k + 0.5) * ts.length) / 6)];
+        const img = await this.loadThumb(set, t, signal);
+        vals.push(flatShare(img));
+        img.close();
+      }
+      vals.sort((a, b) => a - b);
+      const score = (vals[2] + vals[3]) / 2;
+      if (!best || score > best.score) best = { source: src, set, score };
+    }
+    if (best && best.score >= SCREEN_FLAT_MIN) return { source: best.source, thumbs: best.set };
+    // No thumbnails: a single source is assumed to be worth scanning.
+    if (!best && this.lesson.sources.length === 1) return { source: this.lesson.sources[0], thumbs: null };
+    return null;
+  }
+
+  async loadThumb(set, t, signal) {
+    const r = await fetchOk(set.baseUri + '/' + t + '.' + set.extension, { signal });
+    return createImageBitmap(await r.blob());
+  }
+
+  // Coarse chapters from the per-minute thumbnails: a change between two thumbnails is
+  // placed half way between them.
+  async fromThumbnailsAsync(set) {
+    const samples = [];
+    for (const t of set.timesInSeconds) {
+      await this.gate.wait(0);
+      const img = await this.loadThumb(set, t, this.ac.signal);
+      samples.push({ t, sig: frameSignature(img) });
+      img.close();
+    }
+    const scenes = buildScenes(samples, this.duration(), { minSec: 0 });
+    this.chapters = scenes.map((s, i) => {
+      const first = chapterSampleStart(samples, s);
+      return {
+        start: i === 0 ? 0 : (samples[first].t + samples[first - 1].t) / 2,
+        end: s.end,
+        precise: false,
+        repTime: samples[s.rep].t,
+        thumb: set.baseUri + '/' + samples[s.rep].t + '.' + set.extension,
+      };
+    });
+    for (let i = 1; i < this.chapters.length; i++) this.chapters[i - 1].end = this.chapters[i].start;
+    this.state = 'thumbnails';
+    this.onChange();
+  }
+
+  fromThumbnails(set) {
+    this.thumbsDone = this.fromThumbnailsAsync(set).catch((e) => { if (!this.ac.signal.aborted) console.warn(TAG, 'thumbnails:', e.message); });
+  }
+
+  async fromKeyframes(source, signal) {
+    const reader = await new HlsVideoReader(source.v || source.av, 360).open(signal);
+    this.reader = reader;
+    if (this.thumbsDone) await this.thumbsDone;
+    const n = reader.segments.length;
+    const samples = [];
+    if (store.get('debug', false)) this.samples = samples; // for tuning, development only
+    const thumbs = new Map();
+    let lastBuild = 0;
+    for (let i = 0; i < n; i++) {
+      await this.gate.turn(300, 120, 20);
+      let sig = null;
+      let pic = null;
+      await reader.keyframe(i, signal, (f) => { sig = frameSignature(f); pic = smallBitmap(f, CHAPTER_THUMB_W); });
+      samples.push({ t: reader.segments[i].start, sig });
+      // Keep a small picture only for the last frame of each run of identical frames.
+      if (thumbs.has(i - 1) && sameView(samples[i - 1].sig, sig)) thumbs.delete(i - 1);
+      thumbs.set(i, await bitmapToBlob(pic));
+      this.progress = ((i + 1) / n) * 0.8;
+      if (i - lastBuild >= 30) {
+        lastBuild = i;
+        // With per-minute chapters on screen, partial results would only show fewer.
+        if (this.state !== 'thumbnails') this.applyScenes(samples, thumbs, false);
+        else this.onChange();
+      }
+    }
+    this.state = 'keyframes';
+    this.applyScenes(samples, thumbs, true);
+    // Pin each change to about a second inside the segment where it happened.
+    const chs = this.chapters;
+    for (let c = 1; c < chs.length; c++) {
+      const k = chs[c].firstSample;
+      if (k <= 0) continue;
+      await this.gate.turn(1000, 300, 30);
+      const before = samples[k - 1].sig;
+      let at = null;
+      await reader.frames(k - 1, 1, signal, (f, t) => { if (at === null && !sameView(before, frameSignature(f))) at = t; });
+      // Seeking exactly to a frame's timestamp can still show the frame before it.
+      if (at !== null) at = Math.round((at + 0.05) * 100) / 100;
+      if (at !== null && at < chs[c].start) {
+        chs[c].start = at;
+        chs[c - 1].end = at;
+      }
+      chs[c].precise = true;
+      this.progress = 0.8 + (c / chs.length) * 0.2;
+      if (c % 5 === 0) this.onChange();
+    }
+    this.state = 'done';
+    this.progress = 1;
+    this.onChange();
+  }
+
+  applyScenes(samples, thumbs, final) {
+    const total = final ? this.duration() : samples[samples.length - 1].t + 10;
+    const scenes = buildScenes(samples, total);
+    this.chapters = scenes.map((s) => {
+      const first = chapterSampleStart(samples, s);
+      let blob = null;
+      // The newest picture of this scene that is still kept.
+      for (let k = s.rep; k >= first && !blob; k--) blob = thumbs.get(k) || null;
+      return { start: s.start, end: s.end, precise: false, repTime: samples[s.rep].t, firstSample: first, blob, thumb: blob ? this.thumbUrl(blob) : '' };
+    });
+    this.onChange();
+  }
+
+  save(key) {
+    if (!this.lesson.mediaId || this.state !== 'done') return;
+    idbCache.put(key, {
+      v: 1,
+      screen: this.screenIndex,
+      at: Date.now(),
+      chapters: this.chapters.map((c) => ({ start: c.start, end: c.end, precise: c.precise, repTime: c.repTime, blob: c.blob || null, thumb: c.blob ? '' : c.thumb })),
+    });
   }
 }
 
-function bufferedAhead(v) {
-  const t = v.currentTime;
-  const b = v.buffered;
-  for (let i = 0; i < b.length; i++) if (b.start(i) <= t + 0.5 && b.end(i) > t) return b.end(i) - t;
-  return 0;
+// Index of the first sample of a scene.
+function chapterSampleStart(samples, scene) {
+  let k = scene.rep;
+  while (k > 0 && samples[k - 1].t >= scene.start) k--;
+  return k;
 }
 
-function idle() {
-  return new Promise((resolve) => {
-    if (typeof requestIdleCallback === 'function') requestIdleCallback(() => resolve(), { timeout: 1000 });
-    else setTimeout(resolve, 0);
-  });
+// ---- 57-slides-pane.js ----
+// ===================================================================================
+// Slides tab of the side panel: one card per chapter (picture, time, the first sentence
+// spoken on it). The current chapter is highlighted and kept in view. Cards are rebuilt
+// only when the chapter list changes and the tab is visible.
+// ===================================================================================
+
+class SlidesPane {
+  constructor(player, el) {
+    this.player = player;
+    this.el = el;
+    this.visible = false;
+    this.chapters = [];
+    this.dirty = true;
+    this.current = -1;
+    this.cards = [];
+    this.d = new Disposer();
+    this.status = h('div.sstatus', { 'aria-live': 'polite' });
+    this.list = h('div.slist');
+    el.append(this.status, this.list);
+    this.d.listen(this.list, 'click', (e) => {
+      const card = e.target.closest('.scard');
+      if (card) this.player.seek(this.chapters[+card.dataset.i].start);
+    });
+  }
+
+  setChapters(chapters, statusText) {
+    this.chapters = chapters;
+    this.statusText = statusText;
+    this.dirty = true;
+    if (this.visible) this.render();
+  }
+
+  // The transcript arrived: the "first sentence" lines need a rebuild.
+  invalidate() {
+    this.dirty = true;
+    if (this.visible) this.render();
+  }
+
+  show(on) {
+    this.visible = on;
+    if (on) this.render();
+  }
+
+  render() {
+    this.status.textContent = this.statusText || '';
+    if (!this.dirty) { this.update(this.player.video.currentTime, true); return; }
+    this.dirty = false;
+    const long = this.player.duration() >= 3600;
+    const cues = this.player.cues;
+    const index = cues && cues.length ? new CueIndex(cues) : null;
+    const frag = document.createDocumentFragment();
+    this.cards = this.chapters.map((c, i) => {
+      let said = '';
+      if (index) {
+        // The sentence being spoken when the slide appears, or the next one.
+        const k = index.started(c.start);
+        const cue = k >= 0 && cues[k].end > c.start ? cues[k] : cues[k + 1];
+        if (cue && cue.start < c.end) said = cue.text;
+      }
+      const img = c.thumb ? h('img', { src: c.thumb, alt: '', loading: 'lazy', decoding: 'async' }) : h('div.noimg');
+      const card = h('button.scard', { 'data-i': String(i) },
+        img,
+        h('div.smeta', null,
+          h('div.stitle', null, h('span.sn', { text: t('slideN', { n: i + 1 }) }), h('span.st', { text: fmtTime(c.start, long) + (c.precise ? '' : ' ~') })),
+          said ? h('div.ssaid', { text: said }) : null));
+      frag.appendChild(card);
+      return card;
+    });
+    this.list.textContent = '';
+    this.list.appendChild(frag);
+    this.current = -1;
+    this.update(this.player.video.currentTime, true);
+  }
+
+  update(t, force) {
+    if (!this.visible || !this.cards.length || document.hidden) return;
+    const k = chapterIndexAt(this.chapters, t);
+    if (k === this.current && !force) return;
+    if (this.cards[this.current]) this.cards[this.current].classList.remove('cur');
+    this.current = k;
+    if (this.cards[k]) {
+      this.cards[k].classList.add('cur');
+      this.cards[k].scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  dispose() {
+    this.d.dispose();
+  }
 }
 
 // ---- 60-cpufix.js ----

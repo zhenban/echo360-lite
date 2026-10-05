@@ -1,5 +1,5 @@
 // ===================================================================================
-// Side panel with tabs (transcript, notes, discussion). Each tab is a controller with
+// Side panel with tabs (transcript, slides, notes, discussion). Each tab is a controller with
 // show(visible); only the active tab of an open panel is visible, so hidden tabs do no work.
 // ===================================================================================
 
@@ -22,7 +22,7 @@ function h(spec, props, ...children) {
   return el;
 }
 
-const SIDEBAR_TABS = ['transcript', 'notes', 'discussion'];
+const SIDEBAR_TABS = ['transcript', 'slides', 'notes', 'discussion'];
 
 class Sidebar {
   constructor(player, el) {

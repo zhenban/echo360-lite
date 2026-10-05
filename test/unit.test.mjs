@@ -29,7 +29,7 @@ function loadSources(names) {
   const files = readdirSync(join(root, 'src')).filter((f) => names.some((n) => f.includes(n))).sort();
   const code = files.map((f) => readFileSync(join(root, 'src', f), 'utf8')).join('\n')
     + '\n;globalThis.__exports = {};'
-    + ['clamp', 'fmtTime', 'parseIsoDuration', 'Disposer', 'PlayedRanges', 'FollowerSync', 'CueIndex', 'parseVtt', 'AudioChain', 'seg', 'thumbnailFor', 'pickAudioRendition', 'parseMediaPlaylist', 'Envelope', 'findSilences', 'silencesFromCues', 'speechSpans', 'silenceIndexAt']
+    + ['clamp', 'fmtTime', 'parseIsoDuration', 'Disposer', 'PlayedRanges', 'FollowerSync', 'CueIndex', 'parseVtt', 'AudioChain', 'seg', 'thumbnailFor', 'pickAudioRendition', 'parseMediaPlaylist', 'Envelope', 'findSilences', 'silencesFromCues', 'speechSpans', 'silenceIndexAt', 'mp4Boxes', 'parseFragment', 'videoVariants', 'frameDistance', 'sameView', 'buildScenes', 'chapterIndexAt']
       .map((n) => `if (typeof ${n} !== 'undefined') globalThis.__exports.${n} = ${n};`).join('\n');
   vm.runInContext(code, ctx);
   return { ...ctx.__exports, timers, window: ctx.window };
@@ -311,7 +311,7 @@ test('API paths and thumbnailUri match what the original player sends', () => {
 // ---- silence analysis ----
 
 function silenceMod() {
-  return loadSources(['00-util', '54-silence']);
+  return loadSources(['00-util', '53-media-io', '54-silence']);
 }
 
 test('audio rendition of the lowest-bandwidth variant; media playlist byte ranges', () => {
@@ -398,4 +398,96 @@ test('silences from transcript gaps; speech spans cut at pauses; lookup', () => 
   assert.ok(cuts[0] >= 22 && cuts[0] < 22.5, String(cuts));
   assert.ok(cuts[1] >= 47 && cuts[1] < 47.6, String(cuts));
   assert.ok(cuts[2] >= 70 && cuts[2] < 71, String(cuts));
+});
+
+// ---- slide chapters ----
+
+function slidesMod() {
+  return loadSources(['00-util', '53-media-io', '56-slides']);
+}
+
+// ISO BMFF box builder for tests.
+function box(type, ...parts) {
+  const body = Buffer.concat(parts.map((p) => (Buffer.isBuffer(p) ? p : Buffer.from(p))));
+  const head = Buffer.alloc(8);
+  head.writeUInt32BE(8 + body.length, 0);
+  head.write(type, 4, 'ascii');
+  return Buffer.concat([head, body]);
+}
+const u32 = (...v) => { const b = Buffer.alloc(4 * v.length); v.forEach((x, i) => b.writeUInt32BE(x >>> 0, i * 4)); return b; };
+
+test('fragment parsing finds the keyframe bytes and sample times', () => {
+  const m = slidesMod();
+  // tfhd: default-base-is-moof + default sample flags (non-sync); trun: data offset,
+  // first-sample flags (sync), per-sample duration, size and composition offset.
+  const tfhd = box('tfhd', u32(0x020020, 1, 0x10000));
+  const tfdt = box('tfdt', Buffer.concat([Buffer.from([1, 0, 0, 0]), Buffer.from([0, 0, 0, 0, 0, 9, 0x60, 0])]));
+  const trunBody = (off) => Buffer.concat([u32(0x000b05, 3, off, 0x2000000), u32(512, 1000, 1024), u32(512, 20, 0), u32(512, 30, 512)]);
+  const size = (b) => box('moof', box('mfhd', u32(0, 1)), box('traf', tfhd, tfdt, box('trun', b))).length;
+  const moofLen = size(trunBody(0));
+  const moof = box('moof', box('mfhd', u32(0, 1)), box('traf', tfhd, tfdt, box('trun', trunBody(moofLen + 8))));
+  const file = Buffer.concat([moof, box('mdat', Buffer.alloc(1050))]);
+  const ab = file.buffer.slice(file.byteOffset, file.byteOffset + file.length);
+  const f = m.parseFragment(ab, 5000);
+  assert.equal(f.samples.length, 3);
+  assert.equal(f.samples[0].offset, moofLen + 8);
+  assert.equal(f.samples[0].size, 1000);
+  assert.equal(f.samples[0].key, true);
+  assert.equal(f.samples[1].key, false);
+  assert.equal(f.samples[0].time, 614400 + 1024);
+  assert.equal(f.samples[2].time, 614400 + 1024 + 512);
+  assert.equal(f.samples[2].offset, moofLen + 8 + 1020);
+});
+
+test('video variants sorted by height', () => {
+  const m = slidesMod();
+  const v = m.videoVariants('#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2118548,RESOLUTION=1280x720\ns1q1.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=613230,RESOLUTION=640x360\ns1q0.m3u8\n', 'https://x.test/a/s1_v.m3u8?k=1');
+  assert.equal(v.length, 2);
+  assert.equal(v[0].height, 360);
+  assert.equal(v[0].uri, 'https://x.test/a/s1q0.m3u8');
+});
+
+// Synthetic 32 x 18 RGB pictures: a flat background with `rows` of "text" at given lines.
+function pic(bg, lines, ink) {
+  const a = new Uint8Array(32 * 18 * 3).fill(bg);
+  for (const y of lines) for (let x = 2; x < 30; x++) a.fill(bg > 128 ? 20 : 230, (y * 32 + x) * 3, (y * 32 + x) * 3 + 3);
+  for (const [x, y] of ink || []) a.fill(bg > 128 ? 60 : 200, (y * 32 + x) * 3, (y * 32 + x) * 3 + 3);
+  return a;
+}
+
+test('frame comparison: ink and pointers are the same slide, new slides are not', () => {
+  const m = slidesMod();
+  const slideA = pic(230, [2, 5, 8, 11]);
+  const inked = pic(230, [2, 5, 8, 11], [[4, 3], [5, 3], [6, 4], [7, 4], [8, 4], [9, 5], [10, 6], [11, 6], [12, 7], [13, 7], [14, 7]]);
+  const slideB = pic(230, [3, 6, 7, 10, 13, 15]);
+  const editor = pic(25, [1, 3, 4, 6, 9, 12]);
+  assert.equal(m.sameView(slideA, slideA), true);
+  assert.equal(m.sameView(slideA, inked), true);
+  assert.equal(m.sameView(slideA, slideB), false);
+  assert.equal(m.sameView(slideA, editor), false);
+  assert.ok(m.frameDistance(slideA, editor).changed > 0.5);
+});
+
+test('scenes: revisits continue a chapter, short runs merge, lookup', () => {
+  const m = slidesMod();
+  const A = pic(230, [2, 5, 8, 11]);
+  const B = pic(230, [3, 6, 7, 10, 13, 15]);
+  const C = pic(230, [1, 4, 12, 14, 16]);
+  const E = pic(25, [1, 3, 4, 6, 9, 12]);
+  const seq = 'AAAAEEAAEEAAABBBBBBX CCCC'.replace(/ /g, '').split('');
+  // X: a single frame caught mid-transition.
+  const X = pic(128, [9]);
+  const map = { A, B, C, E, X };
+  const samples = seq.map((ch, k) => ({ t: k * 10, sig: map[ch] }));
+  const scenes = m.buildScenes(samples, seq.length * 10);
+  // A (short editor detours fold back into it) | B | X + C
+  assert.equal(JSON.stringify(scenes.map((s) => s.start)), '[0,130,190]');
+  assert.equal(scenes[0].end, 130);
+  assert.equal(seq[scenes[0].rep], 'A');
+  assert.equal(scenes[2].end, seq.length * 10);
+  assert.equal(seq[scenes[1].rep], 'B');
+  assert.equal(seq[scenes[2].rep], 'C');
+  assert.equal(m.chapterIndexAt(scenes, 0), 0);
+  assert.equal(m.chapterIndexAt(scenes, 135), 1);
+  assert.equal(m.chapterIndexAt(scenes, 1e6), 2);
 });

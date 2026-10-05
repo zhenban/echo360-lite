@@ -63,6 +63,7 @@ class LitePlayer {
     this.reporter = lesson.analytics ? new Reporter(lesson.analytics, this.video, this.played, this.d.child()) : null;
     if (this.reporter) this.reporter.stateFn = () => ({ captions: this.cc.on, transcript: this.sidebar.visible('transcript') });
     this.setupSilence();
+    this.setupSlides();
     this.loadCues();
     this.loadInteractions();
     this.setupAudio();
@@ -279,11 +280,12 @@ class LitePlayer {
       const scene = Math.floor(ct / FLAG_SCENE_SECONDS);
       if (scene !== this.flagScene) { this.flagScene = scene; this.renderFlagButton(); }
       this.silenceTick(ct);
+      if (this.slidesPane) this.slidesPane.update(ct);
     };
     on('timeupdate', () => { invalidate(); onTime(); });
     on('seeked', onTime);
     on('progress', invalidate);
-    on('durationchange', () => { this.render(true); this.updateMarkers(); this.renderSilences(); });
+    on('durationchange', () => { this.render(true); this.updateMarkers(); this.renderSilences(); this.renderChapterMarks(); });
     on('ratechange', () => {
       this.$('.speed').textContent = v.playbackRate + 'x';
       for (const b of this.root.querySelectorAll('.speedmenu button')) b.setAttribute('aria-checked', String(+b.dataset.rate === v.playbackRate));
@@ -508,6 +510,8 @@ class LitePlayer {
     // Seek bar
     const seekEl = this.seekEl;
     const tip = $('.tip');
+    const tipText = tip.querySelector('.tt');
+    const tipImg = tip.querySelector('.pv');
     let rect = null;
     let lastSeekAt = 0;
     const frac = (x) => clamp((x - rect.left) / rect.width, 0, 1);
@@ -520,10 +524,13 @@ class LitePlayer {
       seekEl.style.setProperty('--h', f.toFixed(4));
       nearMarker = this.markers.nearest(f, rect.width, 6);
       const sil = nearMarker ? null : this.silence.silences[silenceIndexAt(this.silence.silences, f * dur)];
-      tip.textContent = nearMarker
+      tipText.textContent = nearMarker
         ? fmtTime(nearMarker.time, dur >= 3600) + ' \u00b7 ' + (nearMarker.label.length > 70 ? nearMarker.label.slice(0, 67) + '\u2026' : nearMarker.label)
         : fmtTime(f * dur, dur >= 3600) + (sil ? ' \u00b7 ' + t('silenceTip', { time: fmtTime(sil.end - sil.start) }) : '');
-      tip.style.left = clamp(f * rect.width, 24, rect.width - 24) + 'px';
+      const pv = this.previewAt(nearMarker ? nearMarker.time : f * dur);
+      if (pv) { if (tipImg.getAttribute('src') !== pv) tipImg.src = pv; tipImg.hidden = false; } else tipImg.hidden = true;
+      const half = pv ? 96 : 24;
+      tip.style.left = clamp(f * rect.width, half, rect.width - half) + 'px';
       return f;
     };
     d.listen(seekEl, 'pointerenter', () => { rect = seekEl.getBoundingClientRect(); });
@@ -666,8 +673,8 @@ class LitePlayer {
       let handled = true;
       switch (e.key) {
         case ' ': case 'k': case 'K': this.togglePlay(); break;
-        case 'ArrowLeft': this.seek(v.currentTime - 5); break;
-        case 'ArrowRight': this.seek(v.currentTime + 5); break;
+        case 'ArrowLeft': if (e.shiftKey) handled = this.stepChapter(-1); else this.seek(v.currentTime - 5); break;
+        case 'ArrowRight': if (e.shiftKey) handled = this.stepChapter(1); else this.seek(v.currentTime + 5); break;
         case 'j': case 'J': this.seek(v.currentTime - 10); break;
         case 'l': case 'L': this.seek(v.currentTime + 10); break;
         case 'ArrowUp': v.muted = false; v.volume = clamp(v.volume + 0.05, 0, 1); break;
@@ -700,6 +707,7 @@ class LitePlayer {
       this.silence.start(cues);
       if (!cues.length) return;
       this.cues = cues;
+      if (this.slidesPane) this.slidesPane.invalidate();
       if (this.reporter) this.reporter.captionsAvailable = cues.length;
       this.cc.setCues(cues);
       this.transcript.setCues(cues);
@@ -781,6 +789,77 @@ class LitePlayer {
       b.querySelector('.state').textContent = on ? t('on') : t('off');
     }
     this.$('.audiobtn').classList.toggle('active', a.anyOn() && !a.reason);
+  }
+
+  // ---- slide chapters ----
+
+  setupSlides() {
+    this.slidesPane = null;
+    this.slides = new SlideAnalyzer({
+      lesson: this.lesson,
+      video: this.video,
+      disposer: this.d,
+      onChange: () => { if (!this.destroyed) this.onSlidesChange(); },
+    });
+    this.slides.start();
+  }
+
+  onSlidesChange() {
+    const a = this.slides;
+    this.renderChapterMarks();
+    if (!a.chapters.length) return;
+    if (!this.slidesPane) {
+      this.slidesPane = new SlidesPane(this, this.$('.pane[data-pane=slides]'));
+      this.d.add(() => this.slidesPane.dispose());
+      this.registerTab('slides', this.slidesPane);
+    }
+    const pct = Math.floor(a.progress * 100);
+    const status = a.state === 'done' ? t('slidesFound', { n: a.chapters.length })
+      : a.state === 'thumbnails' ? t('slidesRough', { pct }) : t('slidesFinding', { pct });
+    this.slidesPane.setChapters(a.chapters, status);
+  }
+
+  renderChapterMarks() {
+    const el = this.$('.chaps');
+    el.textContent = '';
+    const dur = this.duration();
+    if (!dur || !this.slides) return;
+    const frag = document.createDocumentFragment();
+    for (const c of this.slides.chapters) {
+      if (c.start <= 0 || c.start >= dur) continue;
+      const i = document.createElement('i');
+      i.style.left = ((c.start / dur) * 100).toFixed(3) + '%';
+      frag.appendChild(i);
+    }
+    el.appendChild(frag);
+  }
+
+  // Picture for the seek-bar preview: the slide shown at t if chapters are known,
+  // otherwise Echo360's per-minute thumbnail of the main view.
+  previewAt(t) {
+    const chs = this.slides ? this.slides.chapters : [];
+    const k = chapterIndexAt(chs, t);
+    if (k >= 0 && chs[k].thumb) return chs[k].thumb;
+    const src = this.sources[this.primaryPos];
+    const set = (this.lesson.thumbnails || []).find((s) => s.sourceIndex === src.index);
+    if (!set || !Array.isArray(set.timesInSeconds) || !set.timesInSeconds.length) return '';
+    const times = set.timesInSeconds;
+    let pick = times[0];
+    for (const x of times) { if (x <= t) pick = x; else break; }
+    return set.baseUri + '/' + pick + '.' + set.extension;
+  }
+
+  // Previous / next chapter; returns false when there are none (key not handled).
+  stepChapter(dir) {
+    const chs = this.slides ? this.slides.chapters : [];
+    if (!chs.length) return false;
+    const ct = this.video.currentTime;
+    let k = chapterIndexAt(chs, ct);
+    // "Previous" from more than 3 s into a chapter restarts it, like a music player.
+    if (dir < 0 && k >= 0 && ct - chs[k].start > 3) dir = 0;
+    k = clamp(k + dir, 0, chs.length - 1);
+    this.seek(chs[k].start);
+    return true;
   }
 
   // ---- silence ----

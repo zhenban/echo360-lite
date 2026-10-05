@@ -17,6 +17,7 @@ const ICON = {
   layoutSide: '<rect x="3" y="6" width="8" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="13" y="6" width="8" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/>',
   layoutPip: '<rect x="3" y="5" width="18" height="14" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="12.5" y="11.5" width="6" height="5" rx="1" fill="currentColor"/>',
   cc: '<rect x="3" y="5.5" width="18" height="13" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10.5 10.2a2.2 2.2 0 1 0 0 3.6M16.5 10.2a2.2 2.2 0 1 0 0 3.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
+  slides: '<rect x="3.5" y="5" width="17" height="11.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 16.5v3M8.5 20h7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
   transcript: '<path d="M5 6.5h14M5 10.5h14M5 14.5h9M5 18.5h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
   bookmark: '<path d="M7 4.5h10a1 1 0 0 1 1 1V20l-6-4-6 4V5.5a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
   bookmarkOn: '<path d="M7 4.5h10a1 1 0 0 1 1 1V20l-6-4-6 4V5.5a1 1 0 0 1 1-1z" fill="currentColor" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
@@ -149,6 +150,21 @@ select.input option { background: #1b1b20; }
 .audiomenu .choices { display: flex; gap: 4px; padding: 4px 6px 2px; }
 .audiomenu .choices button { width: auto; flex: 1; text-align: center; padding: 6px 0; }
 .sils { position: absolute; inset: 0; }
+.chaps { position: absolute; inset: 0; }
+.chaps i { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: rgba(0,0,0,.75); }
+.tip .pv { display: block; width: 176px; aspect-ratio: 16 / 9; object-fit: cover; margin: 2px 0 4px; border-radius: 4px; background: #000; }
+.tip .pv[hidden] { display: none; }
+.pane[data-pane=slides] { overflow-y: auto; padding: 0 12px 16px; overscroll-behavior: contain; }
+.sstatus { padding: 4px 2px 8px; font-size: 12px; opacity: .65; }
+.slist { display: flex; flex-direction: column; gap: 8px; }
+.scard { display: flex; gap: 10px; align-items: flex-start; width: 100%; padding: 6px; border-radius: 10px; text-align: left; }
+.scard:hover { background: rgba(255,255,255,.07); }
+.scard.cur { background: rgba(79,140,255,.18); box-shadow: inset 0 0 0 1px rgba(79,140,255,.6); }
+.scard img, .scard .noimg { flex: none; width: 128px; aspect-ratio: 16 / 9; border-radius: 6px; background: #222; object-fit: cover; }
+.smeta { min-width: 0; flex: 1; }
+.stitle { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 600; }
+.stitle .st { font-weight: 400; opacity: .65; font-variant-numeric: tabular-nums; }
+.ssaid { margin-top: 3px; font-size: 12px; line-height: 1.35; opacity: .7; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .sils i { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(135deg, rgba(255,255,255,.55) 0 1.5px, transparent 1.5px 4px); opacity: .8; }
 .skipsil { position: absolute; z-index: 5; right: 14px; bottom: 96px; height: 34px; padding: 0 14px; border-radius: 17px; background: var(--panel);
   font-size: 13px; box-shadow: 0 6px 24px rgba(0,0,0,.4); transition: opacity .4s ease; }
@@ -197,7 +213,7 @@ video { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-f
 .top, .bottom { position: absolute; left: 0; right: 0; transition: opacity .2s ease; }
 .top { top: 0; display: flex; align-items: center; gap: 8px; padding: 10px 14px 28px;
   background: linear-gradient(rgba(0,0,0,.72), rgba(0,0,0,0)); }
-.bottom { bottom: 0; padding: 28px 14px 8px; background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.78)); }
+.bottom { bottom: 0; z-index: 4; padding: 28px 14px 8px; background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.78)); }
 .idle .top, .idle .bottom { opacity: 0; pointer-events: none; }
 .idle { cursor: none; }
 .back { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; color: inherit; text-decoration: none; flex: none; }
@@ -291,17 +307,18 @@ function playerTemplate() {
     <a class="back" title="${t('back')}" aria-label="${t('back')}">${svg('back')}</a>
     <div class="title"></div>
  <button class="chip tbtn" data-open="transcript" hidden aria-pressed="false" title="${t('transcriptKey')}">${svg('transcript')}<span class="lbl">${t('transcript')}</span></button>
+    <button class="chip tbtn" data-open="slides" hidden aria-pressed="false" title="${t('slidesKey')}">${svg('slides')}<span class="lbl">${t('slides')}</span></button>
     <button class="chip tbtn" data-open="notes" hidden aria-pressed="false" title="${t('notes')}">${svg('notes')}<span class="lbl">${t('notes')}</span></button>
     <button class="chip tbtn" data-open="discussion" hidden aria-pressed="false" title="${t('discussion')}">${svg('discussion')}<span class="lbl">${t('discussion')}</span></button>
     <button class="chip orig" title="${t('originalPlayerTitle')}">${t('originalPlayer')}</button>
   </div>
   <div class="bottom">
     <div class="seek" role="slider" aria-label="${t('seek')}" tabindex="0">
-      <div class="rail"><div class="bar buf"></div><div class="sils"></div><div class="bar hov"></div><div class="bar fill"></div></div>
+      <div class="rail"><div class="bar buf"></div><div class="sils"></div><div class="chaps"></div><div class="bar hov"></div><div class="bar fill"></div></div>
       <div class="imarks"></div>
       <div class="marks"></div>
       <div class="knob-track"><div class="knob"></div></div>
-      <div class="tip">0:00</div>
+      <div class="tip"><img class="pv" alt="" hidden><span class="tt">0:00</span></div>
     </div>
     <div class="row">
       <button class="btn play" title="${t('play')}" aria-label="${t('play')}">${svg('play')}</button>
@@ -359,6 +376,7 @@ function playerTemplate() {
   <div class="phead">
     <div class="tabs" role="tablist">
       <button role="tab" data-tab="transcript" hidden>${t('transcript')}</button>
+      <button role="tab" data-tab="slides" hidden>${t('slides')}</button>
       <button role="tab" data-tab="notes" hidden>${t('notes')}</button>
       <button role="tab" data-tab="discussion" hidden>${t('discussion')}</button>
     </div>
@@ -375,6 +393,7 @@ function playerTemplate() {
     <div class="tlist" tabindex="0"></div>
     <button class="tback" hidden>${t('backToCurrent')}</button>
   </section>
+  <section class="pane" data-pane="slides" hidden></section>
   <section class="pane" data-pane="notes" hidden></section>
   <section class="pane" data-pane="discussion" hidden></section>
 </aside>
