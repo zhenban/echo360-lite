@@ -1,0 +1,510 @@
+{
+ "note": "Hand-labelled ground truth for slide matching (M7.5). Lecture of 2026-09-28; chapters as found by M7 (v0.7.x). file: index of the slide PDF in drop order (0 = 04 Exceptions, 1 = 05 Generics and Collections); page: 1-based page; view: normal (whole page in the usual viewer layout), zoom (zoomed-in or cropped view of the page), none (not a slide: code editor, web page, video call, question board). Contains times and page numbers only.",
+ "lesson": "2026-09-28",
+ "chapters": [
+  {
+   "start": 0,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 173.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 373.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 391.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 438.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 463.12,
+   "file": 0,
+   "page": 2,
+   "view": "normal"
+  },
+  {
+   "start": 510,
+   "file": 0,
+   "page": 2,
+   "view": "zoom"
+  },
+  {
+   "start": 657.12,
+   "file": 0,
+   "page": 2,
+   "view": "zoom"
+  },
+  {
+   "start": 700,
+   "file": 0,
+   "page": 2,
+   "view": "zoom"
+  },
+  {
+   "start": 869.12,
+   "file": 0,
+   "page": 2,
+   "view": "zoom"
+  },
+  {
+   "start": 909.12,
+   "file": 0,
+   "page": 2,
+   "view": "normal"
+  },
+  {
+   "start": 944.12,
+   "file": 0,
+   "page": 3,
+   "view": "normal"
+  },
+  {
+   "start": 967.12,
+   "file": 0,
+   "page": 4,
+   "view": "normal"
+  },
+  {
+   "start": 1104.12,
+   "file": 0,
+   "page": 5,
+   "view": "normal"
+  },
+  {
+   "start": 1169.12,
+   "file": 0,
+   "page": 5,
+   "view": "normal"
+  },
+  {
+   "start": 1200,
+   "file": 0,
+   "page": 5,
+   "view": "normal"
+  },
+  {
+   "start": 1232.12,
+   "file": 0,
+   "page": 6,
+   "view": "zoom"
+  },
+  {
+   "start": 1262.12,
+   "file": 0,
+   "page": 5,
+   "view": "normal"
+  },
+  {
+   "start": 1337.12,
+   "file": 0,
+   "page": 5,
+   "view": "zoom"
+  },
+  {
+   "start": 1359.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 1379.12,
+   "file": 0,
+   "page": 6,
+   "view": "normal"
+  },
+  {
+   "start": 1392.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 2275.12,
+   "file": 0,
+   "page": 7,
+   "view": "normal"
+  },
+  {
+   "start": 2295.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 2655.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 2718.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 2922.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 2964.12,
+   "file": 0,
+   "page": 13,
+   "view": "zoom"
+  },
+  {
+   "start": 3011.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 3099.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 3202.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 3385.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 3431.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 3486.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 3505.12,
+   "file": 1,
+   "page": 1,
+   "view": "normal"
+  },
+  {
+   "start": 3549.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 3664.12,
+   "file": 1,
+   "page": 2,
+   "view": "normal"
+  },
+  {
+   "start": 3775.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 4100,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 4416.12,
+   "file": 1,
+   "page": 4,
+   "view": "normal"
+  },
+  {
+   "start": 4448.12,
+   "file": 1,
+   "page": 4,
+   "view": "zoom"
+  },
+  {
+   "start": 4491.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 4552.12,
+   "file": 1,
+   "page": 5,
+   "view": "zoom"
+  },
+  {
+   "start": 4610,
+   "file": 1,
+   "page": 5,
+   "view": "zoom"
+  },
+  {
+   "start": 4644.12,
+   "file": 1,
+   "page": 5,
+   "view": "zoom"
+  },
+  {
+   "start": 4662.12,
+   "file": 1,
+   "page": 5,
+   "view": "zoom"
+  },
+  {
+   "start": 4683.12,
+   "file": 1,
+   "page": 6,
+   "view": "normal"
+  },
+  {
+   "start": 4706.12,
+   "file": 1,
+   "page": 6,
+   "view": "zoom"
+  },
+  {
+   "start": 4741.12,
+   "file": 1,
+   "page": 7,
+   "view": "zoom"
+  },
+  {
+   "start": 4784.12,
+   "file": 1,
+   "page": 8,
+   "view": "normal"
+  },
+  {
+   "start": 4832.12,
+   "file": 1,
+   "page": 8,
+   "view": "zoom"
+  },
+  {
+   "start": 4937.12,
+   "file": 1,
+   "page": 8,
+   "view": "zoom"
+  },
+  {
+   "start": 4972.12,
+   "file": 1,
+   "page": 9,
+   "view": "normal"
+  },
+  {
+   "start": 5035.12,
+   "file": 1,
+   "page": 10,
+   "view": "normal"
+  },
+  {
+   "start": 5085.12,
+   "file": 1,
+   "page": 10,
+   "view": "zoom"
+  },
+  {
+   "start": 5120,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 5170,
+   "file": 1,
+   "page": 10,
+   "view": "zoom"
+  },
+  {
+   "start": 5182.12,
+   "file": 1,
+   "page": 11,
+   "view": "normal"
+  },
+  {
+   "start": 5214.12,
+   "file": 1,
+   "page": 14,
+   "view": "normal"
+  },
+  {
+   "start": 5300,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 5315.12,
+   "file": 1,
+   "page": 8,
+   "view": "zoom"
+  },
+  {
+   "start": 5376.12,
+   "file": 1,
+   "page": 14,
+   "view": "zoom"
+  },
+  {
+   "start": 5402.12,
+   "file": 1,
+   "page": 15,
+   "view": "normal"
+  },
+  {
+   "start": 5421.12,
+   "file": 1,
+   "page": 15,
+   "view": "normal"
+  },
+  {
+   "start": 5531.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 5553.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 5620,
+   "file": 1,
+   "page": 16,
+   "view": "normal"
+  },
+  {
+   "start": 5642.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 5738.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 5765.12,
+   "file": 1,
+   "page": 18,
+   "view": "normal"
+  },
+  {
+   "start": 5790,
+   "file": 1,
+   "page": 18,
+   "view": "zoom"
+  },
+  {
+   "start": 5825.12,
+   "file": 1,
+   "page": 18,
+   "view": "normal"
+  },
+  {
+   "start": 5885.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 5910,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 5931.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 5983.12,
+   "file": 1,
+   "page": 13,
+   "view": "normal"
+  },
+  {
+   "start": 6007.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 6024.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 6060,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 6490,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 6516.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 6613.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 6681.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  },
+  {
+   "start": 6748.12,
+   "file": null,
+   "page": null,
+   "view": "none"
+  }
+ ]
+}

@@ -6,3 +6,5 @@ AI-ENGINES.md
 # Local test tooling
 dev/
 node_modules/
+# Course slides used for local testing (not ours to publish)
+lecture-slides/

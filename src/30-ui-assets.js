@@ -163,6 +163,41 @@ select.input option { background: #1b1b20; }
 .scard:hover { background: rgba(255,255,255,.07); }
 .scard.cur { background: rgba(79,140,255,.18); box-shadow: inset 0 0 0 1px rgba(79,140,255,.6); }
 .scard img, .scard .noimg { flex: none; width: 128px; aspect-ratio: 16 / 9; border-radius: 6px; background: #222; object-fit: cover; }
+.slist[hidden], .sstatus[hidden], .reader[hidden], .chaptoggle[hidden] { display: none; }
+.reader { padding: 4px 0 8px; }
+.rstage { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 6px; overflow: hidden; background: #fff; }
+.rpage { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; transition: opacity .18s ease; }
+.rpage.in { opacity: 1; }
+.rbar { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.rnav { width: 32px; height: 28px; border-radius: 8px; font-size: 20px; line-height: 1; }
+.rnav:hover:not(:disabled) { background: rgba(255,255,255,.1); }
+.rnav:disabled { opacity: .3; cursor: default; }
+.rlabel { flex: 1; text-align: center; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rfollow { margin-top: 6px; text-align: center; font-size: 12px; }
+.rfollowing { opacity: .55; }
+.rback { padding: 5px 12px; border-radius: 14px; background: var(--accent); color: #fff; font-weight: 600; }
+.rtimes { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 8px; font-size: 12px; }
+.rtl { opacity: .6; margin-right: 2px; }
+.rtime { padding: 2px 8px; border-radius: 10px; background: rgba(255,255,255,.1); font-variant-numeric: tabular-nums; }
+.rtime:hover { background: rgba(255,255,255,.18); }
+.rfix { margin-top: 8px; font-size: 12px; }
+.rfix summary { cursor: pointer; opacity: .6; }
+.rfix[open] summary { opacity: .9; margin-bottom: 4px; }
+.rfixbtn { display: block; width: 100%; text-align: left; padding: 5px 8px; border-radius: 6px; }
+.rfixbtn:hover { background: rgba(255,255,255,.08); }
+.chaptoggle { display: block; margin: 6px 0; padding: 4px 0; font-size: 12px; color: var(--accent); }
+.sdeck { padding: 8px 2px 4px; border-bottom: 1px solid rgba(255,255,255,.08); margin-bottom: 6px; }
+.sfiles { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.sfile { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 3px 4px 3px 10px; border-radius: 14px; background: rgba(255,255,255,.1); font-size: 12px; }
+.sfname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+.sfremove { width: 20px; height: 20px; border-radius: 50%; font-size: 11px; opacity: .7; }
+.sfremove:hover { background: rgba(255,255,255,.15); opacity: 1; }
+.sfadd { padding: 4px 10px; border-radius: 14px; font-size: 12px; color: var(--accent); }
+.sfadd:hover { background: rgba(79,140,255,.12); }
+.sdmsg { margin-top: 6px; font-size: 12px; line-height: 1.4; opacity: .65; }
+.dropzone { position: absolute; inset: 12px; z-index: 6; display: flex; align-items: center; justify-content: center; border: 2px dashed var(--accent);
+  border-radius: 16px; background: rgba(10,12,20,.75); font-size: 16px; pointer-events: none; }
+.dropzone[hidden] { display: none; }
 .smeta { min-width: 0; flex: 1; }
 .stitle { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 600; }
 .stitle .st { font-weight: 400; opacity: .65; font-variant-numeric: tabular-nums; }
@@ -375,6 +410,7 @@ function playerTemplate() {
   </div>
   <button class="skipsil fade" tabindex="-1"></button>
   <div class="toast" hidden><span class="msg"></span><button class="act"></button></div>
+  <div class="dropzone" hidden>${t('dropSlides')}</div>
   <div class="error" hidden><div class="card"><h2></h2><p></p><div class="actions"></div></div></div>
 </div>
 <aside class="panel" hidden aria-label="${t('sidebarTabs')}">

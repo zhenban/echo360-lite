@@ -631,6 +631,32 @@ class SlideAnalyzer {
       chapters: this.chapters.map((c) => ({ start: c.start, end: c.end, precise: c.precise, repTime: c.repTime, blob: c.blob || null, thumb: c.blob ? '' : c.thumb })),
     });
   }
+
+  // The keyframe that best shows each chapter (its repTime), scaled to w x h, as RGBA
+  // arrays (null where it could not be read). Used to match chapters to slide pages.
+  // Reads about 20 KB per chapter at 360p.
+  async chapterFrames(w, h, signal, onProgress) {
+    const src = this.lesson.sources.find((s) => s.index === this.screenIndex);
+    if (!src || !HlsVideoReader.supported()) return this.chapters.map(() => null);
+    if (!this.reader) this.reader = await new HlsVideoReader(src.v || src.av, 360).open(signal);
+    const canvas = new OffscreenCanvas(w, h);
+    const g = canvas.getContext('2d', { willReadFrequently: true });
+    const out = [];
+    for (let i = 0; i < this.chapters.length; i++) {
+      let rgba = null;
+      try {
+        await this.reader.keyframe(this.reader.segmentAt(this.chapters[i].repTime), signal, (f) => {
+          g.drawImage(f, 0, 0, w, h);
+          rgba = g.getImageData(0, 0, w, h).data;
+        });
+      } catch (e) {
+        if (signal && signal.aborted) throw e;
+      }
+      out.push(rgba);
+      if (onProgress) onProgress((i + 1) / this.chapters.length);
+    }
+    return out;
+  }
 }
 
 // Index of the first sample of a scene.

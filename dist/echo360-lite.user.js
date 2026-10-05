@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Echo360 Lite Player
 // @namespace    echo360-lite
-// @version      0.7.1
+// @version      0.8.0
 // @description  Replaces the Echo360 lecture player with a lightweight native player (far lower CPU use). Falls back to the original player automatically if anything is not recognised.
 // @license      MIT
 // @match        https://echo360.net.au/lesson/*
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.7.1';
+  const VERSION = '0.8.0';
 
 // ---- 00-util.js ----
 // ===================================================================================
@@ -283,6 +283,29 @@ const STRINGS = {
     slidesFinding: 'Finding slide changes: {pct}%',
     slidesRough: 'Approximate times from preview pictures. Finding exact changes: {pct}%',
     slidesFound: '{n} slides, found automatically from the screen recording.',
+    addSlides: 'Add the slide PDF…',
+    addMoreSlides: 'Add another PDF…',
+    slidesLocal: 'Add the lecturer\'s slide PDF to read along: it turns to the page being talked about. The file stays on this device.',
+    removeFile: 'Remove {name}',
+    deckLoading: 'Opening the slide files…',
+    deckMatching: 'Finding where each page was shown: {pct}%',
+    deckError: 'Could not read the slide file ({msg}).',
+    prevPage: 'Previous page',
+    nextPage: 'Next page',
+    pageOfN: 'Page {n} of {total}',
+    following: 'Following the lecture',
+    followingUnsure: 'Following the lecture (page not recognised here; showing the last one found)',
+    backToLecture: 'Back to the page being talked about',
+    shownAt: 'On screen at',
+    notFoundInRecording: 'Not found in the recording.',
+    wrongPage: 'Wrong page?',
+    useThisPage: 'Show page {n} for the part playing now',
+    markNotSlide: 'The part playing now is not a slide',
+    undoCorrection: 'Undo my correction here',
+    showChapters: 'Show the {n} chapters',
+    hideChapters: 'Hide chapters',
+    dropSlides: 'Drop the slide PDF here. It stays on this device.',
+    dropNotPdf: 'Only PDF files can be added as slides.',
     silence: 'Silence',
     silenceAuto: 'Skip silence automatically',
     silenceAutoDesc: 'Jumps over long pauses (breaks, group work). Off: a button offers to skip.',
@@ -1077,6 +1100,41 @@ select.input option { background: #1b1b20; }
 .scard:hover { background: rgba(255,255,255,.07); }
 .scard.cur { background: rgba(79,140,255,.18); box-shadow: inset 0 0 0 1px rgba(79,140,255,.6); }
 .scard img, .scard .noimg { flex: none; width: 128px; aspect-ratio: 16 / 9; border-radius: 6px; background: #222; object-fit: cover; }
+.slist[hidden], .sstatus[hidden], .reader[hidden], .chaptoggle[hidden] { display: none; }
+.reader { padding: 4px 0 8px; }
+.rstage { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 6px; overflow: hidden; background: #fff; }
+.rpage { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; transition: opacity .18s ease; }
+.rpage.in { opacity: 1; }
+.rbar { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.rnav { width: 32px; height: 28px; border-radius: 8px; font-size: 20px; line-height: 1; }
+.rnav:hover:not(:disabled) { background: rgba(255,255,255,.1); }
+.rnav:disabled { opacity: .3; cursor: default; }
+.rlabel { flex: 1; text-align: center; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rfollow { margin-top: 6px; text-align: center; font-size: 12px; }
+.rfollowing { opacity: .55; }
+.rback { padding: 5px 12px; border-radius: 14px; background: var(--accent); color: #fff; font-weight: 600; }
+.rtimes { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 8px; font-size: 12px; }
+.rtl { opacity: .6; margin-right: 2px; }
+.rtime { padding: 2px 8px; border-radius: 10px; background: rgba(255,255,255,.1); font-variant-numeric: tabular-nums; }
+.rtime:hover { background: rgba(255,255,255,.18); }
+.rfix { margin-top: 8px; font-size: 12px; }
+.rfix summary { cursor: pointer; opacity: .6; }
+.rfix[open] summary { opacity: .9; margin-bottom: 4px; }
+.rfixbtn { display: block; width: 100%; text-align: left; padding: 5px 8px; border-radius: 6px; }
+.rfixbtn:hover { background: rgba(255,255,255,.08); }
+.chaptoggle { display: block; margin: 6px 0; padding: 4px 0; font-size: 12px; color: var(--accent); }
+.sdeck { padding: 8px 2px 4px; border-bottom: 1px solid rgba(255,255,255,.08); margin-bottom: 6px; }
+.sfiles { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.sfile { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 3px 4px 3px 10px; border-radius: 14px; background: rgba(255,255,255,.1); font-size: 12px; }
+.sfname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+.sfremove { width: 20px; height: 20px; border-radius: 50%; font-size: 11px; opacity: .7; }
+.sfremove:hover { background: rgba(255,255,255,.15); opacity: 1; }
+.sfadd { padding: 4px 10px; border-radius: 14px; font-size: 12px; color: var(--accent); }
+.sfadd:hover { background: rgba(79,140,255,.12); }
+.sdmsg { margin-top: 6px; font-size: 12px; line-height: 1.4; opacity: .65; }
+.dropzone { position: absolute; inset: 12px; z-index: 6; display: flex; align-items: center; justify-content: center; border: 2px dashed var(--accent);
+  border-radius: 16px; background: rgba(10,12,20,.75); font-size: 16px; pointer-events: none; }
+.dropzone[hidden] { display: none; }
 .smeta { min-width: 0; flex: 1; }
 .stitle { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 600; }
 .stitle .st { font-weight: 400; opacity: .65; font-variant-numeric: tabular-nums; }
@@ -1289,6 +1347,7 @@ function playerTemplate() {
   </div>
   <button class="skipsil fade" tabindex="-1"></button>
   <div class="toast" hidden><span class="msg"></span><button class="act"></button></div>
+  <div class="dropzone" hidden>${t('dropSlides')}</div>
   <div class="error" hidden><div class="card"><h2></h2><p></p><div class="actions"></div></div></div>
 </div>
 <aside class="panel" hidden aria-label="${t('sidebarTabs')}">
@@ -1642,6 +1701,7 @@ class LitePlayer {
     if (this.reporter) this.reporter.stateFn = () => ({ captions: this.cc.on, transcript: this.sidebar.visible('transcript') });
     this.setupSilence();
     this.setupSlides();
+    this.setupDeck();
     this.loadCues();
     this.loadInteractions();
     this.setupAudio();
@@ -2482,6 +2542,41 @@ class LitePlayer {
     const status = a.state === 'done' ? t('slidesFound', { n: a.chapters.length })
       : a.state === 'thumbnails' ? t('slidesRough', { pct }) : t('slidesFinding', { pct });
     this.slidesPane.setChapters(a.chapters, status);
+    // Final chapters: the slide files (if any) can be matched to them.
+    if (a.state === 'done' && this.deck && this.deckChapters !== a.chapters) {
+      this.deckChapters = a.chapters;
+      this.deck.chaptersChanged();
+    }
+  }
+
+  // ---- slide files ----
+
+  setupDeck() {
+    this.deck = new SlideDeckController({
+      lesson: this.lesson,
+      slides: this.slides,
+      cues: () => this.cues,
+      disposer: this.d,
+      onChange: () => { if (!this.destroyed && this.slidesPane) this.slidesPane.invalidate(); },
+    });
+    this.deck.restore().catch((e) => console.warn(TAG, 'slide files:', e && e.message ? e.message : e));
+    // Dropping PDF files anywhere on the player adds them.
+    const zone = this.$('.dropzone');
+    const hasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+    let depth = 0;
+    this.d.listen(this.host, 'dragenter', (e) => { if (hasFiles(e)) { depth++; zone.hidden = false; } });
+    this.d.listen(this.host, 'dragleave', () => { if (--depth <= 0) { depth = 0; zone.hidden = true; } });
+    this.d.listen(this.host, 'dragover', (e) => { if (hasFiles(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+    this.d.listen(this.host, 'drop', (e) => {
+      depth = 0;
+      zone.hidden = true;
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      this.deck.addFiles(e.dataTransfer.files).then((n) => {
+        if (!n) { this.toast(t('dropNotPdf')); return; }
+        if (this.sidebar.has('slides')) this.sidebar.open('slides');
+      }).catch((err) => this.toast(t('deckError', { msg: String((err && err.message) || err) })));
+    });
   }
 
   renderChapterMarks() {
@@ -3990,6 +4085,7 @@ const idbCache = {
   },
   get(key) { return this.tx('readonly', (s) => s.get(key)).catch(() => undefined); },
   put(key, value) { return this.tx('readwrite', (s) => s.put(value, key)).catch(() => undefined); },
+  del(key) { return this.tx('readwrite', (s) => s.delete(key)).catch(() => undefined); },
 };
 
 // Background downloads must never compete with playback: turn() resolves only when the
@@ -5081,6 +5177,32 @@ class SlideAnalyzer {
       chapters: this.chapters.map((c) => ({ start: c.start, end: c.end, precise: c.precise, repTime: c.repTime, blob: c.blob || null, thumb: c.blob ? '' : c.thumb })),
     });
   }
+
+  // The keyframe that best shows each chapter (its repTime), scaled to w x h, as RGBA
+  // arrays (null where it could not be read). Used to match chapters to slide pages.
+  // Reads about 20 KB per chapter at 360p.
+  async chapterFrames(w, h, signal, onProgress) {
+    const src = this.lesson.sources.find((s) => s.index === this.screenIndex);
+    if (!src || !HlsVideoReader.supported()) return this.chapters.map(() => null);
+    if (!this.reader) this.reader = await new HlsVideoReader(src.v || src.av, 360).open(signal);
+    const canvas = new OffscreenCanvas(w, h);
+    const g = canvas.getContext('2d', { willReadFrequently: true });
+    const out = [];
+    for (let i = 0; i < this.chapters.length; i++) {
+      let rgba = null;
+      try {
+        await this.reader.keyframe(this.reader.segmentAt(this.chapters[i].repTime), signal, (f) => {
+          g.drawImage(f, 0, 0, w, h);
+          rgba = g.getImageData(0, 0, w, h).data;
+        });
+      } catch (e) {
+        if (signal && signal.aborted) throw e;
+      }
+      out.push(rgba);
+      if (onProgress) onProgress((i + 1) / this.chapters.length);
+    }
+    return out;
+  }
 }
 
 // Index of the first sample of a scene.
@@ -5092,9 +5214,16 @@ function chapterSampleStart(samples, scene) {
 
 // ---- 57-slides-pane.js ----
 // ===================================================================================
-// Slides tab of the side panel: one card per chapter (picture, time, the first sentence
-// spoken on it). The current chapter is highlighted and kept in view. Cards are rebuilt
-// only when the chapter list changes and the tab is visible.
+// Slides tab of the side panel.
+//
+// Without slide files: one card per chapter (picture, time, the first sentence spoken on
+// it), the current one highlighted and kept in view.
+//
+// With the lecturer's PDF (added here or dropped on the player): a reader that follows the
+// lecture, turning to the page being talked about. Paging by hand pauses following; a
+// button brings it back. Each page lists when it was on screen (click to jump there), and
+// a small menu corrects the page for the part being played. The chapter list folds away
+// below the reader.
 // ===================================================================================
 
 class SlidesPane {
@@ -5106,14 +5235,39 @@ class SlidesPane {
     this.dirty = true;
     this.current = -1;
     this.cards = [];
+    this.view = -1;          // page shown in the reader
+    this.follow = true;
+    this.showChapters = false;
+    this.renderToken = 0;
     this.d = new Disposer();
+    this.deckBox = h('div.sdeck');
+    this.reader = h('div.reader', { hidden: true });
     this.status = h('div.sstatus', { 'aria-live': 'polite' });
+    this.chapToggle = h('button.chaptoggle', { hidden: true, onclick: () => { this.showChapters = !this.showChapters; this.render(); } });
     this.list = h('div.slist');
-    el.append(this.status, this.list);
+    el.append(this.deckBox, this.reader, this.chapToggle, this.status, this.list);
+    this.buildReader();
     this.d.listen(this.list, 'click', (e) => {
       const card = e.target.closest('.scard');
       if (card) this.player.seek(this.chapters[+card.dataset.i].start);
     });
+  }
+
+  get deck() {
+    const d = this.player.deck;
+    return d && d.pages.length ? d : null;
+  }
+
+  buildReader() {
+    const r = this.reader;
+    this.stage = h('div.rstage');
+    this.prevBtn = h('button.rnav', { 'aria-label': t('prevPage'), title: t('prevPage'), text: '‹', onclick: () => this.turn(-1) });
+    this.nextBtn = h('button.rnav', { 'aria-label': t('nextPage'), title: t('nextPage'), text: '›', onclick: () => this.turn(1) });
+    this.pageLabel = h('span.rlabel');
+    this.followBox = h('div.rfollow');
+    this.timesBox = h('div.rtimes');
+    this.fixBox = h('details.rfix');
+    r.append(this.stage, h('div.rbar', null, this.prevBtn, this.pageLabel, this.nextBtn), this.followBox, this.timesBox, this.fixBox);
   }
 
   setChapters(chapters, statusText) {
@@ -5123,7 +5277,7 @@ class SlidesPane {
     if (this.visible) this.render();
   }
 
-  // The transcript arrived: the "first sentence" lines need a rebuild.
+  // The transcript or the slide files changed.
   invalidate() {
     this.dirty = true;
     if (this.visible) this.render();
@@ -5131,11 +5285,43 @@ class SlidesPane {
 
   show(on) {
     this.visible = on;
-    if (on) this.render();
+    if (on) { this.view = -1; this.render(); }
+  }
+
+  renderDeck() {
+    const deck = this.player.deck;
+    const box = this.deckBox;
+    box.textContent = '';
+    if (!deck) return;
+    const input = h('input', { type: 'file', accept: '.pdf,application/pdf', multiple: true, hidden: true });
+    input.addEventListener('change', guard(() => { if (input.files.length) deck.addFiles(input.files); }));
+    const files = h('div.sfiles');
+    for (const f of deck.files) {
+      files.append(h('span.sfile', null, h('span.sfname', { text: f.name, title: f.name }),
+        h('button.sfremove', { title: t('removeFile', { name: f.name }), 'aria-label': t('removeFile', { name: f.name }), text: '✕', onclick: () => deck.removeFile(f.hash) })));
+    }
+    files.append(h('button.sfadd', { text: deck.files.length ? t('addMoreSlides') : t('addSlides'), onclick: () => input.click() }), input);
+    let msg = '';
+    if (deck.state === 'loading') msg = t('deckLoading');
+    else if (deck.state === 'matching') msg = t('deckMatching', { pct: Math.floor(deck.progress * 100) });
+    else if (deck.state === 'error') msg = t('deckError', { msg: deck.error });
+    else if (!deck.files.length) msg = t('slidesLocal');
+    box.append(files);
+    if (msg) box.append(h('div.sdmsg', { text: msg }));
   }
 
   render() {
     this.status.textContent = this.statusText || '';
+    this.renderDeck();
+    const deck = this.deck;
+    this.reader.hidden = !deck;
+    this.chapToggle.hidden = !deck;
+    this.chapToggle.textContent = this.showChapters ? t('hideChapters') : t('showChapters', { n: this.chapters.length });
+    const listShown = !deck || this.showChapters;
+    this.list.hidden = !listShown;
+    this.status.hidden = !listShown;
+    if (deck) this.updateReader(this.player.video.currentTime, true);
+    if (!listShown) return;
     if (!this.dirty) { this.update(this.player.video.currentTime, true); return; }
     this.dirty = false;
     const long = this.player.duration() >= 3600;
@@ -5165,8 +5351,11 @@ class SlidesPane {
     this.update(this.player.video.currentTime, true);
   }
 
+  // Called on time updates: chapter highlight and, while following, the reader's page.
   update(t, force) {
-    if (!this.visible || !this.cards.length || document.hidden) return;
+    if (!this.visible || document.hidden) return;
+    if (this.deck) this.updateReader(t, force);
+    if (!this.cards.length || this.list.hidden) return;
     const k = chapterIndexAt(this.chapters, t);
     if (k === this.current && !force) return;
     if (this.cards[this.current]) this.cards[this.current].classList.remove('cur');
@@ -5177,8 +5366,917 @@ class SlidesPane {
     }
   }
 
+  updateReader(t, force) {
+    const deck = this.deck;
+    const chapter = chapterIndexAt(this.chapters, t);
+    if (this.follow) {
+      const p = deck.pageAt(t);
+      if (p !== this.view || force) this.showPage(p >= 0 ? p : Math.max(0, this.view), force);
+      else if (chapter !== this.readerChapter) this.renderPageInfo(); // follow hint, correction menu
+    } else if (force) this.showPage(this.view, true);
+    this.readerChapter = chapter;
+  }
+
+  // Manual paging pauses following.
+  turn(dir) {
+    const deck = this.deck;
+    if (!deck) return;
+    this.follow = false;
+    this.showPage(clamp(this.view + dir, 0, deck.pages.length - 1), true);
+  }
+
+  resumeFollow() {
+    this.follow = true;
+    this.updateReader(this.player.video.currentTime, true);
+  }
+
+  showPage(i, force) {
+    const deck = this.deck;
+    if (!deck || i < 0) return;
+    const changed = i !== this.view;
+    this.view = i;
+    if (changed || force) this.drawPage(i);
+    this.renderPageInfo();
+  }
+
+  // Draws page i with a short cross-fade over the previous one.
+  drawPage(i) {
+    const deck = this.deck;
+    const token = ++this.renderToken;
+    const width = Math.max(200, this.stage.clientWidth || 320) * (window.devicePixelRatio || 1);
+    const p = deck.pages[i];
+    this.stage.style.aspectRatio = '1 / ' + (p.ar || 0.5625).toFixed(4);
+    deck.render(i, width).then((src) => {
+      if (token !== this.renderToken) return;
+      const c = document.createElement('canvas');
+      c.width = src.width;
+      c.height = src.height;
+      c.getContext('2d').drawImage(src, 0, 0);
+      c.className = 'rpage';
+      this.stage.append(c);
+      requestAnimationFrame(() => c.classList.add('in'));
+      const old = [...this.stage.querySelectorAll('canvas')].filter((x) => x !== c);
+      setTimeout(() => { for (const x of old) x.remove(); }, 220);
+    }).catch((e) => console.warn(TAG, 'render page:', e && e.message ? e.message : e));
+  }
+
+  renderPageInfo() {
+    const deck = this.deck;
+    const i = this.view;
+    const p = deck.pages[i];
+    const multi = deck.files.length > 1;
+    this.pageLabel.textContent = t('pageOfN', { n: p.num, total: deck.pages.filter((x) => x.file === p.file).length })
+      + (multi ? ' · ' + p.file.replace(/\.pdf$/i, '') : '');
+    this.pageLabel.title = p.title || '';
+    this.prevBtn.disabled = i <= 0;
+    this.nextBtn.disabled = i >= deck.pages.length - 1;
+
+    this.followBox.textContent = '';
+    if (this.follow) this.followBox.append(h('span.rfollowing', { text: deck.knownAt(this.player.video.currentTime) ? t('following') : t('followingUnsure') }));
+    else this.followBox.append(h('button.rback', { text: t('backToLecture'), onclick: () => this.resumeFollow() }));
+
+    const long = this.player.duration() >= 3600;
+    const times = deck.timesOf(i);
+    this.timesBox.textContent = '';
+    if (times.length) {
+      this.timesBox.append(h('span.rtl', { text: t('shownAt') }));
+      for (const r of times) this.timesBox.append(h('button.rtime', { text: fmtTime(r.start, long), onclick: () => { this.player.seek(r.start); this.resumeFollow(); } }));
+    } else if (deck.state === 'ready') {
+      this.timesBox.append(h('span.rtl', { text: t('notFoundInRecording') }));
+    }
+
+    // Correction for the part being played.
+    const fixed = deck.correctionAt(this.player.video.currentTime);
+    this.fixBox.textContent = '';
+    this.fixBox.append(h('summary', { text: t('wrongPage') }),
+      h('button.rfixbtn', { text: t('useThisPage', { n: p.num }), onclick: () => { deck.correct(this.player.video.currentTime, i); this.fixBox.open = false; this.resumeFollow(); } }),
+      h('button.rfixbtn', { text: t('markNotSlide'), onclick: () => { deck.correct(this.player.video.currentTime, 'none'); this.fixBox.open = false; this.resumeFollow(); } }));
+    if (fixed) {
+      this.fixBox.append(h('button.rfixbtn', { text: t('undoCorrection'), onclick: () => { deck.correct(this.player.video.currentTime, null); this.fixBox.open = false; this.resumeFollow(); } }));
+    }
+  }
+
   dispose() {
     this.d.dispose();
+  }
+}
+
+// ---- 58-slide-match.js ----
+// ===================================================================================
+// Which page of the lecturer's slide file each chapter shows (or "not a slide").
+//
+// Pure functions on numbers; they run in a Worker (see runSlideMatch below), so the page
+// never waits for them. The approach, checked against a hand-labelled lecture
+// (test/fixtures/slides-*.json):
+//
+//   1. Layout. The slide sits in the same place in the screen recording most of the time
+//      (a full-screen show or a viewer window). It is found once per lecture: on every
+//      chapter, search page sizes from 50% to 100% of the frame width at every position,
+//      comparing 16 x 9 grids of brightness and edge density with the average page (the
+//      template gives the outline), then the best few placements with every page. The
+//      confident results, grouped by transform, give the layout (or a few, when the window
+//      was resized during the lecture). Views that fit none of them (zoomed in, other
+//      windows) end up as "not a slide".
+//   2. Image score. Each chapter is compared with every page in small neighbourhoods of
+//      the layouts, on 64 x 36 grids. Edge density (mean gradient per cell) separates pages
+//      of one template much better than brightness, which is mostly "white page, yellow
+//      footer".
+//   3. Text score. Words spoken during the chapter against the words on each page (tf-idf
+//      cosine). Only a small tie-breaker: speech rarely repeats the slide text.
+//   4. Sequence. A Viterbi pass over the chapters prefers staying on a page or moving to
+//      the next one, allows jumps back and forward at a cost, and has a "not a slide" state.
+//   5. Gate. A chapter keeps its page only with a strong image score and a clear lead over
+//      the other pages, or with a plausible score that the sequence and a clearly matched
+//      neighbour agree with. Anything unsure is "not matched": a wrong page is worse than
+//      none.
+// ===================================================================================
+
+const MATCH_W = 256;            // frames and pages are compared at 256 pixels wide
+const MATCH_H = 144;
+const MATCH_SCORE = 0.55;       // image score needed on its own (with a clear lead)
+const MATCH_LEAD = 0.10;        // lead over the best different page
+const MATCH_SCORE_SEQ = 0.45;   // image score needed when the sequence supports the page
+
+// ---- feature images ----
+
+function lumaOf(rgba, n) {
+  const L = new Float32Array(n);
+  for (let i = 0, j = 0; i < n; i++, j += 4) L[i] = rgba[j] * 0.299 + rgba[j + 1] * 0.587 + rgba[j + 2] * 0.114;
+  return L;
+}
+
+// |dx| + |dy|: averaged over a cell, this is the cell's edge density.
+function gradOf(L, w, h) {
+  const G = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      let g = 0;
+      if (x > 0) g += Math.abs(L[i] - L[i - 1]);
+      if (y > 0) g += Math.abs(L[i] - L[i - w]);
+      G[i] = g;
+    }
+  }
+  return G;
+}
+
+function integralOf(A, w, h) {
+  const I = new Float64Array((w + 1) * (h + 1));
+  for (let y = 0; y < h; y++) {
+    let row = 0;
+    for (let x = 0; x < w; x++) {
+      row += A[y * w + x];
+      I[(y + 1) * (w + 1) + x + 1] = I[y * (w + 1) + x + 1] + row;
+    }
+  }
+  return I;
+}
+
+// Means of the cells of a gw x gh grid laid over a w x h image at transform t (page width
+// t.s, top-left t.x, t.y) for a page of aspect ar (height / width). Cells not fully inside
+// get mask 0. Returns the share of cells inside.
+function cellMeans(I, w, h, t, ar, gw, gh, out, mask) {
+  const cw = t.s / gw;
+  const ch = (t.s * ar) / gh;
+  const W1 = w + 1;
+  let inside = 0;
+  for (let j = 0; j < gh; j++) {
+    const ys = t.y + j * ch;
+    const ye = ys + ch;
+    const rowOk = ys >= -0.01 && ye <= h + 0.01;
+    const a = Math.min(h, Math.max(0, Math.round(ys)));
+    const b = Math.min(h, Math.max(0, Math.round(ye)));
+    for (let i = 0; i < gw; i++) {
+      const k = j * gw + i;
+      const xs = t.x + i * cw;
+      const xe = xs + cw;
+      if (!rowOk || xs < -0.01 || xe > w + 0.01) { mask[k] = 0; out[k] = 0; continue; }
+      const c = Math.min(w, Math.max(0, Math.round(xs)));
+      const d = Math.min(w, Math.max(0, Math.round(xe)));
+      out[k] = (I[b * W1 + d] - I[a * W1 + d] - I[b * W1 + c] + I[a * W1 + c]) / Math.max(1, (b - a) * (d - c));
+      mask[k] = 1;
+      inside++;
+    }
+  }
+  return inside / (gw * gh);
+}
+
+// Normalised cross-correlation of P and f over the cells where mask is set.
+function nccMasked(P, f, mask, n) {
+  let mp = 0;
+  let mf = 0;
+  let m = 0;
+  for (let i = 0; i < n; i++) if (mask[i]) { mp += P[i]; mf += f[i]; m++; }
+  if (m < 4) return -1;
+  mp /= m;
+  mf /= m;
+  let sab = 0;
+  let saa = 0;
+  let sbb = 0;
+  for (let i = 0; i < n; i++) {
+    if (!mask[i]) continue;
+    const a = P[i] - mp;
+    const b = f[i] - mf;
+    sab += a * b;
+    saa += a * a;
+    sbb += b * b;
+  }
+  return saa && sbb ? sab / Math.sqrt(saa * sbb) : 0;
+}
+
+// ---- pages and frames ----
+
+// Grids of one page, from an RGBA rendering MATCH_W pixels wide and h high.
+function pageFeatures(rgba, w, h) {
+  const L = lumaOf(rgba, w * h);
+  const IL = integralOf(L, w, h);
+  const IG = integralOf(gradOf(L, w, h), w, h);
+  const ar = h / w;
+  const full = { s: w, x: 0, y: 0 };
+  const grid = (I, gw) => {
+    const gh = Math.max(4, Math.round(gw * ar));
+    const out = new Float32Array(gw * gh);
+    cellMeans(I, w, h, full, ar, gw, gh, out, new Uint8Array(gw * gh));
+    return out;
+  };
+  return {
+    ar, gh16: Math.max(4, Math.round(16 * ar)), gh64: Math.max(4, Math.round(64 * ar)),
+    l16: grid(IL, 16), g16: grid(IG, 16), l64: grid(IL, 64), g64: grid(IG, 64),
+  };
+}
+
+// Integral images of a frame, from RGBA at MATCH_W x MATCH_H.
+function frameFeatures(rgba, w, h) {
+  const L = lumaOf(rgba, w * h);
+  let mean = 0;
+  for (let i = 0; i < L.length; i++) mean += L[i];
+  return { w, h, IL: integralOf(L, w, h), IG: integralOf(gradOf(L, w, h), w, h), mean: mean / L.length };
+}
+
+function gridBuffers() {
+  const n = 64 * 64;
+  return { a: new Float32Array(n), b: new Float32Array(n), m: new Uint8Array(n) };
+}
+
+// Score of page p at transform t: 0.3 brightness + 0.7 edge-density correlation, on the
+// 16-wide (fine = false) or 64-wide grids. Placements mostly outside the frame score -1.
+// (Leaving out cells with extra edges, to tolerate ink, was tried: it raised the scores of
+// non-slides as much as those of inked slides and produced a wrong match.)
+function pageScore(f, p, t, fine, buf) {
+  const gw = fine ? 64 : 16;
+  const gh = fine ? p.gh64 : p.gh16;
+  const n = gw * gh;
+  if (cellMeans(f.IL, f.w, f.h, t, p.ar, gw, gh, buf.a, buf.m) < 0.8) return -1;
+  cellMeans(f.IG, f.w, f.h, t, p.ar, gw, gh, buf.b, buf.m);
+  return 0.3 * nccMasked(fine ? p.l64 : p.l16, buf.a, buf.m, n) + 0.7 * nccMasked(fine ? p.g64 : p.g16, buf.b, buf.m, n);
+}
+
+// Pages whose edge grids look alike (animation steps exported as separate pages, repeated
+// title slides). They are not counted as competitors when measuring a lead.
+function similarPages(pages) {
+  const sim = pages.map(() => new Uint8Array(pages.length));
+  for (let i = 0; i < pages.length; i++) {
+    for (let j = i + 1; j < pages.length; j++) {
+      if (pages[i].gh64 !== pages[j].gh64) continue;
+      const n = 64 * pages[i].gh64;
+      if (nccMasked(pages[i].g64, pages[j].g64, new Uint8Array(n).fill(1), n) > 0.85) { sim[i][j] = 1; sim[j][i] = 1; }
+    }
+  }
+  return sim;
+}
+
+function leadOf(scores, page, sim) {
+  let second = -1;
+  for (let i = 0; i < scores.length; i++) if (i !== page && !sim[page][i] && scores[i] > second) second = scores[i];
+  return scores[page] - second;
+}
+
+// ---- 1. layout ----
+
+// The average page (mean grids of all pages of the most common aspect). The template's
+// background, title area and footer give the page's outline, so the coarse layout search
+// compares with this one picture instead of every page.
+function meanPage(pages) {
+  const ar = pages[0].ar;
+  const same = pages.filter((p) => p.ar === ar);
+  const avg = (k) => {
+    const out = new Float32Array(same[0][k].length);
+    for (const p of same) for (let i = 0; i < out.length; i++) out[i] += p[k][i] / same.length;
+    return out;
+  };
+  return { ar, gh16: same[0].gh16, gh64: same[0].gh64, l16: avg('l16'), g16: avg('g16'), l64: avg('l64'), g64: avg('g64') };
+}
+
+// Best (page, transform) for one frame over the layout search space (page width 50% to
+// 100% of the frame; the page may run off the right or bottom edge a little, as a viewer
+// window often does), and the best fine score of every page.
+function searchLayout(f, pages, mean) {
+  const buf = gridBuffers();
+  const cands = [];
+  for (let k = 0; k < 11; k++) {
+    const s = f.w * (0.5 + (k * 0.5) / 10);
+    const ph = s * mean.ar;
+    for (let y = 0; y + 0.9 * ph <= f.h + 0.5; y += 3) {
+      for (let x = 0; x + 0.85 * s <= f.w + 0.5; x += 3) cands.push({ v: pageScore(f, mean, { s, x, y }, false, buf), s, x, y });
+    }
+  }
+  cands.sort((a, b) => b.v - a.v);
+  let top = null;
+  const scores = new Float32Array(pages.length).fill(-1);
+  for (const c of cands.slice(0, 8)) {
+    for (let i = 0; i < pages.length; i++) {
+      const v = pageScore(f, pages[i], c, true, buf);
+      if (v > scores[i]) scores[i] = v;
+      if (!top || v > top.score) top = { page: i, s: c.s, x: c.x, y: c.y, score: v };
+    }
+  }
+  return { top, scores };
+}
+
+// The lecture's layouts: the confident layout searches grouped by transform (size within
+// 6%, position within 6 px); each group seen at least twice is a layout { s, x, y,
+// support } (median of the group). A lecturer may resize the viewer window once or twice
+// during a lecture, so there can be more than one. `tried` collects what each chapter gave
+// (for diagnostics).
+function findLayouts(frames, pages, sim, tried) {
+  const mean = meanPage(pages);
+  const good = [];
+  for (let i = 0; i < frames.length; i++) {
+    if (!frames[i]) continue;
+    const r = searchLayout(frames[i], pages, mean);
+    const lead = r.top ? leadOf(r.scores, r.top.page, sim) : 0;
+    if (tried) tried.push(Object.assign({ chapter: i, lead }, r.top));
+    if (r.top && r.top.score >= MATCH_SCORE && lead >= MATCH_LEAD) good.push(r.top);
+  }
+  const groups = [];
+  for (const g of good) {
+    const near = groups.find((gr) => Math.abs(gr[0].s - g.s) <= 0.06 * gr[0].s && Math.abs(gr[0].x - g.x) <= 6 && Math.abs(gr[0].y - g.y) <= 6);
+    if (near) near.push(g); else groups.push([g]);
+  }
+  return groups.filter((gr) => gr.length >= 2).sort((a, b) => b.length - a.length).map((gr) => {
+    const med = (k) => gr.map((g) => g[k]).sort((a, b) => a - b)[gr.length >> 1];
+    return { s: med('s'), x: med('x'), y: med('y'), support: gr.length };
+  });
+}
+
+// ---- 2. image scores per chapter ----
+
+// Score of every page for one frame, searched in small neighbourhoods of the layouts.
+function scoreAgainstLayouts(f, pages, layouts) {
+  const buf = gridBuffers();
+  const ts = [];
+  for (const layout of layouts) {
+    for (const ds of [0.95, 0.98, 1.01, 1.04]) {
+      for (let dx = -6; dx <= 6; dx += 2) {
+        for (let dy = -4; dy <= 4; dy += 2) ts.push({ s: layout.s * ds, x: layout.x + dx, y: layout.y + dy });
+      }
+    }
+  }
+  // The coarse pass picks the candidate pages, the fine pass scores them. Pages that are
+  // not candidates keep a score well below any candidate.
+  const coarse = new Float32Array(pages.length).fill(-1);
+  for (const t of ts) for (let i = 0; i < pages.length; i++) coarse[i] = Math.max(coarse[i], pageScore(f, pages[i], t, false, buf));
+  const cand = [...coarse.keys()].sort((a, b) => coarse[b] - coarse[a]).slice(0, 6);
+  const scores = Float32Array.from(coarse, (v) => Math.min(v, 0.4) - 0.2);
+  for (const i of cand) {
+    let best = -1;
+    for (const t of ts) best = Math.max(best, pageScore(f, pages[i], t, true, buf));
+    scores[i] = best;
+  }
+  return scores;
+}
+
+// ---- 3. text ----
+
+const STOP_WORDS = new Set(('the and for are but not you all any can had her was one our out has have this that with from they '
+  + 'will would there their what about which when your then them these some into more than only other such also each just like '
+  + 'been were said very where while here should could does using used use get got let').split(' '));
+
+function words(text) {
+  return String(text || '').toLowerCase().match(/[a-z][a-z0-9]{2,}/g) || [];
+}
+
+// tf-idf cosine similarity of each chapter's speech to each page's text.
+function textScores(chapterTexts, pageTexts) {
+  const df = new Map();
+  const pageBags = pageTexts.map((t) => {
+    const bag = new Map();
+    for (const w of words(t)) if (!STOP_WORDS.has(w)) bag.set(w, (bag.get(w) || 0) + 1);
+    for (const w of bag.keys()) df.set(w, (df.get(w) || 0) + 1);
+    return bag;
+  });
+  const n = pageTexts.length;
+  const vec = (bag) => {
+    const v = new Map();
+    let norm = 0;
+    for (const [w, c] of bag) {
+      const x = (1 + Math.log(c)) * Math.log((n + 1) / ((df.get(w) || 0) + 1));
+      if (x > 0) { v.set(w, x); norm += x * x; }
+    }
+    return { v, norm: Math.sqrt(norm) || 1 };
+  };
+  const pv = pageBags.map(vec);
+  return chapterTexts.map((t) => {
+    const bag = new Map();
+    for (const w of words(t)) if (!STOP_WORDS.has(w) && df.has(w)) bag.set(w, (bag.get(w) || 0) + 1);
+    const cv = vec(bag);
+    return Float32Array.from(pv, (p) => {
+      let dot = 0;
+      for (const [w, x] of cv.v) { const y = p.v.get(w); if (y) dot += x * y; }
+      return dot / (cv.norm * p.norm);
+    });
+  });
+}
+
+// ---- 4. sequence ----
+
+// Viterbi over chapters. States: pages 0..n-1 and n = "not a slide". Emission: image score
+// plus a little text score for pages, a constant for "not a slide". Transitions favour the
+// same page and the next one; other jumps cost more. Returns the page per chapter, -1 for
+// "not a slide".
+function alignSequence(img, txt) {
+  const C = img.length;
+  if (!C) return [];
+  const n = img[0].length;
+  const NONE = n;
+  const emit = (c, s) => (s === NONE ? 0.42 : img[c][s] + 0.15 * (txt ? txt[c][s] : 0));
+  const trans = (a, b) => {
+    if (a === b) return 0;
+    if (a === NONE || b === NONE) return 0.04;
+    if (b === a + 1) return 0.02;
+    if (b > a && b <= a + 3) return 0.08;
+    return 0.14;
+  };
+  let score = new Float32Array(n + 1);
+  const back = [];
+  for (let s = 0; s <= n; s++) score[s] = emit(0, s);
+  for (let c = 1; c < C; c++) {
+    const next = new Float32Array(n + 1);
+    const bp = new Int16Array(n + 1);
+    for (let s = 0; s <= n; s++) {
+      let best = -Infinity;
+      let arg = 0;
+      for (let r = 0; r <= n; r++) {
+        const v = score[r] - trans(r, s);
+        if (v > best) { best = v; arg = r; }
+      }
+      next[s] = best + emit(c, s);
+      bp[s] = arg;
+    }
+    back.push(bp);
+    score = next;
+  }
+  let s = 0;
+  for (let k = 1; k <= n; k++) if (score[k] > score[s]) s = k;
+  const path = new Array(C);
+  path[C - 1] = s;
+  for (let c = C - 1; c > 0; c--) { s = back[c - 1][s]; path[c - 1] = s; }
+  return path.map((v) => (v === NONE ? -1 : v));
+}
+
+// ---- 5. decision ----
+
+// Final page per chapter (-1 = not matched): { page, score, lead, by, guess }. by is
+// 'image' when the image alone is clear, or 'sequence' when the image is plausible (but
+// not clear), the sequence chose the same page, and a chapter within 3 on either side was
+// clearly matched to that page or a neighbouring one. guess is the best-looking page even
+// when unsure (only for turning pages while following, never shown as a match).
+function decidePages(img, path, sim) {
+  const tops = img.map((scores) => {
+    let top = 0;
+    for (let i = 1; i < scores.length; i++) if (scores[i] > scores[top]) top = i;
+    return { top, score: scores[top], lead: leadOf(scores, top, sim) };
+  });
+  const clear = tops.map((t) => t.score >= MATCH_SCORE && t.lead >= MATCH_LEAD);
+  return tops.map((t, c) => {
+    const guess = t.score > 0 ? t.top : -1;
+    if (clear[c]) return { page: t.top, score: t.score, lead: t.lead, by: 'image', guess };
+    const p = path[c];
+    const plausible = p >= 0 && (p === t.top || sim[p][t.top]) && img[c][p] >= MATCH_SCORE_SEQ && t.lead >= 0.05;
+    let near = false;
+    for (let d = -3; d <= 3 && plausible && !near; d++) {
+      const k = c + d;
+      if (d !== 0 && k >= 0 && k < tops.length && clear[k] && Math.abs(tops[k].top - p) <= 1) near = true;
+    }
+    if (plausible && near) return { page: p, score: img[c][p], lead: t.lead, by: 'sequence', guess };
+    return { page: -1, score: t.score, lead: t.lead, by: '', guess };
+  });
+}
+
+// Everything for one lecture. input: { frames: [RGBA at MATCH_W x MATCH_H or null],
+// pages: [{ rgba, h }] rendered MATCH_W wide, chapterTexts: [string], pageTexts: [string] }.
+// Returns { layout, chapters: [{ page, score, lead, by }] }.
+function matchLecture(input) {
+  const pages = input.pages.map((p) => pageFeatures(p.rgba, MATCH_W, p.h));
+  const sim = similarPages(pages);
+  const frames = input.frames.map((rgba) => (rgba ? frameFeatures(rgba, MATCH_W, MATCH_H) : null));
+  const tried = [];
+  const layouts = findLayouts(frames, pages, sim, tried);
+  if (!layouts.length) return { layouts, tried, chapters: frames.map(() => ({ page: -1, score: 0, lead: 0, by: '', guess: -1 })) };
+  const img = frames.map((f) => (f ? scoreAgainstLayouts(f, pages, layouts) : new Float32Array(pages.length).fill(-1)));
+  const txt = input.chapterTexts && input.pageTexts ? textScores(input.chapterTexts, input.pageTexts) : null;
+  const path = alignSequence(img, txt);
+  return { layouts, tried, chapters: decidePages(img, path, sim) };
+}
+
+// ---- the Worker ----
+
+// Source of a Worker running matchLecture, assembled from the functions above so the code
+// that runs is exactly the code in this file.
+function slideMatchWorkerSource() {
+  const fns = [lumaOf, gradOf, integralOf, cellMeans, nccMasked, pageFeatures, frameFeatures, gridBuffers, pageScore,
+    similarPages, leadOf, meanPage, searchLayout, findLayouts, scoreAgainstLayouts, words, textScores, alignSequence, decidePages,
+    matchLecture];
+  const consts = { MATCH_W, MATCH_H, MATCH_SCORE, MATCH_LEAD, MATCH_SCORE_SEQ };
+  return '"use strict";\n'
+    + Object.entries(consts).map(([k, v]) => 'const ' + k + ' = ' + JSON.stringify(v) + ';').join('\n') + '\n'
+    + 'const STOP_WORDS = new Set(' + JSON.stringify([...STOP_WORDS]) + ');\n'
+    + fns.map((f) => f.toString()).join('\n\n') + '\n'
+    + 'self.onmessage = (e) => {\n'
+    + '  const t0 = Date.now();\n'
+    + '  try { const r = matchLecture(e.data); r.ms = Date.now() - t0; self.postMessage({ ok: true, result: r }); }\n'
+    + '  catch (err) { self.postMessage({ ok: false, error: String((err && err.message) || err) }); }\n'
+    + '};\n';
+}
+
+// Runs matchLecture in a Worker; rejects when workers are unavailable, the job fails, or
+// the signal aborts.
+function runSlideMatch(input, signal) {
+  return new Promise((resolve, reject) => {
+    let worker;
+    try {
+      const url = URL.createObjectURL(new Blob([slideMatchWorkerSource()], { type: 'text/javascript' }));
+      worker = new Worker(url);
+      URL.revokeObjectURL(url);
+    } catch (e) { reject(e); return; }
+    const onAbort = () => { done(); reject(new Error('aborted')); };
+    const done = () => { worker.terminate(); if (signal) signal.removeEventListener('abort', onAbort); };
+    if (signal) signal.addEventListener('abort', onAbort, { once: true });
+    worker.onmessage = (e) => { done(); if (e.data.ok) resolve(e.data.result); else reject(new Error(e.data.error)); };
+    worker.onerror = (e) => { done(); reject(new Error(e.message || 'worker error')); };
+    const transfer = [];
+    for (const f of input.frames) if (f) transfer.push(f.buffer);
+    for (const p of input.pages) transfer.push(p.rgba.buffer);
+    worker.postMessage(input, transfer);
+  });
+}
+
+// ---- 59-slide-deck.js ----
+// ===================================================================================
+// The lecturer's slide files (PDF) for a recording: loading, local storage, matching the
+// chapters to pages, following the lecture, and the user's corrections.
+//
+// The PDF is the user's: they can page through it freely and remove it at any time.
+// Following the lecture only turns the page for them until they take over.
+//
+// Files never leave the browser: they are kept in IndexedDB (by SHA-256), remembered per
+// recording. pdf.js is loaded from jsDelivr (pinned) only when a recording has slide files.
+//
+// Stored records:
+//   deck:<mediaId>        { files: [{ hash, name }], overrides: { <chapter key>: <page key> | 'none' } }
+//   deckfile:<hash>       Blob of the PDF
+//   deckref:<hash>        [mediaId] recordings using the file (deleted with the last one)
+//   deckmatch:<mediaId>   { sig, chapters: [<page key> | null] } (matching result)
+// A chapter key is its start in tenths of a second; a page key is "<hash prefix>:<page>",
+// so both survive reordering files.
+//
+// For later features (slide text as vocabulary for transcription, chapter titles):
+// controller.pages[i] = { key, file, num, title, text }.
+// ===================================================================================
+
+const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.4.299/build/';
+const FOLLOW_MIN_SEC = 15;     // a chapter shorter than this does not turn the page
+const FOLLOW_GUESS_SPAN = 3;   // unsure pages are used only between known pages this close
+const DECK_RENDER_CACHE = 6;   // rendered pages kept
+
+let pdfjsPromise = null;
+function loadPdfJs() {
+  if (!pdfjsPromise) {
+    pdfjsPromise = import(PDFJS_BASE + 'pdf.min.mjs').then((lib) => {
+      // A module worker from a blob that imports the pinned worker script: a cross-origin
+      // worker URL cannot be used directly.
+      const url = URL.createObjectURL(new Blob(['import "' + PDFJS_BASE + 'pdf.worker.min.mjs";'], { type: 'text/javascript' }));
+      lib.GlobalWorkerOptions.workerPort = new Worker(url, { type: 'module' });
+      return lib;
+    });
+    pdfjsPromise.catch(() => { pdfjsPromise = null; });
+  }
+  return pdfjsPromise;
+}
+
+async function sha256Hex(buf) {
+  const d = new Uint8Array(await crypto.subtle.digest('SHA-256', buf));
+  return Array.from(d, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// The page's title: the largest text in the top 40% of the page.
+function pageTitle(items, pageHeight) {
+  let size = 0;
+  for (const it of items) if (it.str.trim() && it.transform[5] > pageHeight * 0.6) size = Math.max(size, it.height);
+  if (!size) return '';
+  return items.filter((it) => it.str.trim() && it.transform[5] > pageHeight * 0.6 && Math.abs(it.height - size) < 1)
+    .map((it) => it.str.trim()).join(' ').replace(/\s+/g, ' ').slice(0, 120);
+}
+
+function renderPdfPage(page, width) {
+  const vp = page.getViewport({ scale: width / page.getViewport({ scale: 1 }).width });
+  const c = document.createElement('canvas');
+  c.width = Math.round(width);
+  c.height = Math.round(vp.height);
+  return page.render({ canvas: c, canvasContext: c.getContext('2d'), viewport: vp }).promise.then(() => c);
+}
+
+// The page to show for each chapter while following the lecture. known[i] is the page of
+// chapter i (index, or -1 when unknown or not a slide); guesses[i] the best-looking page
+// even when unsure (or -1). An unknown chapter shows its guess only if the known pages
+// before and after it are at most FOLLOW_GUESS_SPAN apart and the guess lies between
+// them (so a wrong guess cannot be far off); otherwise it keeps the last page shown.
+// Chapters shorter than minSec do not turn the page (a quick look back). Before the first
+// known page, that page is shown. Returns page indexes (-1 only if nothing is known).
+function followPages(chapters, known, guesses, minSec) {
+  const min = minSec == null ? FOLLOW_MIN_SEC : minSec;
+  const n = chapters.length;
+  const prev = new Array(n);
+  const next = new Array(n);
+  let last = -1;
+  for (let i = 0; i < n; i++) { prev[i] = last; if (known[i] >= 0) last = known[i]; }
+  last = -1;
+  for (let i = n - 1; i >= 0; i--) { next[i] = last; if (known[i] >= 0) last = known[i]; }
+  const first = known.find((p) => p >= 0);
+  let cur = first === undefined ? -1 : first;
+  return chapters.map((c, i) => {
+    let p = known[i];
+    const g = guesses ? guesses[i] : -1;
+    const lo = Math.min(prev[i], next[i]);
+    const hi = Math.max(prev[i], next[i]);
+    if (p < 0 && g >= 0 && lo >= 0 && hi - lo <= FOLLOW_GUESS_SPAN && g >= lo && g <= hi) p = g;
+    if (p >= 0 && p !== cur && c.end - c.start >= min) cur = p;
+    return cur;
+  });
+}
+
+class SlideDeckController {
+  // opts: { lesson, slides (SlideAnalyzer), cues: () => cues, disposer, onChange }
+  constructor(opts) {
+    this.lesson = opts.lesson;
+    this.slides = opts.slides;
+    this.cues = opts.cues;
+    this.onChange = opts.onChange || (() => {});
+    this.d = opts.disposer;
+    this.ac = new AbortController();
+    this.d.add(() => this.ac.abort());
+    this.files = [];          // [{ hash, name }]
+    this.docs = [];           // pdf.js loading tasks of the open documents, per file
+    this.pages = [];          // [{ key, file, num, title, text, doc, h }]
+    this.overrides = {};
+    this.matched = null;      // [page key | null] per chapter, from matching
+    this.guesses = [];        // [page key | null] per chapter: best-looking page, even if unsure
+    this.shown = [];          // page index to show per chapter (following)
+    this.state = 'empty';     // empty | loading | matching | ready | error
+    this.progress = 0;
+    this.error = '';
+    this.job = null;
+    this.rendered = new Map(); // "index@width" -> canvas
+    this.d.add(() => this.closeDocs());
+  }
+
+  get key() { return 'deck:' + this.lesson.mediaId; }
+
+  // Closes the open documents (through their loading tasks, which own them in pdf.js).
+  closeDocs() {
+    for (const task of this.docs) task.destroy().catch(() => {});
+    this.docs = [];
+    this.rendered.clear();
+  }
+
+  async restore() {
+    if (!this.lesson.mediaId) return;
+    const rec = await idbCache.get(this.key);
+    if (!rec || !Array.isArray(rec.files) || !rec.files.length) return;
+    this.files = rec.files;
+    this.overrides = rec.overrides || {};
+    await this.reload();
+  }
+
+  saveRecord() {
+    if (this.lesson.mediaId) idbCache.put(this.key, { files: this.files, overrides: this.overrides });
+  }
+
+  // Adds PDF files (from a drop or a file picker). Returns how many were PDFs.
+  async addFiles(fileList) {
+    const pdfs = [...fileList].filter((f) => /\.pdf$/i.test(f.name) || f.type === 'application/pdf');
+    if (!pdfs.length) return 0;
+    for (const f of pdfs) {
+      const buf = await f.arrayBuffer();
+      const hash = await sha256Hex(buf);
+      if (this.files.some((x) => x.hash === hash)) continue;
+      await idbCache.put('deckfile:' + hash, new Blob([buf], { type: 'application/pdf' }));
+      const refs = (await idbCache.get('deckref:' + hash)) || [];
+      if (!refs.includes(this.lesson.mediaId)) await idbCache.put('deckref:' + hash, refs.concat(this.lesson.mediaId));
+      this.files.push({ hash, name: f.name });
+    }
+    this.saveRecord();
+    await this.reload();
+    return pdfs.length;
+  }
+
+  async removeFile(hash) {
+    this.files = this.files.filter((f) => f.hash !== hash);
+    const prefix = hash.slice(0, 12) + ':';
+    for (const k of Object.keys(this.overrides)) if (String(this.overrides[k]).startsWith(prefix)) delete this.overrides[k];
+    this.saveRecord();
+    // The file itself is deleted when no other recording uses it.
+    const refs = ((await idbCache.get('deckref:' + hash)) || []).filter((m) => m !== this.lesson.mediaId);
+    if (refs.length) await idbCache.put('deckref:' + hash, refs);
+    else { await idbCache.del('deckref:' + hash); await idbCache.del('deckfile:' + hash); }
+    await this.reload();
+  }
+
+  // Opens all files, reads the pages' titles and text, then matches the chapters.
+  async reload() {
+    const job = {};
+    this.job = job;
+    this.closeDocs();
+    this.pages = [];
+    this.matched = null;
+    this.shown = [];
+    if (!this.files.length) { this.state = 'empty'; this.onChange(); return; }
+    this.state = 'loading';
+    this.onChange();
+    try {
+      const lib = await loadPdfJs();
+      const pages = [];
+      for (const f of this.files) {
+        const blob = await idbCache.get('deckfile:' + f.hash);
+        if (!blob) continue;
+        const task = lib.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) });
+        const doc = await task.promise;
+        if (this.job !== job) { task.destroy().catch(() => {}); return; }
+        this.docs.push(task);
+        for (let n = 1; n <= doc.numPages; n++) {
+          const page = await doc.getPage(n);
+          const tc = await page.getTextContent();
+          const [x0, y0, x1, y1] = page.view;
+          pages.push({
+            key: f.hash.slice(0, 12) + ':' + n, file: f.name, num: n, doc, ar: (y1 - y0) / (x1 - x0),
+            title: pageTitle(tc.items, y1 - y0),
+            text: tc.items.map((x) => x.str).join(' ').replace(/\s+/g, ' ').trim(),
+          });
+        }
+      }
+      if (this.job !== job) return;
+      this.pages = pages;
+      this.recompute();
+      await this.match(job);
+    } catch (e) {
+      if (this.ac.signal.aborted || this.job !== job) return;
+      console.warn(TAG, 'slide file:', e && e.message ? e.message : e);
+      this.state = 'error';
+      this.error = String((e && e.message) || e);
+      this.onChange();
+    }
+  }
+
+  // Page i rendered `width` pixels wide (cached).
+  async render(i, width) {
+    const k = i + '@' + Math.round(width);
+    let c = this.rendered.get(k);
+    if (!c) {
+      const page = await this.pages[i].doc.getPage(this.pages[i].num);
+      c = await renderPdfPage(page, width);
+      this.rendered.set(k, c);
+      if (this.rendered.size > DECK_RENDER_CACHE) this.rendered.delete(this.rendered.keys().next().value);
+    }
+    return c;
+  }
+
+  // What a matching result depends on.
+  signature() {
+    const chs = this.slides.chapters;
+    return [this.files.map((f) => f.hash.slice(0, 12)).join(','), chs.length, chs.length ? Math.round(chs[chs.length - 1].start) : 0].join('|');
+  }
+
+  async match(job) {
+    const chs = this.slides.chapters;
+    if (!chs.length || this.slides.state !== 'done') { this.state = 'ready'; this.onChange(); return; }
+    const sig = this.signature();
+    const cached = await idbCache.get('deckmatch:' + this.lesson.mediaId);
+    if (cached && cached.sig === sig && Array.isArray(cached.chapters)) {
+      this.matched = cached.chapters;
+      this.guesses = cached.guesses || [];
+      this.state = 'ready';
+      this.recompute();
+      this.onChange();
+      return;
+    }
+    this.state = 'matching';
+    this.progress = 0;
+    this.onChange();
+    const frames = await this.slides.chapterFrames(MATCH_W, MATCH_H, this.ac.signal, (p) => { this.progress = p * 0.3; this.onChange(); });
+    if (this.job !== job) return;
+    const pages = [];
+    for (let i = 0; i < this.pages.length; i++) {
+      const c = await this.render(i, MATCH_W);
+      pages.push({ rgba: c.getContext('2d').getImageData(0, 0, c.width, c.height).data, h: c.height });
+    }
+    this.rendered.clear();
+    const cues = this.cues() || [];
+    const input = {
+      frames,
+      pages,
+      chapterTexts: chs.map((c) => cues.filter((q) => q.start < c.end && q.end > c.start).map((q) => q.text).join(' ')),
+      pageTexts: this.pages.map((p) => p.text),
+    };
+    this.progress = 0.35;
+    this.onChange();
+    const r = await runSlideMatch(input, this.ac.signal);
+    if (this.job !== job) return;
+    this.matched = r.chapters.map((c) => (c.page >= 0 ? this.pages[c.page].key : null));
+    this.guesses = r.chapters.map((c) => (c.guess >= 0 ? this.pages[c.guess].key : null));
+    idbCache.put('deckmatch:' + this.lesson.mediaId, { sig, chapters: this.matched, guesses: this.guesses, at: Date.now() });
+    console.info(TAG, 'slides matched: ' + this.matched.filter(Boolean).length + ' of ' + chs.length + ' chapters (' + r.ms + ' ms)');
+    this.state = 'ready';
+    this.progress = 1;
+    this.recompute();
+    this.onChange();
+  }
+
+  // Called when the chapter list changes (it arrives after the files on a first visit).
+  chaptersChanged() {
+    if (this.pages.length && this.state !== 'loading') this.match(this.job);
+  }
+
+  indexOfKey(k) {
+    return k ? this.pages.findIndex((p) => p.key === k) : -1;
+  }
+
+  chapterKey(i) {
+    const c = this.slides.chapters[i];
+    return c ? String(Math.round(c.start * 10)) : '';
+  }
+
+  // Page index of chapter i from the user's correction or the match (-1: none / not a slide).
+  knownPage(i) {
+    const o = this.overrides[this.chapterKey(i)];
+    if (o === 'none') return -1;
+    if (o && this.indexOfKey(o) >= 0) return this.indexOfKey(o);
+    return this.matched ? this.indexOfKey(this.matched[i]) : -1;
+  }
+
+  recompute() {
+    const chs = this.slides.chapters;
+    const guesses = chs.map((c, i) => (this.overrides[this.chapterKey(i)] === 'none' ? -1 : this.indexOfKey((this.guesses || [])[i])));
+    this.shown = this.pages.length ? followPages(chs, chs.map((c, i) => this.knownPage(i)), guesses) : [];
+  }
+
+  // Page to show at time t while following (-1 when nothing is known yet).
+  pageAt(t) {
+    const k = chapterIndexAt(this.slides.chapters, t);
+    if (k >= 0 && k < this.shown.length) return this.shown[k];
+    return this.shown.length ? this.shown[0] : -1;
+  }
+
+  // Whether the page at time t was recognised (or set by the user) for that very part,
+  // rather than carried over from an earlier part.
+  knownAt(t) {
+    const k = chapterIndexAt(this.slides.chapters, t);
+    return k >= 0 && this.knownPage(k) >= 0;
+  }
+
+  // When page i was on screen: [{ start, end }] from matched or corrected chapters, with
+  // neighbouring chapters joined.
+  timesOf(i) {
+    const out = [];
+    const chs = this.slides.chapters;
+    for (let c = 0; c < chs.length; c++) {
+      if (this.knownPage(c) !== i) continue;
+      const last = out[out.length - 1];
+      if (last && last.endChapter === c - 1) { last.end = chs[c].end; last.endChapter = c; } else out.push({ start: chs[c].start, end: chs[c].end, endChapter: c });
+    }
+    return out;
+  }
+
+  // The user's correction for the chapter playing at time t: a page index, 'none' (not a
+  // slide) or null (back to automatic).
+  correct(t, value) {
+    const c = chapterIndexAt(this.slides.chapters, t);
+    const key = this.chapterKey(c);
+    if (!key) return;
+    if (value === null) delete this.overrides[key];
+    else this.overrides[key] = value === 'none' ? 'none' : this.pages[value].key;
+    this.saveRecord();
+    this.recompute();
+    this.onChange();
+  }
+
+  correctionAt(t) {
+    return this.overrides[this.chapterKey(chapterIndexAt(this.slides.chapters, t))] || null;
+  }
+
+  matchedCount() {
+    let n = 0;
+    for (let i = 0; i < this.slides.chapters.length; i++) if (this.knownPage(i) >= 0) n++;
+    return n;
   }
 }
 

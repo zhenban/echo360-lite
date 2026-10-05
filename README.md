@@ -6,7 +6,7 @@ A userscript that replaces the Echo360 lecture-recording player with a lightweig
 
 The stock player keeps one CPU core busy for the whole lecture (loud fans, drained battery). Echo360 Lite plays the same streams with the browser's own video player, at close to the cost of playing a plain video file, and adds a few things that make watching lectures easier.
 
-> Status: **0.7.1, in development.** Tested on `echo360.net.au` (Australia). If the page is not recognised, the original player is used automatically.
+> Status: **0.8.0, in development.** Tested on `echo360.net.au` (Australia). If the page is not recognised, the original player is used automatically.
 
 ## Features
 
@@ -18,6 +18,7 @@ The stock player keeps one CPU core busy for the whole lecture (loud fans, drain
 - **Audio tools** (off by default): even out the volume (for lecturers without a microphone), clearer voice, mono.
 - **Silence detection**: long pauses (breaks, group work) are marked on the progress bar. A "Skip silence" button appears when you reach one, and an optional auto-skip jumps over them.
 - **Slide chapters**: slide changes in the screen view are found automatically. A Slides tab lists every slide with a picture and what was said; the progress bar shows chapter boundaries and a preview when you hover. `Shift+←` / `Shift+→` move to the previous / next slide.
+- **Read along with the slides**: drop the lecturer's slide PDF on the player and the Slides tab turns into a PDF reader that follows the lecture, turning to the page being talked about. Page through it yourself at any time; one click brings you back. The PDF stays on your device.
 - **Resume**: playback continues where you stopped, across devices (uses Echo360's own record).
 - **Honest watch reporting**: viewing progress is reported to Echo360 exactly like the original player, based on what you actually played.
 - **Always a way back**: the "Original player" button switches to Echo360's player at the current position. If anything goes wrong, the script falls back to the original player and turns on a CPU fix for it.

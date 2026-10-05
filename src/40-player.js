@@ -71,6 +71,7 @@ class LitePlayer {
     if (this.reporter) this.reporter.stateFn = () => ({ captions: this.cc.on, transcript: this.sidebar.visible('transcript') });
     this.setupSilence();
     this.setupSlides();
+    this.setupDeck();
     this.loadCues();
     this.loadInteractions();
     this.setupAudio();
@@ -911,6 +912,41 @@ class LitePlayer {
     const status = a.state === 'done' ? t('slidesFound', { n: a.chapters.length })
       : a.state === 'thumbnails' ? t('slidesRough', { pct }) : t('slidesFinding', { pct });
     this.slidesPane.setChapters(a.chapters, status);
+    // Final chapters: the slide files (if any) can be matched to them.
+    if (a.state === 'done' && this.deck && this.deckChapters !== a.chapters) {
+      this.deckChapters = a.chapters;
+      this.deck.chaptersChanged();
+    }
+  }
+
+  // ---- slide files ----
+
+  setupDeck() {
+    this.deck = new SlideDeckController({
+      lesson: this.lesson,
+      slides: this.slides,
+      cues: () => this.cues,
+      disposer: this.d,
+      onChange: () => { if (!this.destroyed && this.slidesPane) this.slidesPane.invalidate(); },
+    });
+    this.deck.restore().catch((e) => console.warn(TAG, 'slide files:', e && e.message ? e.message : e));
+    // Dropping PDF files anywhere on the player adds them.
+    const zone = this.$('.dropzone');
+    const hasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+    let depth = 0;
+    this.d.listen(this.host, 'dragenter', (e) => { if (hasFiles(e)) { depth++; zone.hidden = false; } });
+    this.d.listen(this.host, 'dragleave', () => { if (--depth <= 0) { depth = 0; zone.hidden = true; } });
+    this.d.listen(this.host, 'dragover', (e) => { if (hasFiles(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+    this.d.listen(this.host, 'drop', (e) => {
+      depth = 0;
+      zone.hidden = true;
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      this.deck.addFiles(e.dataTransfer.files).then((n) => {
+        if (!n) { this.toast(t('dropNotPdf')); return; }
+        if (this.sidebar.has('slides')) this.sidebar.open('slides');
+      }).catch((err) => this.toast(t('deckError', { msg: String((err && err.message) || err) })));
+    });
   }
 
   renderChapterMarks() {

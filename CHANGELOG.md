@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.0
+- Read along with the lecturer's slides: drop the slide PDF on the player (or add it in the Slides tab) and the tab becomes a PDF reader that turns to the page being talked about. Several PDFs per lecture are fine.
+- Page through it yourself at any time: following pauses, and "Back to the page being talked about" resumes it. Each page lists when it was on screen; click a time to jump there.
+- "Wrong page?" lets you set the page for the part playing now, or mark it as not a slide. Corrections are saved for this recording.
+- A page is only taken as recognised when the match is clear; otherwise the reader keeps the last recognised page and says so.
+- The PDF stays on this device (IndexedDB) and can be removed at any time; pdf.js is loaded from jsDelivr (pinned) only when a lecture has slides.
+
 ## 0.7.1
 - Quality first: playback starts at the highest rendition instead of sizing it to the window, steps down only when the network cannot keep up, and goes back up quickly.
 - New quality menu (button next to the speed): Auto or a fixed rendition, separately for the screen and the camera, remembered. Shows the rendition actually playing.

@@ -29,7 +29,7 @@ function loadSources(names) {
   const files = readdirSync(join(root, 'src')).filter((f) => names.some((n) => f.includes(n))).sort();
   const code = files.map((f) => readFileSync(join(root, 'src', f), 'utf8')).join('\n')
     + '\n;globalThis.__exports = {};'
-    + ['clamp', 'fmtTime', 'parseIsoDuration', 'Disposer', 'PlayedRanges', 'FollowerSync', 'CueIndex', 'parseVtt', 'AudioChain', 'seg', 'thumbnailFor', 'pickAudioRendition', 'parseMediaPlaylist', 'Envelope', 'findSilences', 'silencesFromCues', 'speechSpans', 'silenceIndexAt', 'mp4Boxes', 'parseFragment', 'videoVariants', 'frameDistance', 'sameView', 'buildScenes', 'chapterIndexAt']
+    + ['clamp', 'fmtTime', 'parseIsoDuration', 'Disposer', 'PlayedRanges', 'FollowerSync', 'CueIndex', 'parseVtt', 'AudioChain', 'seg', 'thumbnailFor', 'pickAudioRendition', 'parseMediaPlaylist', 'Envelope', 'findSilences', 'silencesFromCues', 'speechSpans', 'silenceIndexAt', 'mp4Boxes', 'parseFragment', 'videoVariants', 'frameDistance', 'sameView', 'buildScenes', 'chapterIndexAt', 'followPages', 'decidePages', 'alignSequence']
       .map((n) => `if (typeof ${n} !== 'undefined') globalThis.__exports.${n} = ${n};`).join('\n');
   vm.runInContext(code, ctx);
   return { ...ctx.__exports, timers, window: ctx.window };
@@ -490,4 +490,48 @@ test('scenes: revisits continue a chapter, short runs merge, lookup', () => {
   assert.equal(m.chapterIndexAt(scenes, 0), 0);
   assert.equal(m.chapterIndexAt(scenes, 135), 1);
   assert.equal(m.chapterIndexAt(scenes, 1e6), 2);
+});
+
+// ---- slide following ----
+
+function deckMod() {
+  return loadSources(['00-util', '53-media-io', '56-slides', '58-slide-match', '59-slide-deck']);
+}
+
+test('following: unknown parts keep the page, short visits do not turn it, guesses only between close known pages', () => {
+  const m = deckMod();
+  const ch = (starts, end) => starts.map((s, i) => ({ start: s, end: i + 1 < starts.length ? starts[i + 1] : end }));
+  // known pages: 2, ?, 3, (10 s look at 0), 4; unknown before the first known shows the first.
+  const chapters = ch([0, 30, 60, 90, 130, 140], 200);
+  const known = [-1, 2, -1, 3, 0, 4];
+  assert.equal(JSON.stringify(Array.from(m.followPages(chapters, known, null))), '[2,2,2,3,3,4]');
+  // A guess between known pages 2 and 4 is used; one outside, or between far-apart pages, is not.
+  const c2 = ch([0, 30, 60], 90);
+  assert.equal(JSON.stringify(Array.from(m.followPages(c2, [2, -1, 4], [-1, 3, -1]))), '[2,3,4]');
+  assert.equal(JSON.stringify(Array.from(m.followPages(c2, [2, -1, 4], [-1, 9, -1]))), '[2,2,4]');
+  assert.equal(JSON.stringify(Array.from(m.followPages(c2, [2, -1, 12], [-1, 5, -1]))), '[2,2,12]');
+  // Nothing known: nothing shown.
+  assert.equal(JSON.stringify(Array.from(m.followPages(c2, [-1, -1, -1], null))), '[-1,-1,-1]');
+});
+
+test('page decision: clear matches stand alone, unsure ones need the sequence and a clear neighbour', () => {
+  const m = deckMod();
+  const sim = [new Uint8Array(4), new Uint8Array(4), new Uint8Array(4), new Uint8Array(4)];
+  const img = [
+    Float32Array.from([0.8, 0.3, 0.2, 0.1]),  // clear: page 0
+    Float32Array.from([0.3, 0.5, 0.42, 0.1]), // unsure, sequence says 1, neighbour 0 is clear
+    Float32Array.from([0.2, 0.3, 0.5, 0.42]), // unsure, but no clear neighbour within reach of page 2
+    Float32Array.from([0.1, 0.2, 0.3, 0.32]), // nothing
+  ];
+  const d = m.decidePages(img, [0, 1, 2, 3], sim);
+  assert.equal(d[0].page, 0);
+  assert.equal(d[0].by, 'image');
+  assert.equal(d[1].page, 1);
+  assert.equal(d[1].by, 'sequence');
+  assert.equal(d[2].page, -1);
+  assert.equal(d[3].page, -1);
+  assert.equal(d[3].guess, 3);
+  // The sequence prefers staying or moving on to jumping around.
+  const path = m.alignSequence([Float32Array.from([0.9, 0.1]), Float32Array.from([0.5, 0.52]), Float32Array.from([0.9, 0.1])], null);
+  assert.equal(JSON.stringify(path), '[0,0,0]');
 });
