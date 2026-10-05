@@ -144,6 +144,8 @@ select.input option { background: #1b1b20; }
 .audiomenu .opt .desc { font-size: 12px; opacity: .55; line-height: 1.35; }
 .audiomenu .opt[aria-disabled=true] { opacity: .45; cursor: default; }
 .audiomenu { max-height: calc(100% - 80px); overflow-y: auto; }
+.qualitymenu { min-width: 200px; }
+.qualitymenu .sub { padding: 8px 10px 2px; font-size: 12px; opacity: .6; }
 .audiomenu .sep { height: 1px; margin: 6px 4px; background: rgba(255,255,255,.1); }
 .audiomenu .silstatus { padding: 0 10px 6px; font-size: 12px; line-height: 1.4; opacity: .75; }
 .audiomenu .sub { padding: 6px 10px 0; font-size: 12px; opacity: .6; }
@@ -249,6 +251,8 @@ input[type=range] { -webkit-appearance: none; appearance: none; height: 4px; bor
   background: linear-gradient(to right, #fff var(--v, 100%), rgba(255,255,255,.3) var(--v, 100%)); }
 input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%; background: #fff; }
 input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border: 0; border-radius: 50%; background: #fff; }
+.qbtn { min-width: 52px; height: 32px; padding: 0 8px; border-radius: 16px; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.qbtn:hover { background: rgba(255,255,255,.12); }
 .speed { min-width: 52px; height: 32px; padding: 0 8px; border-radius: 16px; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .speed:hover { background: rgba(255,255,255,.12); }
 .src { height: 32px; padding: 0 10px; border-radius: 16px; display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
@@ -336,10 +340,12 @@ function playerTemplate() {
       <button class="btn ccbtn" hidden title="${t('captionsKey')}" aria-label="${t('captions')}" aria-haspopup="menu">${svg('cc')}</button>
       <button class="btn swap" title="${t('swapViews')}" aria-label="${t('swapViews')}">${svg('swap')}</button>
       <button class="btn layout" title="${t('layout')}" aria-label="${t('layout')}" aria-haspopup="menu">${svg('layoutSide')}</button>
+      <button class="qbtn hide-sm" title="${t('quality')}" aria-label="${t('quality')}" aria-haspopup="menu"></button>
       <button class="speed" title="${t('speed')}" aria-label="${t('speed')}">1x</button>
       <button class="btn fs" title="${t('fullscreen')}" aria-label="${t('fullscreen')}">${svg('fullscreen')}</button>
     </div>
   </div>
+  <div class="menu qualitymenu" hidden role="menu"></div>
   <div class="menu speedmenu" hidden role="menu"><div class="head">${t('speed')}</div></div>
   <div class="menu layoutmenu" hidden role="menu"><div class="head">${t('layout')}</div>
     <button role="menuitemradio" data-layout="side">${svg('layoutSide')}${t('layoutSide')}</button>

@@ -25,6 +25,7 @@ class LitePlayer {
         captions: false, capSize: 'm', panel: false, tab: 'transcript', panelw: 360,
         audio: { level: false, voice: false, mono: false },
         silence: { auto: false, min: 30, sens: 'normal' },
+        quality: { screen: 'auto', camera: 'auto' },
       },
       store.get('prefs', {}),
     );
@@ -35,6 +36,10 @@ class LitePlayer {
     if (!SILENCE_MIN_CHOICES.includes(sp.min)) sp.min = 30;
     if (!(sp.sens in SILENCE_SENSITIVITY)) sp.sens = 'normal';
     this.prefs.silence = sp;
+    const qp = Object.assign({ screen: 'auto', camera: 'auto' }, this.prefs.quality);
+    for (const k of ['screen', 'camera']) if (qp[k] !== 'auto' && !(qp[k] > 0)) qp[k] = 'auto';
+    this.prefs.quality = qp;
+    this.levelsByRole = {};
     this.played = new PlayedRanges();
     this.lastSecond = -1;
     this.lastP = -1;
@@ -55,6 +60,8 @@ class LitePlayer {
     this.buildDom();
     this.clock = new Stream(this.video, (f) => this.onClockFatal(f));
     this.follower = new Stream(this.fvideo, () => this.onFollowerFatal());
+    this.followerPos = -1;
+    for (const st of [this.clock, this.follower]) st.onLevel = () => { if (!this.destroyed) this.onLevelChange(); };
     this.d.add(() => { this.dropFollower(); this.clock.destroy(); });
     this.bindVideo();
     this.bindControls();
@@ -158,7 +165,9 @@ class LitePlayer {
     v.volume = clamp(this.prefs.volume, 0, 1);
     v.muted = !!this.prefs.muted;
     this.renderVolume();
-    this.clock.load(source.av, startAt, this.clock.level, () => {
+    this.clock.quality = this.qualityFor(pos);
+    this.clock.priority = this.roleOf(pos) === 'camera' ? 'low' : 'high';
+    this.clock.load(source.av, startAt, () => {
       v.playbackRate = this.prefs.rate;
       if (autoplay) v.play().catch(() => {});
     });
@@ -173,7 +182,10 @@ class LitePlayer {
       if (source.poster) this.fvideo.poster = source.poster;
       // Before the clock has loaded its currentTime is still 0; start at the resume point.
       const at = this.video.readyState > 0 ? this.video.currentTime : this.startAt;
-      this.follower.load(uri, at, -1, null);
+      this.followerPos = pos;
+      this.follower.quality = this.qualityFor(pos);
+      this.follower.priority = this.roleOf(pos) === 'camera' ? 'low' : 'high';
+      this.follower.load(uri, at, null);
     }
     if (!this.sync) this.sync = new FollowerSync(this.video, this.fvideo);
   }
@@ -181,6 +193,7 @@ class LitePlayer {
   dropFollower() {
     if (this.sync) { this.sync.dispose(); this.sync = null; }
     if (this.follower.uri) this.follower.destroy();
+    this.followerPos = -1;
   }
 
   applyLayout() {
@@ -202,6 +215,76 @@ class LitePlayer {
     this.fvideo.dataset.slot = clockIsPrimary ? 'secondary' : 'primary';
     this.setButton('.layout', layout === 'side' ? 'layoutSide' : layout === 'pip' ? 'layoutPip' : 'layoutSingle', t('layout'));
     for (const b of this.root.querySelectorAll('.layoutmenu button')) b.setAttribute('aria-checked', String(b.dataset.layout === layout));
+    this.applyQuality();
+  }
+
+  // ---- quality ----
+
+  // 'screen' or 'camera'. Until the screen view is known, the first view counts as screen.
+  roleOf(pos) {
+    const src = this.sources[pos];
+    if (!src) return 'screen';
+    const screen = this.slides ? this.slides.screenIndex : null;
+    if (screen != null) return src.index === screen ? 'screen' : 'camera';
+    return pos === 0 ? 'screen' : 'camera';
+  }
+
+  qualityFor(pos) {
+    return this.prefs.quality[this.roleOf(pos)] || 'auto';
+  }
+
+  // Applies the quality settings to both streams. The camera may use a smaller rendition
+  // only while it is the small picture-in-picture window; the screen is never capped.
+  applyQuality() {
+    const pairs = [[this.clock, this.video, this.clockPos], [this.follower, this.fvideo, this.followerPos]];
+    for (const [stream, el, pos] of pairs) {
+      if (pos < 0 || !stream.uri) continue;
+      let cap = 0;
+      if (this.layout === 'pip' && el.dataset.slot === 'secondary' && this.roleOf(pos) === 'camera') {
+        cap = Math.ceil(el.clientHeight * (window.devicePixelRatio || 1));
+      }
+      stream.setCap(cap);
+      stream.setQuality(this.qualityFor(pos));
+    }
+    this.onLevelChange();
+  }
+
+  onLevelChange() {
+    for (const [stream, pos] of [[this.clock, this.clockPos], [this.follower, this.followerPos]]) {
+      if (pos >= 0 && stream.levels.length) this.levelsByRole[this.roleOf(pos)] = stream.levels.map((l) => l.height);
+    }
+    const shown = this.layout === 'single' || this.clockPos === this.primaryPos ? this.clock : this.follower;
+    const h = shown.height;
+    this.$('.qbtn').textContent = h ? h + 'p' : t('qualityAuto');
+    if (!this.$('.qualitymenu').hidden) this.renderQualityMenu();
+  }
+
+  renderQualityMenu() {
+    const menu = this.$('.qualitymenu');
+    menu.textContent = '';
+    menu.append(h('div.head', { text: t('quality') }));
+    const roles = this.dual ? ['screen', 'camera'] : [this.roleOf(0)];
+    for (const role of roles) {
+      const pos = this.sources.findIndex((s, i) => this.roleOf(i) === role);
+      if (pos < 0) continue;
+      const stream = pos === this.clockPos ? this.clock : pos === this.followerPos ? this.follower : null;
+      const playing = stream && stream.height ? stream.height + 'p' : '';
+      if (this.dual) menu.append(h('div.sub', { text: t(role === 'screen' ? 'qualityScreen' : 'qualityCamera') + (playing ? ' \u00b7 ' + t('qualityNow', { q: playing }) : '') }));
+      else if (playing) menu.append(h('div.sub', { text: t('qualityNow', { q: playing }) }));
+      const want = this.prefs.quality[role];
+      const heights = (this.levelsByRole[role] || []).slice().sort((a, b) => b - a);
+      const opts = [['auto', t('qualityAutoBest')]].concat(heights.map((x) => [x, x + 'p']));
+      for (const [val, label] of opts) {
+        menu.append(h('button', { role: 'menuitemradio', 'aria-checked': String(want === val), 'data-role': role, 'data-q': String(val), text: label }));
+      }
+    }
+  }
+
+  setQuality(role, val) {
+    this.prefs.quality[role] = val === 'auto' ? 'auto' : +val;
+    this.savePrefs();
+    this.applyQuality();
+    this.renderQualityMenu();
   }
 
   setLayout(layout) {
@@ -447,16 +530,25 @@ class LitePlayer {
     });
 
     // Menus (speed, layout): one open at a time, closed by any click elsewhere.
-    const menus = [[$('.speed'), $('.speedmenu')], [$('.layout'), $('.layoutmenu')], [$('.ccbtn'), $('.ccmenu')], [$('.audiobtn'), $('.audiomenu')]];
+    const menus = [[$('.speed'), $('.speedmenu')], [$('.layout'), $('.layoutmenu')], [$('.ccbtn'), $('.ccmenu')], [$('.audiobtn'), $('.audiomenu')], [$('.qbtn'), $('.qualitymenu')]];
     for (const [btn, menu] of menus) {
       d.listen(btn, 'click', (e) => {
         e.stopPropagation();
         const open = menu.hidden;
         for (const [, m] of menus) m.hidden = true;
+        if (open && menu.classList.contains('qualitymenu')) this.renderQualityMenu();
         menu.hidden = !open;
         this.wake();
       });
     }
+    d.listen($('.qualitymenu'), 'click', (e) => {
+      e.stopPropagation();
+      const b = e.target.closest('button[data-q]');
+      if (b) this.setQuality(b.dataset.role, b.dataset.q);
+    });
+    let resizeTimer = 0;
+    d.add(() => clearTimeout(resizeTimer));
+    d.listen(window, 'resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(guard(() => this.applyQuality()), 500); });
     d.listen($('.speedmenu'), 'click', (e) => {
       const b = e.target.closest('button[data-rate]');
       if (b) { this.setRate(+b.dataset.rate); $('.speedmenu').hidden = true; }
@@ -477,7 +569,7 @@ class LitePlayer {
     d.listen($('.pextras button'), 'click', () => this.opts.onFallback('extras'));
     this.bindPanelResize();
     d.listen(this.root, 'click', (e) => {
-      if (e.target.closest('.menu, .speed, .layout, .ccbtn, .audiobtn')) return;
+      if (e.target.closest('.menu, .speed, .layout, .ccbtn, .audiobtn, .qbtn')) return;
       for (const [, m] of menus) m.hidden = true;
     });
 
@@ -806,6 +898,8 @@ class LitePlayer {
 
   onSlidesChange() {
     const a = this.slides;
+    // The screen view is known now: the per-view quality settings may apply differently.
+    if (a.screenIndex !== this.knownScreen) { this.knownScreen = a.screenIndex; this.applyQuality(); }
     this.renderChapterMarks();
     if (!a.chapters.length) return;
     if (!this.slidesPane) {

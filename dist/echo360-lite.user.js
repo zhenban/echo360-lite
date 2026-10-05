@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Echo360 Lite Player
 // @namespace    echo360-lite
-// @version      0.7.0
+// @version      0.7.1
 // @description  Replaces the Echo360 lecture player with a lightweight native player (far lower CPU use). Falls back to the original player automatically if anything is not recognised.
 // @license      MIT
 // @match        https://echo360.net.au/lesson/*
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.7.0';
+  const VERSION = '0.7.1';
 
 // ---- 00-util.js ----
 // ===================================================================================
@@ -271,6 +271,12 @@ const STRINGS = {
     audioVoiceDesc: 'Cuts low hum from air conditioning and fans and lifts speech.',
     audioMono: 'Mono',
     audioMonoDesc: 'Plays both channels on both sides (for recordings that are only on one side).',
+    quality: 'Quality',
+    qualityAuto: 'Auto',
+    qualityAutoBest: 'Auto (highest the network allows)',
+    qualityScreen: 'Screen',
+    qualityCamera: 'Camera',
+    qualityNow: 'playing {q}',
     slides: 'Slides',
     slidesKey: 'Slides (Shift+\u2190 / Shift+\u2192: previous / next)',
     slideN: 'Slide {n}',
@@ -1052,6 +1058,8 @@ select.input option { background: #1b1b20; }
 .audiomenu .opt .desc { font-size: 12px; opacity: .55; line-height: 1.35; }
 .audiomenu .opt[aria-disabled=true] { opacity: .45; cursor: default; }
 .audiomenu { max-height: calc(100% - 80px); overflow-y: auto; }
+.qualitymenu { min-width: 200px; }
+.qualitymenu .sub { padding: 8px 10px 2px; font-size: 12px; opacity: .6; }
 .audiomenu .sep { height: 1px; margin: 6px 4px; background: rgba(255,255,255,.1); }
 .audiomenu .silstatus { padding: 0 10px 6px; font-size: 12px; line-height: 1.4; opacity: .75; }
 .audiomenu .sub { padding: 6px 10px 0; font-size: 12px; opacity: .6; }
@@ -1157,6 +1165,8 @@ input[type=range] { -webkit-appearance: none; appearance: none; height: 4px; bor
   background: linear-gradient(to right, #fff var(--v, 100%), rgba(255,255,255,.3) var(--v, 100%)); }
 input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%; background: #fff; }
 input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border: 0; border-radius: 50%; background: #fff; }
+.qbtn { min-width: 52px; height: 32px; padding: 0 8px; border-radius: 16px; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.qbtn:hover { background: rgba(255,255,255,.12); }
 .speed { min-width: 52px; height: 32px; padding: 0 8px; border-radius: 16px; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .speed:hover { background: rgba(255,255,255,.12); }
 .src { height: 32px; padding: 0 10px; border-radius: 16px; display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
@@ -1244,10 +1254,12 @@ function playerTemplate() {
       <button class="btn ccbtn" hidden title="${t('captionsKey')}" aria-label="${t('captions')}" aria-haspopup="menu">${svg('cc')}</button>
       <button class="btn swap" title="${t('swapViews')}" aria-label="${t('swapViews')}">${svg('swap')}</button>
       <button class="btn layout" title="${t('layout')}" aria-label="${t('layout')}" aria-haspopup="menu">${svg('layoutSide')}</button>
+      <button class="qbtn hide-sm" title="${t('quality')}" aria-label="${t('quality')}" aria-haspopup="menu"></button>
       <button class="speed" title="${t('speed')}" aria-label="${t('speed')}">1x</button>
       <button class="btn fs" title="${t('fullscreen')}" aria-label="${t('fullscreen')}">${svg('fullscreen')}</button>
     </div>
   </div>
+  <div class="menu qualitymenu" hidden role="menu"></div>
   <div class="menu speedmenu" hidden role="menu"><div class="head">${t('speed')}</div></div>
   <div class="menu layoutmenu" hidden role="menu"><div class="head">${t('layout')}</div>
     <button role="menuitemradio" data-layout="side">${svg('layoutSide')}${t('layoutSide')}</button>
@@ -1312,6 +1324,12 @@ function playerTemplate() {
 // ===================================================================================
 // One <video> element fed by one hls.js instance (or native HLS), with retry and
 // recovery. The player owns two of these in dual-view layouts.
+//
+// Quality: slides and code must be readable, so "auto" starts at the highest rendition
+// and only steps down when the network cannot keep up (hls.js ABR, started from an
+// optimistic bandwidth estimate and quick to step back up). A fixed height locks that
+// rendition. A cap (used for the camera in a small picture-in-picture window) limits auto
+// without affecting a fixed choice.
 // ===================================================================================
 
 class Stream {
@@ -1323,6 +1341,63 @@ class Stream {
     this.netRetries = 0;
     this.mediaRecoveries = 0;
     this.retryTimer = 0;
+    this.quality = 'auto'; // 'auto' or a rendition height
+    this.capHeight = 0;    // 0 = no cap
+    this.onLevel = null;   // called when the playing rendition changes
+    this.priority = 'high'; // 'low': steps down first and up last when bandwidth is short
+  }
+
+  // Renditions as [{ height, bitrate }], in hls.js order (lowest first).
+  get levels() {
+    return this.hls ? this.hls.levels.map((l) => ({ height: l.height, bitrate: l.bitrate })) : [];
+  }
+
+  // Height of the rendition being played (0 when unknown).
+  get height() {
+    const h = this.hls;
+    if (!h || !h.levels.length) return this.video.videoHeight || 0;
+    const i = h.currentLevel >= 0 ? h.currentLevel : h.loadLevel;
+    return i >= 0 && h.levels[i] ? h.levels[i].height : 0;
+  }
+
+  // Index of the rendition for a fixed height: the tallest not above it, else the lowest.
+  levelFor(height) {
+    const ls = this.hls ? this.hls.levels : [];
+    let pick = 0;
+    ls.forEach((l, i) => { if (l.height <= height && l.height >= ls[pick].height) pick = i; });
+    return pick;
+  }
+
+  applyQuality(starting) {
+    const h = this.hls;
+    if (!h || !h.levels.length) return;
+    const top = h.levels.length - 1;
+    if (this.quality === 'auto') {
+      // Smallest rendition at least as tall as the cap; no cap: everything allowed.
+      let cap = -1;
+      if (this.capHeight) {
+        cap = top;
+        h.levels.forEach((l, i) => { if (l.height >= this.capHeight && l.height < h.levels[cap].height) cap = i; });
+      }
+      h.autoLevelCapping = cap;
+      if (starting) h.startLevel = cap >= 0 ? cap : top;
+      else if (!h.autoLevelEnabled) h.nextLevel = -1;
+    } else {
+      h.autoLevelCapping = -1;
+      const i = this.levelFor(this.quality);
+      if (starting) { h.startLevel = i; h.nextLevel = i; } else h.nextLevel = i;
+    }
+  }
+
+  setQuality(q) {
+    this.quality = q;
+    this.applyQuality(false);
+  }
+
+  setCap(height) {
+    if (height === this.capHeight) return;
+    this.capHeight = height;
+    if (this.quality === 'auto') this.applyQuality(false);
   }
 
   get level() {
@@ -1330,7 +1405,7 @@ class Stream {
   }
 
   // Loads `uri` starting at `startAt` seconds. `onReady` runs once the manifest is parsed.
-  load(uri, startAt, startLevel, onReady) {
+  load(uri, startAt, onReady) {
     this.destroyEngine();
     this.uri = uri;
     this.netRetries = 0;
@@ -1339,17 +1414,23 @@ class Stream {
     if (HlsLib && HlsLib.isSupported()) {
       const hls = new HlsLib({
         startPosition: startAt,
-        startLevel: startLevel == null ? -1 : startLevel,
-        // Never fetch a rendition larger than the element is shown at (small PiP windows
-        // and side-by-side halves stay on the low rendition).
-        capLevelToPlayerSize: true,
+        capLevelToPlayerSize: false,
+        // Assume a good connection until measured, and step up again as soon as the
+        // measured bandwidth allows (defaults: 500 kbps estimate, 0.7 up factor).
+        abrEwmaDefaultEstimate: 5e6,
+        abrBandWidthFactor: this.priority === 'low' ? 0.7 : 0.95,
+        abrBandWidthUpFactor: this.priority === 'low' ? 0.6 : 0.85,
         backBufferLength: 60,
         maxBufferLength: 30,
         xhrSetup: (xhr) => { xhr.withCredentials = true; },
       });
       this.hls = hls;
       hls.on(HlsLib.Events.ERROR, guard((e, data) => this.onError(data)));
-      if (onReady) hls.once(HlsLib.Events.MANIFEST_PARSED, guard(onReady));
+      hls.once(HlsLib.Events.MANIFEST_PARSED, guard(() => {
+        this.applyQuality(true);
+        if (onReady) onReady();
+      }));
+      hls.on(HlsLib.Events.LEVEL_SWITCHED, guard(() => { if (this.onLevel) this.onLevel(); }));
       hls.loadSource(uri);
       hls.attachMedia(v);
     } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
@@ -1515,6 +1596,7 @@ class LitePlayer {
         captions: false, capSize: 'm', panel: false, tab: 'transcript', panelw: 360,
         audio: { level: false, voice: false, mono: false },
         silence: { auto: false, min: 30, sens: 'normal' },
+        quality: { screen: 'auto', camera: 'auto' },
       },
       store.get('prefs', {}),
     );
@@ -1525,6 +1607,10 @@ class LitePlayer {
     if (!SILENCE_MIN_CHOICES.includes(sp.min)) sp.min = 30;
     if (!(sp.sens in SILENCE_SENSITIVITY)) sp.sens = 'normal';
     this.prefs.silence = sp;
+    const qp = Object.assign({ screen: 'auto', camera: 'auto' }, this.prefs.quality);
+    for (const k of ['screen', 'camera']) if (qp[k] !== 'auto' && !(qp[k] > 0)) qp[k] = 'auto';
+    this.prefs.quality = qp;
+    this.levelsByRole = {};
     this.played = new PlayedRanges();
     this.lastSecond = -1;
     this.lastP = -1;
@@ -1545,6 +1631,8 @@ class LitePlayer {
     this.buildDom();
     this.clock = new Stream(this.video, (f) => this.onClockFatal(f));
     this.follower = new Stream(this.fvideo, () => this.onFollowerFatal());
+    this.followerPos = -1;
+    for (const st of [this.clock, this.follower]) st.onLevel = () => { if (!this.destroyed) this.onLevelChange(); };
     this.d.add(() => { this.dropFollower(); this.clock.destroy(); });
     this.bindVideo();
     this.bindControls();
@@ -1648,7 +1736,9 @@ class LitePlayer {
     v.volume = clamp(this.prefs.volume, 0, 1);
     v.muted = !!this.prefs.muted;
     this.renderVolume();
-    this.clock.load(source.av, startAt, this.clock.level, () => {
+    this.clock.quality = this.qualityFor(pos);
+    this.clock.priority = this.roleOf(pos) === 'camera' ? 'low' : 'high';
+    this.clock.load(source.av, startAt, () => {
       v.playbackRate = this.prefs.rate;
       if (autoplay) v.play().catch(() => {});
     });
@@ -1663,7 +1753,10 @@ class LitePlayer {
       if (source.poster) this.fvideo.poster = source.poster;
       // Before the clock has loaded its currentTime is still 0; start at the resume point.
       const at = this.video.readyState > 0 ? this.video.currentTime : this.startAt;
-      this.follower.load(uri, at, -1, null);
+      this.followerPos = pos;
+      this.follower.quality = this.qualityFor(pos);
+      this.follower.priority = this.roleOf(pos) === 'camera' ? 'low' : 'high';
+      this.follower.load(uri, at, null);
     }
     if (!this.sync) this.sync = new FollowerSync(this.video, this.fvideo);
   }
@@ -1671,6 +1764,7 @@ class LitePlayer {
   dropFollower() {
     if (this.sync) { this.sync.dispose(); this.sync = null; }
     if (this.follower.uri) this.follower.destroy();
+    this.followerPos = -1;
   }
 
   applyLayout() {
@@ -1692,6 +1786,76 @@ class LitePlayer {
     this.fvideo.dataset.slot = clockIsPrimary ? 'secondary' : 'primary';
     this.setButton('.layout', layout === 'side' ? 'layoutSide' : layout === 'pip' ? 'layoutPip' : 'layoutSingle', t('layout'));
     for (const b of this.root.querySelectorAll('.layoutmenu button')) b.setAttribute('aria-checked', String(b.dataset.layout === layout));
+    this.applyQuality();
+  }
+
+  // ---- quality ----
+
+  // 'screen' or 'camera'. Until the screen view is known, the first view counts as screen.
+  roleOf(pos) {
+    const src = this.sources[pos];
+    if (!src) return 'screen';
+    const screen = this.slides ? this.slides.screenIndex : null;
+    if (screen != null) return src.index === screen ? 'screen' : 'camera';
+    return pos === 0 ? 'screen' : 'camera';
+  }
+
+  qualityFor(pos) {
+    return this.prefs.quality[this.roleOf(pos)] || 'auto';
+  }
+
+  // Applies the quality settings to both streams. The camera may use a smaller rendition
+  // only while it is the small picture-in-picture window; the screen is never capped.
+  applyQuality() {
+    const pairs = [[this.clock, this.video, this.clockPos], [this.follower, this.fvideo, this.followerPos]];
+    for (const [stream, el, pos] of pairs) {
+      if (pos < 0 || !stream.uri) continue;
+      let cap = 0;
+      if (this.layout === 'pip' && el.dataset.slot === 'secondary' && this.roleOf(pos) === 'camera') {
+        cap = Math.ceil(el.clientHeight * (window.devicePixelRatio || 1));
+      }
+      stream.setCap(cap);
+      stream.setQuality(this.qualityFor(pos));
+    }
+    this.onLevelChange();
+  }
+
+  onLevelChange() {
+    for (const [stream, pos] of [[this.clock, this.clockPos], [this.follower, this.followerPos]]) {
+      if (pos >= 0 && stream.levels.length) this.levelsByRole[this.roleOf(pos)] = stream.levels.map((l) => l.height);
+    }
+    const shown = this.layout === 'single' || this.clockPos === this.primaryPos ? this.clock : this.follower;
+    const h = shown.height;
+    this.$('.qbtn').textContent = h ? h + 'p' : t('qualityAuto');
+    if (!this.$('.qualitymenu').hidden) this.renderQualityMenu();
+  }
+
+  renderQualityMenu() {
+    const menu = this.$('.qualitymenu');
+    menu.textContent = '';
+    menu.append(h('div.head', { text: t('quality') }));
+    const roles = this.dual ? ['screen', 'camera'] : [this.roleOf(0)];
+    for (const role of roles) {
+      const pos = this.sources.findIndex((s, i) => this.roleOf(i) === role);
+      if (pos < 0) continue;
+      const stream = pos === this.clockPos ? this.clock : pos === this.followerPos ? this.follower : null;
+      const playing = stream && stream.height ? stream.height + 'p' : '';
+      if (this.dual) menu.append(h('div.sub', { text: t(role === 'screen' ? 'qualityScreen' : 'qualityCamera') + (playing ? ' \u00b7 ' + t('qualityNow', { q: playing }) : '') }));
+      else if (playing) menu.append(h('div.sub', { text: t('qualityNow', { q: playing }) }));
+      const want = this.prefs.quality[role];
+      const heights = (this.levelsByRole[role] || []).slice().sort((a, b) => b - a);
+      const opts = [['auto', t('qualityAutoBest')]].concat(heights.map((x) => [x, x + 'p']));
+      for (const [val, label] of opts) {
+        menu.append(h('button', { role: 'menuitemradio', 'aria-checked': String(want === val), 'data-role': role, 'data-q': String(val), text: label }));
+      }
+    }
+  }
+
+  setQuality(role, val) {
+    this.prefs.quality[role] = val === 'auto' ? 'auto' : +val;
+    this.savePrefs();
+    this.applyQuality();
+    this.renderQualityMenu();
   }
 
   setLayout(layout) {
@@ -1937,16 +2101,25 @@ class LitePlayer {
     });
 
     // Menus (speed, layout): one open at a time, closed by any click elsewhere.
-    const menus = [[$('.speed'), $('.speedmenu')], [$('.layout'), $('.layoutmenu')], [$('.ccbtn'), $('.ccmenu')], [$('.audiobtn'), $('.audiomenu')]];
+    const menus = [[$('.speed'), $('.speedmenu')], [$('.layout'), $('.layoutmenu')], [$('.ccbtn'), $('.ccmenu')], [$('.audiobtn'), $('.audiomenu')], [$('.qbtn'), $('.qualitymenu')]];
     for (const [btn, menu] of menus) {
       d.listen(btn, 'click', (e) => {
         e.stopPropagation();
         const open = menu.hidden;
         for (const [, m] of menus) m.hidden = true;
+        if (open && menu.classList.contains('qualitymenu')) this.renderQualityMenu();
         menu.hidden = !open;
         this.wake();
       });
     }
+    d.listen($('.qualitymenu'), 'click', (e) => {
+      e.stopPropagation();
+      const b = e.target.closest('button[data-q]');
+      if (b) this.setQuality(b.dataset.role, b.dataset.q);
+    });
+    let resizeTimer = 0;
+    d.add(() => clearTimeout(resizeTimer));
+    d.listen(window, 'resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(guard(() => this.applyQuality()), 500); });
     d.listen($('.speedmenu'), 'click', (e) => {
       const b = e.target.closest('button[data-rate]');
       if (b) { this.setRate(+b.dataset.rate); $('.speedmenu').hidden = true; }
@@ -1967,7 +2140,7 @@ class LitePlayer {
     d.listen($('.pextras button'), 'click', () => this.opts.onFallback('extras'));
     this.bindPanelResize();
     d.listen(this.root, 'click', (e) => {
-      if (e.target.closest('.menu, .speed, .layout, .ccbtn, .audiobtn')) return;
+      if (e.target.closest('.menu, .speed, .layout, .ccbtn, .audiobtn, .qbtn')) return;
       for (const [, m] of menus) m.hidden = true;
     });
 
@@ -2296,6 +2469,8 @@ class LitePlayer {
 
   onSlidesChange() {
     const a = this.slides;
+    // The screen view is known now: the per-view quality settings may apply differently.
+    if (a.screenIndex !== this.knownScreen) { this.knownScreen = a.screenIndex; this.applyQuality(); }
     this.renderChapterMarks();
     if (!a.chapters.length) return;
     if (!this.slidesPane) {
@@ -2910,7 +3085,6 @@ function h(spec, props, ...children) {
       if (v == null || v === false) continue;
       if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2), guard(v));
       else if (k === 'text') el.textContent = v;
-      else if (k === 'html') el.innerHTML = v;
       else if (k in el && typeof v !== 'string') el[k] = v;
       else el.setAttribute(k, v === true ? '' : String(v));
     }
@@ -4757,10 +4931,13 @@ class SlideAnalyzer {
       this.onChange();
       return;
     }
-    await this.gate.wait(5000); // let playback start first
+    // Which view is the screen is needed early (quality settings are per view); it only
+    // takes a few small thumbnails.
     const screen = await this.findScreen(signal);
     if (!screen) { this.state = 'unavailable'; this.onChange(); return; }
     this.screenIndex = screen.source.index;
+    this.onChange();
+    await this.gate.wait(5000); // let playback start first
     if (screen.thumbs) this.fromThumbnails(screen.thumbs);
     if (!HlsVideoReader.supported() || (navigator.connection && navigator.connection.saveData)) {
       if (this.chapters.length) { this.state = 'done'; this.progress = 1; this.onChange(); }

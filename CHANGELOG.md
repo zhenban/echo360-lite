@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.1
+- Quality first: playback starts at the highest rendition instead of sizing it to the window, steps down only when the network cannot keep up, and goes back up quickly.
+- New quality menu (button next to the speed): Auto or a fixed rendition, separately for the screen and the camera, remembered. Shows the rendition actually playing.
+- The camera may use a lower rendition only while it is the small picture-in-picture window, and is the first to step down when bandwidth is short. The screen is never limited.
+
 ## 0.7.0
 - Slide chapters: the screen view is detected automatically, and every slide change is found and pinned to about a second. Switching briefly to a code editor or a question board and back does not start a new chapter.
 - New "Slides" tab: one card per chapter with a picture, the time and the first thing said on that slide. The current slide is highlighted.

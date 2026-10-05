@@ -481,10 +481,13 @@ class SlideAnalyzer {
       this.onChange();
       return;
     }
-    await this.gate.wait(5000); // let playback start first
+    // Which view is the screen is needed early (quality settings are per view); it only
+    // takes a few small thumbnails.
     const screen = await this.findScreen(signal);
     if (!screen) { this.state = 'unavailable'; this.onChange(); return; }
     this.screenIndex = screen.source.index;
+    this.onChange();
+    await this.gate.wait(5000); // let playback start first
     if (screen.thumbs) this.fromThumbnails(screen.thumbs);
     if (!HlsVideoReader.supported() || (navigator.connection && navigator.connection.saveData)) {
       if (this.chapters.length) { this.state = 'done'; this.progress = 1; this.onChange(); }

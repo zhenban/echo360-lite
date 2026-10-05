@@ -13,7 +13,6 @@ function h(spec, props, ...children) {
       if (v == null || v === false) continue;
       if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2), guard(v));
       else if (k === 'text') el.textContent = v;
-      else if (k === 'html') el.innerHTML = v;
       else if (k in el && typeof v !== 'string') el[k] = v;
       else el.setAttribute(k, v === true ? '' : String(v));
     }
