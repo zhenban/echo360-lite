@@ -353,7 +353,9 @@ const STRINGS = {
     resumedAt: 'Resumed at {time}',
     startOver: 'Start over',
     authExpiredTitle: 'Playback access expired',
-    authExpiredText: 'Echo360\'s video access has expired. Reload the page to continue from where you are.',
+    authExpiredText: 'Echo360\'s video access has expired and could not be renewed. Reload the page to continue from where you are.',
+    authLoginExpiredText: 'Your Echo360 sign-in has expired. Reload the page to sign in again; playback continues from where you are.',
+    sessionRenewing: 'Refreshing the session…',
     reload: 'Reload',
     useOriginal: 'Use the original player',
     playbackFailedTitle: 'Playback failed',
@@ -493,6 +495,8 @@ const echo360ClassroomAdapter = {
         ? '/api/ui/echoplayer/lessons/' + encodeURIComponent(lessonId) + '/medias/' + encodeURIComponent(video.mediaId) + '/transcript'
         : null,
       title: cfg.title || (cfg.lesson && cfg.lesson.name) || document.title,
+      // How often the page renews the video access cookies (see 36-session.js).
+      sessionRenewMs: typeof cfg.cookieRenewalIntervalMillis === 'number' ? cfg.cookieRenewalIntervalMillis : null,
       backUrl: sectionId ? '/section/' + encodeURIComponent(sectionId) + '/home' : null,
       duration: isFinite(duration) ? duration : NaN,
       resumeAt: typeof cfg.startTimeMillis === 'number' ? cfg.startTimeMillis / 1000 : null,
@@ -1303,6 +1307,13 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border: 0; bord
 .paused:not(.waiting) .pausehint { display: inline-flex; }
 .paused:not(.waiting) .title { margin-right: 0; }
 .paused.hidecc-paused .captions { display: none; }
+/* Session renewal in progress: a small label in the corner, never over the controls. */
+.sessionhint { position: absolute; right: 12px; top: 60px; z-index: 5; display: flex; align-items: center; gap: 8px;
+  padding: 5px 12px 5px 9px; border-radius: 14px; background: rgba(20,20,24,.82); color: #eee; font-size: 12px;
+  pointer-events: none; }
+.sessionhint[hidden] { display: none; }
+.sessionhint i { width: 10px; height: 10px; border-radius: 50%; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff;
+  animation: spin .9s linear infinite; }
 .toast { position: absolute; z-index: 5; left: 50%; bottom: 96px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px;
   padding: 9px 10px 9px 16px; border-radius: 12px; background: var(--panel); font-size: 13px; box-shadow: 0 8px 30px rgba(0,0,0,.4); max-width: calc(100% - 28px); }
 .toast[hidden] { display: none; }
@@ -1348,6 +1359,7 @@ function playerTemplate() {
   </div>
   <div class="captions" hidden><span></span></div>
   <div class="center"><div class="spinner"></div></div>
+  <div class="sessionhint" role="status" hidden><i></i><span>${t('sessionRenewing')}</span></div>
   <div class="top">
     <a class="back" title="${t('back')}" aria-label="${t('back')}">${svg('back')}</a>
     <div class="title"></div>
@@ -1473,6 +1485,7 @@ class Stream {
   constructor(video, onFatal) {
     this.video = video;
     this.onFatal = onFatal;
+    this.onAuth = null;     // a request was refused (401/403), fatal or not yet
     this.hls = null;
     this.uri = null;
     this.netRetries = 0;
@@ -1568,6 +1581,20 @@ class Stream {
         if (onReady) onReady();
       }));
       hls.on(HlsLib.Events.LEVEL_SWITCHED, guard(() => { if (this.onLevel) this.onLevel(); }));
+      // hls.js resets the MediaSource after some failed appends (refused segments can cause
+      // them) and then starts over at startPosition: keep the position and play state.
+      hls.on(HlsLib.Events.MEDIA_DETACHING, guard(() => {
+        if (this.hls === hls && v.readyState > 0) this.restore = { t: v.currentTime, play: !v.paused };
+      }));
+      hls.on(HlsLib.Events.MEDIA_ATTACHED, guard(() => {
+        const r = this.restore;
+        this.restore = null;
+        if (!r || this.hls !== hls) return;
+        v.addEventListener('loadedmetadata', () => {
+          if (Math.abs(v.currentTime - r.t) > 1) v.currentTime = r.t;
+          if (r.play && v.paused) v.play().catch(() => {});
+        }, { once: true });
+      }));
       hls.loadSource(uri);
       hls.attachMedia(v);
     } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
@@ -1582,8 +1609,12 @@ class Stream {
   }
 
   onError(data) {
-    if (!data || !data.fatal || !this.hls) return;
+    if (!data || !this.hls) return;
     const code = data.response && data.response.code;
+    // Refused: hls.js would keep retrying for half a minute; renew the access now so that
+    // one of its retries succeeds.
+    if ((code === 401 || code === 403) && !data.fatal && this.onAuth) { this.onAuth(); return; }
+    if (!data.fatal) return;
     if (code !== 401 && code !== 403) {
       if (data.type === HlsLib.ErrorTypes.NETWORK_ERROR && this.netRetries < 4) {
         this.netRetries++;
@@ -1605,6 +1636,17 @@ class Stream {
     if (this.hls) this.hls.startLoad(at);
   }
 
+  // After the access was renewed: carry on loading from `at`, keeping the element (and so
+  // any Web Audio graph on it) and everything already buffered. A failure before the
+  // playlists were read loads the source again.
+  resume(at) {
+    const h = this.hls;
+    if (!h) return;
+    this.netRetries = 0;
+    if (!h.levels || !h.levels.length) { h.loadSource(this.uri); return; }
+    h.startLoad(at);
+  }
+
   destroyEngine() {
     clearTimeout(this.retryTimer);
     if (this.hls) { this.hls.destroy(); this.hls = null; }
@@ -1618,6 +1660,108 @@ class Stream {
     v.removeAttribute('src');
     v.load();
     this.uri = null;
+  }
+}
+
+// ---- 36-session.js ----
+// ===================================================================================
+// Keeping the video access alive.
+//
+// Echo360 grants access to the video files with CloudFront signed cookies (HttpOnly, for
+// all of the institution's media). They are valid for about two hours and are issued again
+// by the lesson page itself: a GET of the page renews them once they are older than the
+// renewal interval the page states (cookieRenewalIntervalMillis, one hour). The original
+// player reloads the page after a day; we fetch the page in the background instead, which
+// needs no new player, video element or page reload.
+//
+// - Ahead of time: every renewal interval while the page is open, and on returning to the
+//   tab or pressing play when the last renewal is older than that (timers stall while a
+//   laptop sleeps).
+// - On failure: a 401 or 403 from the video files (playlists, segments, background
+//   downloads) renews at once and the caller retries.
+// - A renewal tries up to three times (two retries). If the school login itself has
+//   expired, the page answers with a redirect to the login page: that cannot be fixed in
+//   the background, so the keeper gives up and the player asks the user to reload.
+//
+// mediaSession.renew() is what fetchOk() (53-media-io.js) calls for background downloads.
+// ===================================================================================
+
+const SESSION_RETRY_MS = [2000, 5000];        // waits before the two retries
+const SESSION_DEFAULT_RENEW_MS = 3600000;
+
+const mediaSession = { renew: null };
+
+class SessionKeeper {
+  // opts: { url (the lesson page), renewMs, disposer, onState(state), retryMs (tests) }
+  // state: 'renewing' (after a failure) | 'ok' | 'failed' ({ login: bool })
+  constructor(opts) {
+    this.url = opts.url;
+    this.renewMs = opts.renewMs > 0 ? opts.renewMs : SESSION_DEFAULT_RENEW_MS;
+    this.onState = opts.onState || (() => {});
+    this.retryMs = opts.retryMs || SESSION_RETRY_MS;
+    this.last = Date.now();       // the page load renewed the cookies if they needed it
+    this.pending = null;
+    this.failed = null;           // { login } once renewal has given up
+    this.renewals = 0;
+    this.d = opts.disposer;
+    this.timer = 0;
+    this.schedule();
+    this.d.add(() => clearTimeout(this.timer));
+    const wake = () => { if (!document.hidden && Date.now() - this.last > this.renewMs) this.renew(false).catch(() => {}); };
+    this.d.listen(document, 'visibilitychange', wake);
+    this.wake = wake;
+    mediaSession.renew = () => this.renew(true);
+    this.d.add(() => { if (mediaSession.renew) mediaSession.renew = null; });
+  }
+
+  schedule() {
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.renew(false).catch(() => {}), Math.max(60000, this.renewMs - (Date.now() - this.last)));
+  }
+
+  // Renews the cookies. `afterFailure`: something was refused, so the user may notice a
+  // pause and is told what is going on. Concurrent calls share one renewal.
+  renew(afterFailure) {
+    if (this.failed) return Promise.reject(new Error('session expired'));
+    if (this.pending) return this.pending;
+    if (afterFailure) this.onState('renewing');
+    this.pending = this.attempt(0).then(() => {
+      this.last = Date.now();
+      this.renewals++;
+      this.onState('ok');
+    }, (e) => {
+      // A routine renewal that could not reach the server is tried again later; the
+      // cookies are still valid for a while.
+      if ((e && e.login) || afterFailure) {
+        this.failed = { login: !!(e && e.login) };
+        this.onState('failed', this.failed);
+      } else this.onState('ok');
+      throw e;
+    }).finally(() => {
+      this.pending = null;
+      if (!this.failed) this.schedule();
+    });
+    return this.pending;
+  }
+
+  async attempt(k) {
+    let r = null;
+    try {
+      r = await fetch(this.url, { credentials: 'include', cache: 'no-store', redirect: 'manual' });
+    } catch (e) {
+      r = null;
+    }
+    if (r && r.body) r.body.cancel().catch(() => {});
+    // A redirect (to the login page) or a refusal: the school login has expired.
+    if (r && (r.type === 'opaqueredirect' || r.status === 401 || r.status === 403)) {
+      const e = new Error('login expired');
+      e.login = true;
+      throw e;
+    }
+    if (r && r.ok) return;
+    if (k >= this.retryMs.length) throw new Error('renewal failed' + (r ? ' (HTTP ' + r.status + ')' : ''));
+    await new Promise((res) => setTimeout(res, this.retryMs[k]));
+    return this.attempt(k + 1);
   }
 }
 
@@ -1768,10 +1912,23 @@ class LitePlayer {
     this.clockPos = this.sources[this.primaryPos].av ? this.primaryPos : this.sources.findIndex((s) => s.av);
 
     this.buildDom();
+    this.session = new SessionKeeper({
+      url: location.href, renewMs: lesson.sessionRenewMs, disposer: this.d,
+      onState: (st) => { if (!this.destroyed) this.$('.sessionhint').hidden = st !== 'renewing'; },
+    });
     this.clock = new Stream(this.video, (f) => this.onClockFatal(f));
-    this.follower = new Stream(this.fvideo, () => this.onFollowerFatal());
+    this.follower = new Stream(this.fvideo, (f) => (f.auth ? this.recoverAccess(this.follower, () => this.onFollowerFatal()) : this.onFollowerFatal()));
     this.followerPos = -1;
-    for (const st of [this.clock, this.follower]) st.onLevel = () => { if (!this.destroyed) this.onLevelChange(); };
+    for (const st of [this.clock, this.follower]) {
+      st.onLevel = () => { if (!this.destroyed) this.onLevelChange(); };
+      // Refused but still retrying: renew in the background (once at a time).
+      st.onAuth = () => {
+        if (this.destroyed) return;
+        if (!this.session.failed) { this.session.renew(true).catch(() => {}); return; }
+        // Renewal has already given up: say so now rather than after hls.js's retries.
+        if (st === this.clock) this.showAuthError(); else this.onFollowerFatal();
+      };
+    }
     this.d.add(() => { this.dropFollower(); this.clock.destroy(); });
     this.bindVideo();
     this.bindControls();
@@ -2127,13 +2284,31 @@ class LitePlayer {
   onClockFatal(f) {
     if (this.destroyed) return;
     if (f.auth) {
-      this.showError(t('authExpiredTitle'), t('authExpiredText'),
-        [[t('reload'), () => { this.savePosition(); location.reload(); }, true], [t('useOriginal'), () => this.opts.onFallback('auth')]]);
+      this.recoverAccess(this.clock, () => this.showAuthError());
       return;
     }
     this.showError(t('playbackFailedTitle'), t('playbackFailedText', { detail: f.details }),
       [[t('retry'), () => { this.hideError(); this.loadClock(this.clockPos, this.video.currentTime, true); }, true],
         [t('useOriginal'), () => this.opts.onFallback('error')]]);
+  }
+
+  // The video files were refused: renew the access in the background and carry on from
+  // the current position with the same element. A second refusal right after a renewal,
+  // or a renewal that fails, ends in `fail`.
+  recoverAccess(stream, fail) {
+    const now = Date.now();
+    if (stream.renewedAt && now - stream.renewedAt < 30000) { fail(); return; }
+    this.session.renew(true).then(() => {
+      if (this.destroyed) return;
+      stream.renewedAt = Date.now();
+      stream.resume(stream.video.currentTime);
+    }, () => { if (!this.destroyed) fail(); });
+  }
+
+  showAuthError() {
+    const login = this.session.failed && this.session.failed.login;
+    this.showError(t('authExpiredTitle'), t(login ? 'authLoginExpiredText' : 'authExpiredText'),
+      [[t('reload'), () => { this.savePosition(); location.reload(); }, true], [t('useOriginal'), () => this.opts.onFallback('auth')]]);
   }
 
   onFollowerFatal() {
@@ -2152,6 +2327,8 @@ class LitePlayer {
     const d = this.d;
     const on = (type, fn) => d.listen(v, type, fn);
     on('play', () => {
+      // Back after a long pause (or a sleeping laptop): renew the access before it runs out.
+      this.session.wake();
       // Play is normally user-initiated; also recovers a context the browser suspended.
       if (this.audio) { this.audio.resume(); this.audio.syncTimer(); }
       stage.classList.remove('paused');
@@ -4295,8 +4472,13 @@ function parseMediaPlaylist(text, base) {
   return out;
 }
 
-function fetchOk(url, init) {
+// A refused request (the video access has expired) renews the session once and retries
+// (see 36-session.js), so background work continues where it was.
+function fetchOk(url, init, renewed) {
   return fetch(url, Object.assign({ credentials: 'include' }, init)).then((r) => {
+    if ((r.status === 401 || r.status === 403) && !renewed && mediaSession.renew) {
+      return mediaSession.renew().then(() => fetchOk(url, init, true));
+    }
     if (!r.ok) throw new Error('HTTP ' + r.status + ' for ' + url.split('?')[0]);
     return r;
   });

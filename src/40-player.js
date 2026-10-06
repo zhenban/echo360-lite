@@ -60,10 +60,23 @@ class LitePlayer {
     this.clockPos = this.sources[this.primaryPos].av ? this.primaryPos : this.sources.findIndex((s) => s.av);
 
     this.buildDom();
+    this.session = new SessionKeeper({
+      url: location.href, renewMs: lesson.sessionRenewMs, disposer: this.d,
+      onState: (st) => { if (!this.destroyed) this.$('.sessionhint').hidden = st !== 'renewing'; },
+    });
     this.clock = new Stream(this.video, (f) => this.onClockFatal(f));
-    this.follower = new Stream(this.fvideo, () => this.onFollowerFatal());
+    this.follower = new Stream(this.fvideo, (f) => (f.auth ? this.recoverAccess(this.follower, () => this.onFollowerFatal()) : this.onFollowerFatal()));
     this.followerPos = -1;
-    for (const st of [this.clock, this.follower]) st.onLevel = () => { if (!this.destroyed) this.onLevelChange(); };
+    for (const st of [this.clock, this.follower]) {
+      st.onLevel = () => { if (!this.destroyed) this.onLevelChange(); };
+      // Refused but still retrying: renew in the background (once at a time).
+      st.onAuth = () => {
+        if (this.destroyed) return;
+        if (!this.session.failed) { this.session.renew(true).catch(() => {}); return; }
+        // Renewal has already given up: say so now rather than after hls.js's retries.
+        if (st === this.clock) this.showAuthError(); else this.onFollowerFatal();
+      };
+    }
     this.d.add(() => { this.dropFollower(); this.clock.destroy(); });
     this.bindVideo();
     this.bindControls();
@@ -419,13 +432,31 @@ class LitePlayer {
   onClockFatal(f) {
     if (this.destroyed) return;
     if (f.auth) {
-      this.showError(t('authExpiredTitle'), t('authExpiredText'),
-        [[t('reload'), () => { this.savePosition(); location.reload(); }, true], [t('useOriginal'), () => this.opts.onFallback('auth')]]);
+      this.recoverAccess(this.clock, () => this.showAuthError());
       return;
     }
     this.showError(t('playbackFailedTitle'), t('playbackFailedText', { detail: f.details }),
       [[t('retry'), () => { this.hideError(); this.loadClock(this.clockPos, this.video.currentTime, true); }, true],
         [t('useOriginal'), () => this.opts.onFallback('error')]]);
+  }
+
+  // The video files were refused: renew the access in the background and carry on from
+  // the current position with the same element. A second refusal right after a renewal,
+  // or a renewal that fails, ends in `fail`.
+  recoverAccess(stream, fail) {
+    const now = Date.now();
+    if (stream.renewedAt && now - stream.renewedAt < 30000) { fail(); return; }
+    this.session.renew(true).then(() => {
+      if (this.destroyed) return;
+      stream.renewedAt = Date.now();
+      stream.resume(stream.video.currentTime);
+    }, () => { if (!this.destroyed) fail(); });
+  }
+
+  showAuthError() {
+    const login = this.session.failed && this.session.failed.login;
+    this.showError(t('authExpiredTitle'), t(login ? 'authLoginExpiredText' : 'authExpiredText'),
+      [[t('reload'), () => { this.savePosition(); location.reload(); }, true], [t('useOriginal'), () => this.opts.onFallback('auth')]]);
   }
 
   onFollowerFatal() {
@@ -444,6 +475,8 @@ class LitePlayer {
     const d = this.d;
     const on = (type, fn) => d.listen(v, type, fn);
     on('play', () => {
+      // Back after a long pause (or a sleeping laptop): renew the access before it runs out.
+      this.session.wake();
       // Play is normally user-initiated; also recovers a context the browser suspended.
       if (this.audio) { this.audio.resume(); this.audio.syncTimer(); }
       stage.classList.remove('paused');

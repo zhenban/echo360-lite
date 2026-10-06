@@ -47,8 +47,13 @@ function parseMediaPlaylist(text, base) {
   return out;
 }
 
-function fetchOk(url, init) {
+// A refused request (the video access has expired) renews the session once and retries
+// (see 36-session.js), so background work continues where it was.
+function fetchOk(url, init, renewed) {
   return fetch(url, Object.assign({ credentials: 'include' }, init)).then((r) => {
+    if ((r.status === 401 || r.status === 403) && !renewed && mediaSession.renew) {
+      return mediaSession.renew().then(() => fetchOk(url, init, true));
+    }
     if (!r.ok) throw new Error('HTTP ' + r.status + ' for ' + url.split('?')[0]);
     return r;
   });

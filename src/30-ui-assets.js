@@ -344,6 +344,13 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border: 0; bord
 .paused:not(.waiting) .pausehint { display: inline-flex; }
 .paused:not(.waiting) .title { margin-right: 0; }
 .paused.hidecc-paused .captions { display: none; }
+/* Session renewal in progress: a small label in the corner, never over the controls. */
+.sessionhint { position: absolute; right: 12px; top: 60px; z-index: 5; display: flex; align-items: center; gap: 8px;
+  padding: 5px 12px 5px 9px; border-radius: 14px; background: rgba(20,20,24,.82); color: #eee; font-size: 12px;
+  pointer-events: none; }
+.sessionhint[hidden] { display: none; }
+.sessionhint i { width: 10px; height: 10px; border-radius: 50%; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff;
+  animation: spin .9s linear infinite; }
 .toast { position: absolute; z-index: 5; left: 50%; bottom: 96px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px;
   padding: 9px 10px 9px 16px; border-radius: 12px; background: var(--panel); font-size: 13px; box-shadow: 0 8px 30px rgba(0,0,0,.4); max-width: calc(100% - 28px); }
 .toast[hidden] { display: none; }
@@ -389,6 +396,7 @@ function playerTemplate() {
   </div>
   <div class="captions" hidden><span></span></div>
   <div class="center"><div class="spinner"></div></div>
+  <div class="sessionhint" role="status" hidden><i></i><span>${t('sessionRenewing')}</span></div>
   <div class="top">
     <a class="back" title="${t('back')}" aria-label="${t('back')}">${svg('back')}</a>
     <div class="title"></div>

@@ -13,6 +13,7 @@ class Stream {
   constructor(video, onFatal) {
     this.video = video;
     this.onFatal = onFatal;
+    this.onAuth = null;     // a request was refused (401/403), fatal or not yet
     this.hls = null;
     this.uri = null;
     this.netRetries = 0;
@@ -108,6 +109,20 @@ class Stream {
         if (onReady) onReady();
       }));
       hls.on(HlsLib.Events.LEVEL_SWITCHED, guard(() => { if (this.onLevel) this.onLevel(); }));
+      // hls.js resets the MediaSource after some failed appends (refused segments can cause
+      // them) and then starts over at startPosition: keep the position and play state.
+      hls.on(HlsLib.Events.MEDIA_DETACHING, guard(() => {
+        if (this.hls === hls && v.readyState > 0) this.restore = { t: v.currentTime, play: !v.paused };
+      }));
+      hls.on(HlsLib.Events.MEDIA_ATTACHED, guard(() => {
+        const r = this.restore;
+        this.restore = null;
+        if (!r || this.hls !== hls) return;
+        v.addEventListener('loadedmetadata', () => {
+          if (Math.abs(v.currentTime - r.t) > 1) v.currentTime = r.t;
+          if (r.play && v.paused) v.play().catch(() => {});
+        }, { once: true });
+      }));
       hls.loadSource(uri);
       hls.attachMedia(v);
     } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
@@ -122,8 +137,12 @@ class Stream {
   }
 
   onError(data) {
-    if (!data || !data.fatal || !this.hls) return;
+    if (!data || !this.hls) return;
     const code = data.response && data.response.code;
+    // Refused: hls.js would keep retrying for half a minute; renew the access now so that
+    // one of its retries succeeds.
+    if ((code === 401 || code === 403) && !data.fatal && this.onAuth) { this.onAuth(); return; }
+    if (!data.fatal) return;
     if (code !== 401 && code !== 403) {
       if (data.type === HlsLib.ErrorTypes.NETWORK_ERROR && this.netRetries < 4) {
         this.netRetries++;
@@ -143,6 +162,17 @@ class Stream {
 
   kick(at) {
     if (this.hls) this.hls.startLoad(at);
+  }
+
+  // After the access was renewed: carry on loading from `at`, keeping the element (and so
+  // any Web Audio graph on it) and everything already buffered. A failure before the
+  // playlists were read loads the source again.
+  resume(at) {
+    const h = this.hls;
+    if (!h) return;
+    this.netRetries = 0;
+    if (!h.levels || !h.levels.length) { h.loadSource(this.uri); return; }
+    h.startLoad(at);
   }
 
   destroyEngine() {

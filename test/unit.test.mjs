@@ -19,6 +19,7 @@ function loadSources(names) {
     window: {},
     document: { hidden: false, addEventListener() {}, removeEventListener() {} },
     localStorage: { getItem: () => null, setItem() {} },
+    fetch: (...a) => ctx.__fetch(...a),
     setInterval: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     clearInterval: (id) => { if (timers[id - 1]) timers[id - 1].fn = null; },
     setTimeout, clearTimeout,
@@ -29,10 +30,10 @@ function loadSources(names) {
   const files = readdirSync(join(root, 'src')).filter((f) => names.some((n) => f.includes(n))).sort();
   const code = files.map((f) => readFileSync(join(root, 'src', f), 'utf8')).join('\n')
     + '\n;globalThis.__exports = {};'
-    + ['clamp', 'fmtTime', 'parseIsoDuration', 'Disposer', 'PlayedRanges', 'FollowerSync', 'CueIndex', 'parseVtt', 'AudioChain', 'seg', 'thumbnailFor', 'pickAudioRendition', 'parseMediaPlaylist', 'Envelope', 'findSilences', 'silencesFromCues', 'speechSpans', 'silenceIndexAt', 'mp4Boxes', 'parseFragment', 'videoVariants', 'frameDistance', 'sameView', 'buildScenes', 'chapterIndexAt', 'followSamples', 'followLecture', 'textScores', 'FORCE_OFF', 'captionExcerpt']
+    + ['clamp', 'fmtTime', 'parseIsoDuration', 'Disposer', 'PlayedRanges', 'FollowerSync', 'CueIndex', 'parseVtt', 'AudioChain', 'seg', 'thumbnailFor', 'pickAudioRendition', 'parseMediaPlaylist', 'Envelope', 'findSilences', 'silencesFromCues', 'speechSpans', 'silenceIndexAt', 'mp4Boxes', 'parseFragment', 'videoVariants', 'frameDistance', 'sameView', 'buildScenes', 'chapterIndexAt', 'SessionKeeper', 'mediaSession', 'followSamples', 'followLecture', 'textScores', 'FORCE_OFF', 'captionExcerpt']
       .map((n) => `if (typeof ${n} !== 'undefined') globalThis.__exports.${n} = ${n};`).join('\n');
   vm.runInContext(code, ctx);
-  return { ...ctx.__exports, timers, window: ctx.window };
+  return { ...ctx.__exports, timers, window: ctx.window, setFetch: (fn) => { ctx.__fetch = fn; } };
 }
 
 // Minimal HTMLMediaElement stand-in: tracks listeners, play/pause and currentTime writes.
@@ -550,6 +551,43 @@ test('text following: the user\'s corrections win', () => {
   assert.equal(r.pages[3], 2);
   assert.equal(r.pages[4], 2);
   assert.equal(r.pages[15], -1);
+});
+
+test('session keeper: renews once for concurrent callers, gives up on a login redirect, retries twice', async () => {
+  const m = loadSources(['00-util', '36-session']);
+  const make = (responses) => {
+    let n = 0;
+    const d = new m.Disposer();
+    m.setFetch(() => { n++; const r = responses[Math.min(n - 1, responses.length - 1)]; return r instanceof Error ? Promise.reject(r) : Promise.resolve(r); });
+    const states = [];
+    const k = new m.SessionKeeper({ url: '/lesson/x', renewMs: 3600000, disposer: d, retryMs: [1, 1], onState: (s) => states.push(s) });
+    return { k, d, states, count: () => n };
+  };
+  const ok = { ok: true, status: 200, type: 'basic', body: null };
+  const login = { ok: false, status: 0, type: 'opaqueredirect', body: null };
+  const err = { ok: false, status: 502, type: 'basic', body: null };
+  let s = make([ok]);
+  await Promise.all([s.k.renew(true), s.k.renew(true)]);
+  assert.equal(s.count(), 1);
+  assert.equal(s.states.join(','), 'renewing,ok');
+  assert.equal(s.k.renewals, 1);
+  s.d.dispose();
+  s = make([login]);
+  await assert.rejects(s.k.renew(true));
+  assert.equal(s.k.failed.login, true);
+  await assert.rejects(s.k.renew(true));   // no new attempt once given up
+  assert.equal(s.count(), 1);
+  s.d.dispose();
+  s = make([err, new Error('offline'), ok]);
+  await s.k.renew(true);
+  assert.equal(s.count(), 3);
+  assert.equal(s.k.failed, null);
+  s.d.dispose();
+  s = make([err, err, err, ok]);
+  await assert.rejects(s.k.renew(true));
+  assert.equal(s.count(), 3);               // the first try and two retries
+  assert.equal(s.k.failed.login, false);
+  s.d.dispose();
 });
 
 test('caption excerpt: last span in whole sentences', () => {
