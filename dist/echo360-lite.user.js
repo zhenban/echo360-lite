@@ -4071,7 +4071,8 @@ class NotesPane {
     this.picking = item.id;
     this.p.sidebar.open('notes');
     this.render();
-    const card = this.list.querySelector('[data-id="' + CSS.escape(String(item.id)) + '"]');
+    // (The page replaces the global CSS object, so no CSS.escape here.)
+    const card = [...this.list.querySelectorAll('.card')].find((c) => c.dataset.id === String(item.id));
     if (card) { card.scrollIntoView({ block: 'nearest' }); const b = card.querySelector('.tagopt'); if (b) b.focus(); }
   }
 
