@@ -133,6 +133,7 @@ const STRINGS = {
     slidesFinding: 'Finding slide changes: {pct}%',
     slidesRough: 'Approximate times from preview pictures. Finding exact changes: {pct}%',
     slidesFound: '{n} slides, found automatically from the screen recording.',
+    slidesNone: 'No slide changes were found automatically in this recording.',
     addSlides: 'Add the slide PDF…',
     addMoreSlides: 'Add another PDF…',
     slidesLocal: 'Add the lecturer\'s slide PDF to read along: it turns to the page being talked about. The file stays on this device.',

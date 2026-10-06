@@ -34,7 +34,7 @@ const KEYFRAME_PROBE_BYTES = 24 * 1024;  // moof (~2.5 KB) + a 360p keyframe (~1
 const SCENE_MIN_SEC = 20;                // shorter scenes in a row are one chapter
 const SCENE_REVISIT_SEC = 180;           // going back to a view shown this recently is no new chapter
 const SCENE_DETOUR_SEC = 60;             // a shorter excursion that comes back belongs to the chapter
-const SCREEN_FLAT_MIN = 0.35;            // share of flat pixels that marks a screen view
+const SCREEN_CLEARLY = 0.75;             // see findScreen
 const CHAPTER_THUMB_W = 192;
 
 // ---- fragmented MP4 ----
@@ -461,6 +461,7 @@ class SlideAnalyzer {
     this.progress = 0;
     this.chapters = [];
     this.screenIndex = null;
+    this.guessScreen = null;
     this.reader = null;
     this.urls = [];
     this.d.add(() => { for (const u of this.urls) URL.revokeObjectURL(u); });
@@ -518,10 +519,16 @@ class SlideAnalyzer {
     this.save(key);
   }
 
-  // The source whose thumbnails have the most flat area, if it looks like a screen.
+  // Which view is the screen: the one whose thumbnails have clearly more flat area than
+  // every other view's (a slide or a document is flatter than a camera picture). "Clearly"
+  // is measured within this recording, not against a fixed level: a busy screen (a browser
+  // with toolbars, a code editor) can be less flat than a slide show and still be much
+  // flatter than the camera. With a single view, that view.
+  // Also sets this.guessScreen: the flattest view even when not clearly so (the slide
+  // reader still needs one to read).
   async findScreen(signal) {
     const sets = this.lesson.thumbnails || [];
-    let best = null;
+    let scored = [];
     for (const src of this.lesson.sources) {
       const set = sets.find((s) => s.sourceIndex === src.index);
       if (!set || !Array.isArray(set.timesInSeconds) || !set.timesInSeconds.length) continue;
@@ -529,22 +536,63 @@ class SlideAnalyzer {
       const vals = [];
       for (let k = 0; k < 6; k++) {
         const t = ts[Math.floor(((k + 0.5) * ts.length) / 6)];
-        const img = await this.loadThumb(set, t, signal);
+        // One picture that cannot be read does not decide anything.
+        let img = null;
+        try { img = await this.loadThumb(set, t, signal); } catch (e) { if (signal.aborted) throw e; }
+        if (!img) continue;
         vals.push(flatShare(img));
         img.close();
       }
-      vals.sort((a, b) => a - b);
-      const score = (vals[2] + vals[3]) / 2;
-      if (!best || score > best.score) best = { source: src, set, score };
+      if (vals.length >= 3) scored.push({ source: src, set, vals });
     }
-    if (best && best.score >= SCREEN_FLAT_MIN) return { source: best.source, thumbs: best.set };
-    // No thumbnails: a single source is assumed to be worth scanning.
-    if (!best && this.lesson.sources.length === 1) return { source: this.lesson.sources[0], thumbs: null };
+    // No usable thumbnails for some view: a few keyframes of each view instead (360p,
+    // about 20 KB each).
+    if (this.lesson.sources.length > 1 && scored.length < this.lesson.sources.length && HlsVideoReader.supported()) {
+      scored = [];
+      for (const src of this.lesson.sources) {
+        const vals = [];
+        try {
+          const rd = await new HlsVideoReader(src.v || src.av, 360).open(signal);
+          const n = rd.segments.length;
+          for (let k = 0; k < 6; k++) {
+            await rd.keyframe(Math.floor(((k + 0.5) * n) / 6), signal, (f) => vals.push(flatShare(f)));
+          }
+        } catch (e) { if (signal.aborted) throw e; }
+        if (vals.length >= 3) scored.push({ source: src, set: null, vals });
+      }
+    }
+    if (!scored.length) {
+      // No usable thumbnails: a single view is assumed to be worth scanning.
+      if (this.lesson.sources.length === 1) { this.guessScreen = this.lesson.sources[0].index; return { source: this.lesson.sources[0], thumbs: null }; }
+      return null;
+    }
+    const median = (v) => { const a = v.slice().sort((x, y) => x - y); return (a[(a.length - 1) >> 1] + a[a.length >> 1]) / 2; };
+    scored.sort((a, b) => median(b.vals) - median(a.vals));
+    const best = scored[0];
+    this.guessScreen = best.source.index;
+    if (scored.length === 1) return this.lesson.sources.length === 1 ? { source: best.source, thumbs: best.set } : null;
+    // Chance that a picture of the best view is flatter than one of the other view
+    // (ties count half); 3 in 4 or more against every other view.
+    const beats = (a, b) => {
+      let w = 0;
+      for (const x of a) for (const y of b) w += x > y ? 1 : x === y ? 0.5 : 0;
+      return w / (a.length * b.length);
+    };
+    if (scored.slice(1).every((o) => beats(best.vals, o.vals) >= SCREEN_CLEARLY)) return { source: best.source, thumbs: best.set };
     return null;
   }
 
   async loadThumb(set, t, signal) {
-    const r = await fetchOk(set.baseUri + '/' + t + '.' + set.extension, { signal });
+    const url = set.baseUri + '/' + t + '.' + set.extension;
+    let r;
+    try {
+      r = await fetchOk(url, { signal });
+    } catch (e) {
+      if (signal && signal.aborted) throw e;
+      // A copy cached from the original player (loaded as a plain image) can lack the
+      // CORS headers; ask the server again.
+      r = await fetchOk(url, { signal, cache: 'reload' });
+    }
     return createImageBitmap(await r.blob());
   }
 

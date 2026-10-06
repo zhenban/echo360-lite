@@ -235,7 +235,9 @@ class SlideDeckController {
   startReading() {
     if (this.ocr || !this.pages.length) return;
     const sources = this.lesson.sources;
-    const idx = this.slides && this.slides.screenIndex != null ? this.slides.screenIndex : sources.length === 1 ? sources[0].index : null;
+    // The screen view; if the analysis could not tell clearly, its best guess.
+    const a = this.slides;
+    const idx = a && a.screenIndex != null ? a.screenIndex : a && a.guessScreen != null ? a.guessScreen : sources.length === 1 ? sources[0].index : null;
     if (idx == null) return;
     const source = sources.find((s) => s.index === idx);
     if (!source) return;

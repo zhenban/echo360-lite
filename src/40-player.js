@@ -1196,15 +1196,19 @@ class LitePlayer {
       if (this.deck) this.deck.screenKnown();
     }
     this.renderChapterMarks();
-    if (!a.chapters.length) return;
+    // The tab also holds the slide reader: it is there once the analysis has an answer,
+    // even when no chapters were found.
+    if (!a.chapters.length && a.state !== 'done' && a.state !== 'unavailable') return;
+    if (a.state === 'unavailable' && this.deck) this.deck.screenKnown();
     if (!this.slidesPane) {
       this.slidesPane = new SlidesPane(this, this.$('.pane[data-pane=slides]'));
       this.d.add(() => this.slidesPane.dispose());
       this.registerTab('slides', this.slidesPane);
     }
     const pct = Math.floor(a.progress * 100);
-    const status = a.state === 'done' ? t('slidesFound', { n: a.chapters.length })
-      : a.state === 'thumbnails' ? t('slidesRough', { pct }) : t('slidesFinding', { pct });
+    const status = !a.chapters.length && (a.state === 'done' || a.state === 'unavailable') ? t('slidesNone')
+      : a.state === 'done' ? t('slidesFound', { n: a.chapters.length })
+        : a.state === 'thumbnails' ? t('slidesRough', { pct }) : t('slidesFinding', { pct });
     this.slidesPane.setChapters(a.chapters, status);
   }
 

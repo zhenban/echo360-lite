@@ -232,7 +232,7 @@ class SlidesPane {
     const deck = this.deck;
     this.readerBox.hidden = !deck;
     this.reader.setActive('side', this.visible && !!deck);
-    this.chapToggle.hidden = !deck;
+    this.chapToggle.hidden = !deck || !this.chapters.length;
     this.chapToggle.textContent = this.showChapters ? t('hideChapters') : t('showChapters', { n: this.chapters.length });
     const listShown = !deck || this.showChapters;
     this.list.hidden = !listShown;

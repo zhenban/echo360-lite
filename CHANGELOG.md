@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.11.1
+- Fix: on some recordings the Slides tab never appeared (so no slide PDF could be added either). Two causes: a preview picture that the browser had cached from the original player without the headers this script needs stopped the slide analysis altogether; and a fixed "how flat is a screen" level rejected busy screens (a browser with toolbars) as not being slides. Now a failed picture is fetched again or skipped, the screen view is the one clearly flatter than the other views of that recording (measured on video frames if the preview pictures cannot be read), and the Slides tab is always there once the analysis is done, with or without chapters.
+
 ## 0.11.0
 - Video access is renewed in the background: Echo360's access cookies (about two hours) are refreshed ahead of time and at once when a request is refused, so playback, captions, the slide reader and background work carry on without a reload. Only an expired school sign-in still asks to reload.
 - Private tags on notes and bookmarks (local only, shared by all recordings of a course): coloured chips, a tag filter, rename / recolour / delete, tag colours on the progress bar. `G` tags the note or bookmark at the current moment.
