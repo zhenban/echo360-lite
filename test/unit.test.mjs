@@ -30,7 +30,7 @@ function loadSources(names) {
   const files = readdirSync(join(root, 'src')).filter((f) => names.some((n) => f.includes(n))).sort();
   const code = files.map((f) => readFileSync(join(root, 'src', f), 'utf8')).join('\n')
     + '\n;globalThis.__exports = {};'
-    + ['clamp', 'fmtTime', 'parseIsoDuration', 'Disposer', 'PlayedRanges', 'FollowerSync', 'CueIndex', 'parseVtt', 'AudioChain', 'seg', 'thumbnailFor', 'pickAudioRendition', 'parseMediaPlaylist', 'Envelope', 'findSilences', 'silencesFromCues', 'speechSpans', 'silenceIndexAt', 'mp4Boxes', 'parseFragment', 'videoVariants', 'frameDistance', 'sameView', 'buildScenes', 'chapterIndexAt', 'SessionKeeper', 'mediaSession', 'followSamples', 'followLecture', 'textScores', 'FORCE_OFF', 'captionExcerpt']
+    + ['clamp', 'fmtTime', 'parseIsoDuration', 'Disposer', 'PlayedRanges', 'FollowerSync', 'CueIndex', 'parseVtt', 'AudioChain', 'seg', 'thumbnailFor', 'pickAudioRendition', 'parseMediaPlaylist', 'Envelope', 'findSilences', 'silencesFromCues', 'speechSpans', 'silenceIndexAt', 'mp4Boxes', 'parseFragment', 'videoVariants', 'frameDistance', 'sameView', 'buildScenes', 'chapterIndexAt', 'SessionKeeper', 'mediaSession', 'TagStore', 'followSamples', 'followLecture', 'textScores', 'FORCE_OFF', 'captionExcerpt']
       .map((n) => `if (typeof ${n} !== 'undefined') globalThis.__exports.${n} = ${n};`).join('\n');
   vm.runInContext(code, ctx);
   return { ...ctx.__exports, timers, window: ctx.window, setFetch: (fn) => { ctx.__fetch = fn; } };
@@ -588,6 +588,24 @@ test('session keeper: renews once for concurrent callers, gives up on a login re
   assert.equal(s.count(), 3);               // the first try and two retries
   assert.equal(s.k.failed.login, false);
   s.d.dispose();
+});
+
+test('tags: defaults once per course, create / rename / toggle / delete keeps the item map clean', async () => {
+  const m = loadSources(['00-util', '01-i18n', '53-media-io', '47-tags']);
+  const st = new m.TagStore({ sectionId: 'sec', mediaId: 'med' });
+  await st.load();
+  assert.equal(st.tags.map((x) => x.id).join(','), 'exam,assignment,confused');
+  const t1 = st.create('  Week 3  ');
+  assert.equal(t1.name, 'Week 3');
+  assert.equal(st.create('week 3'), t1);          // same name, any case: the same tag
+  st.toggle('n1', 'exam');
+  st.toggle('n1', t1.id);
+  assert.equal(st.of('n1').map((x) => x.name).join(','), 'Exam,Week 3');
+  st.rename(t1.id, 'Week 3 formulas');
+  st.remove('exam');
+  assert.equal(st.of('n1').map((x) => x.name).join(','), 'Week 3 formulas');
+  st.toggle('n1', t1.id);
+  assert.equal(Object.keys(st.map).length, 0);     // an item without tags is dropped
 });
 
 test('caption excerpt: last span in whole sentences', () => {

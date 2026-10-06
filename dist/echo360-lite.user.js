@@ -219,7 +219,7 @@ const STRINGS = {
     sidebarTabs: 'Side panel',
     addNotePlaceholder: 'Write a private note at {time}',
     addNote: 'Add note',
-    notesPrivate: 'Notes and bookmarks are private to you. Your instructor can see your "didn\'t understand" marks.',
+    notesPrivate: 'Notes and bookmarks are private to you. Your instructor can see your "didn\'t understand" marks. Tags are only visible to you and stay on this device.',
     filterAll: 'All',
     filterNotes: 'Notes',
     filterBookmarks: 'Bookmarks',
@@ -356,6 +356,40 @@ const STRINGS = {
     authExpiredText: 'Echo360\'s video access has expired and could not be renewed. Reload the page to continue from where you are.',
     authLoginExpiredText: 'Your Echo360 sign-in has expired. Reload the page to sign in again; playback continues from where you are.',
     sessionRenewing: 'Refreshing the session…',
+    tagExam: 'Exam',
+    tagAssignment: 'Assignment',
+    tagConfused: 'Didn\'t get it',
+    tagsPrivate: 'Tags are only visible to you: they stay on this device and are never sent to Echo360. All recordings of this course share them.',
+    tagsFor: 'Tags',
+    newTag: 'New tag…',
+    addTag: 'Add tag',
+    addTagShort: '+ Tag',
+    tagColor: 'Change colour',
+    tagName: 'Tag name',
+    manageTags: 'Tags…',
+    filterTags: 'Filter by tag',
+    allTags: 'All tags',
+    untagged: 'No tag',
+    done: 'Done',
+    keysTitle: 'Keyboard shortcuts',
+    keyPlay: 'Play / pause',
+    keySeek5: 'Back / forward 5 s',
+    keySeek10: 'Back / forward 10 s',
+    keyVolume: 'Volume',
+    keyMute: 'Mute',
+    keyFullscreen: 'Full screen',
+    keySwap: 'Swap views',
+    keySpeed: 'Slower / faster',
+    keyCaptions: 'Captions',
+    keyTranscript: 'Transcript',
+    keyBookmark: 'Bookmark',
+    keyTag: 'Tag the note or bookmark here (bookmarks this moment if there is none)',
+    keyFlag: '"Didn\'t understand" flag',
+    keySlide: 'Previous / next slide',
+    keyCopyFrame: 'Copy the current picture',
+    keyCopyCaptions: 'Copy what was just said',
+    keyHelp: 'This list',
+    keyEscape: 'Close menus',
     reload: 'Reload',
     useOriginal: 'Use the original player',
     playbackFailedTitle: 'Playback failed',
@@ -1085,6 +1119,21 @@ select.input option { background: #1b1b20; }
 .ihead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
 .ibody { margin-top: 6px; font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .iactions, .cactions { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; }
+/* Tags (local, private) */
+.itags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+.tagchip, .tagopt { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px 2px 6px; border-radius: 10px;
+  background: rgba(255,255,255,.08); color: inherit; font: inherit; font-size: 12px; border: 0; cursor: pointer; }
+.tagchip i, .tagopt i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.tagopt { opacity: .6; } .tagopt.on { opacity: 1; background: rgba(255,255,255,.18); }
+.tagopt:hover, .tagchip:hover { background: rgba(255,255,255,.16); }
+.tagpick { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; border-radius: 8px; background: rgba(0,0,0,.25); }
+.tagnew { flex-basis: 100%; display: flex; gap: 8px; align-items: center; }
+.tagnew input { flex: 1; min-width: 0; }
+.addtag { font-size: 12px; }
+.tagman { padding: 10px 12px; margin-bottom: 10px; border-radius: 10px; background: rgba(255,255,255,.045); display: flex; flex-direction: column; gap: 8px; }
+.tagrow { display: flex; gap: 8px; align-items: center; }
+.tagrow input { flex: 1; min-width: 0; }
+.tagswatch { width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(255,255,255,.4); cursor: pointer; flex: none; padding: 0; }
 .kind { font-weight: 600; } .kind.k-note { color: #9cc3ff; } .kind.k-bookmark { color: #7ee2bf; } .kind.k-flag { color: #ff9a9a; }
 .chiptime { height: 22px; padding: 0 8px; border-radius: 11px; background: rgba(79,140,255,.18); color: #b9d2ff; font-size: 12px; font-variant-numeric: tabular-nums; }
 .chiptime:hover { background: rgba(79,140,255,.32); }
@@ -1321,12 +1370,22 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border: 0; bord
 .toast button:hover { background: rgba(255,255,255,.08); }
 .error { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.7); }
 .error[hidden] { display: none; }
-.card { max-width: 420px; margin: 16px; padding: 20px 22px; border-radius: 14px; background: #1b1b20; box-shadow: 0 10px 40px rgba(0,0,0,.5); }
-.card h2 { margin: 0 0 8px; font-size: 16px; }
-.card p { margin: 0 0 16px; opacity: .8; }
-.card .actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
-.card button { height: 34px; padding: 0 14px; border-radius: 8px; background: rgba(255,255,255,.1); }
-.card button.primary { background: var(--accent); color: #fff; }
+.error .card { max-width: 420px; margin: 16px; padding: 20px 22px; border-radius: 14px; background: #1b1b20; box-shadow: 0 10px 40px rgba(0,0,0,.5); }
+.error .card h2 { margin: 0 0 8px; font-size: 16px; }
+.error .card p { margin: 0 0 16px; opacity: .8; }
+.error .card .actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.keyhelp { position: absolute; inset: 0; z-index: 8; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.6); }
+.keyhelp[hidden] { display: none; }
+.khcard { max-width: min(640px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto; padding: 18px 22px; border-radius: 14px;
+  background: #1b1b20; box-shadow: 0 10px 40px rgba(0,0,0,.5); }
+.khcard h2 { margin: 0 0 12px; font-size: 16px; }
+.khlist { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; font-size: 13px; margin-bottom: 14px; }
+.khlist kbd { display: inline-block; min-width: 1.4em; padding: 1px 6px; margin-right: 3px; border-radius: 5px; text-align: center;
+  background: rgba(255,255,255,.12); font: 12px/1.6 ui-monospace, monospace; }
+.khcard .actions { display: flex; justify-content: flex-end; }
+.kbtn { font-weight: 700; min-width: 32px; justify-content: center; }
+.error .card button { height: 34px; padding: 0 14px; border-radius: 8px; background: rgba(255,255,255,.1); }
+.error .card button.primary { background: var(--accent); color: #fff; }
 @media (max-width: 560px) {
   .hide-sm { display: none !important; }
   .top { padding: 6px 8px 22px; }
@@ -1368,6 +1427,7 @@ function playerTemplate() {
     <button class="chip tbtn" data-open="slides" hidden aria-pressed="false" title="${t('slidesKey')}">${svg('slides')}<span class="lbl">${t('slides')}</span></button>
     <button class="chip tbtn" data-open="notes" hidden aria-pressed="false" title="${t('notes')}">${svg('notes')}<span class="lbl">${t('notes')}</span></button>
     <button class="chip tbtn" data-open="discussion" hidden aria-pressed="false" title="${t('discussion')}">${svg('discussion')}<span class="lbl">${t('discussion')}</span></button>
+    <button class="chip kbtn" title="${t('keysTitle')} (?)" aria-label="${t('keysTitle')}">?</button>
     <button class="chip orig" title="${t('originalPlayerTitle')}">${t('originalPlayer')}</button>
   </div>
   <div class="bottom">
@@ -1439,6 +1499,8 @@ function playerTemplate() {
   <div class="toast" hidden><span class="msg"></span><button class="act"></button></div>
   <div class="dropzone" hidden>${t('dropSlides')}</div>
   <div class="error" hidden><div class="card"><h2></h2><p></p><div class="actions"></div></div></div>
+  <div class="keyhelp" hidden role="dialog" aria-label="${t('keysTitle')}"><div class="khcard"><h2>${t('keysTitle')}</h2><div class="khlist"></div>
+    <div class="actions"><button class="pbtn khclose">${t('close')}</button></div></div></div>
 </div>
 <aside class="panel" hidden aria-label="${t('sidebarTabs')}">
   <div class="presize" title="${t('resizePanel')}"></div>
@@ -1865,6 +1927,15 @@ class FollowerSync {
 
 const LAYOUTS = ['side', 'pip', 'single'];
 const CORNERS = ['br', 'bl', 'tr', 'tl'];
+
+// Keyboard shortcuts, as listed in the help panel (`?`): [keys, string key].
+const KEY_HELP = [
+  [['Space', 'K'], 'keyPlay'], [['←', '→'], 'keySeek5'], [['J', 'L'], 'keySeek10'], [['↑', '↓'], 'keyVolume'],
+  [['M'], 'keyMute'], [['F'], 'keyFullscreen'], [['S'], 'keySwap'], [['[', ']'], 'keySpeed'],
+  [['C'], 'keyCaptions'], [['T'], 'keyTranscript'], [['B'], 'keyBookmark'], [['G'], 'keyTag'], [['U'], 'keyFlag'],
+  [['Shift+←', 'Shift+→'], 'keySlide'], [['P'], 'keyCopyFrame'], [['A'], 'keyCopyCaptions'],
+  [['?'], 'keyHelp'], [['Esc'], 'keyEscape'],
+];
 
 class LitePlayer {
   constructor(lesson, opts) {
@@ -2507,6 +2578,9 @@ class LitePlayer {
   }
 
   bindControls() {
+    this.d.listen(this.$('.kbtn'), 'click', (e) => { e.stopPropagation(); this.showKeys(true); });
+    this.d.listen(this.$('.khclose'), 'click', (e) => { e.stopPropagation(); this.showKeys(false); });
+    this.d.listen(this.$('.keyhelp'), 'click', (e) => { if (e.target === this.$('.keyhelp')) this.showKeys(false); });
     const $ = (s) => this.$(s);
     const v = this.video;
     const d = this.d;
@@ -2796,11 +2870,14 @@ class LitePlayer {
         case 't': case 'T': if (this.sidebar.has('transcript')) this.sidebar.toggle('transcript'); else handled = false; break;
         case 'b': case 'B': if (this.notes && this.notesReady) this.notes.addBookmark(e); else handled = false; break;
         case 'u': case 'U': if (this.notes && this.notesReady && this.notes.canFlag) this.notes.toggleFlag(e); else handled = false; break;
+        case 'g': case 'G': if (this.notes && this.notesReady) this.notes.tagHere(e); else handled = false; break;
         case 'p': case 'P': this.copyFrame(); break;
         case 'a': case 'A': this.copyCaptions(); break;
         case 'Escape':
-          if (this.menusOpen()) { for (const m of this.root.querySelectorAll('.menu')) m.hidden = true; } else handled = false;
+          if (!this.$('.keyhelp').hidden) this.showKeys(false);
+          else if (this.menusOpen()) { for (const m of this.root.querySelectorAll('.menu')) m.hidden = true; } else handled = false;
           break;
+        case '?': this.showKeys(this.$('.keyhelp').hidden); break;
         case ']': this.setRate(nextSpeed(v.playbackRate, 1)); break;
         case '[': this.setRate(nextSpeed(v.playbackRate, -1)); break;
         default: handled = false;
@@ -3185,6 +3262,8 @@ class LitePlayer {
     const api = this.opts.api && l.lessonId && l.mediaId ? this.opts.api(l) : null;
     if (!api) return;
     const canFlag = !!l.sectionId && !l.isAnonymousUser;
+    this.tags = new TagStore(l, () => { if (!this.destroyed && this.notes) this.notes.changed(); });
+    this.tags.load().catch((e) => console.warn(TAG, 'tags:', e && e.message ? e.message : e));
     this.notes = new NotesPane(this, this.$('.pane[data-pane=notes]'), api, canFlag);
     this.notes.load().then((ok) => {
       if (this.destroyed || !ok) return;
@@ -3243,6 +3322,19 @@ class LitePlayer {
     const end = () => { if (appRect) { appRect = null; this.savePrefs(); } };
     this.d.listen(handle, 'pointerup', end);
     this.d.listen(handle, 'pointercancel', end);
+  }
+
+  showKeys(on) {
+    const box = this.$('.keyhelp');
+    if (on) {
+      const list = box.querySelector('.khlist');
+      list.textContent = '';
+      for (const [keys, label] of KEY_HELP) {
+        list.append(h('div', null, ...keys.map((k) => h('kbd', { text: k }))), h('div', { text: t(label) }));
+      }
+    }
+    box.hidden = !on;
+    if (on) box.querySelector('.khclose').focus();
   }
 
   toast(msg, action, fn) {
@@ -3688,7 +3780,8 @@ class Sidebar {
 // ===================================================================================
 // Notes tab: private notes, bookmarks and "didn't understand" flags, sorted by time.
 // Data is loaded once at start (it also feeds the progress-bar markers); the list DOM is
-// only rebuilt while the tab is visible.
+// only rebuilt while the tab is visible. Notes and bookmarks can carry local tags
+// (47-tags.js).
 // ===================================================================================
 
 const NOTE_FILTERS = ['all', 'note', 'bookmark', 'flag'];
@@ -3701,6 +3794,10 @@ class NotesPane {
     this.canFlag = canFlag;
     this.items = [];
     this.filter = 'all';
+    this.tagFilter = '';      // '' all, a tag id, or '-' untagged
+    this.tags = player.tags;
+    this.picking = null;      // item id whose tag picker is open
+    this.managing = false;
     this.visible = false;
     this.dirty = true;
     this.d = new Disposer();
@@ -3746,12 +3843,17 @@ class NotesPane {
       this.select.append(h('option', { value: f, text: label }));
     }
     this.d.listen(this.select, 'change', () => { this.filter = this.select.value; this.render(); });
+    this.tagSelect = h('select.input.small', { 'aria-label': t('filterTags') });
+    this.d.listen(this.tagSelect, 'change', () => { this.tagFilter = this.tagSelect.value; this.render(); });
+    this.manageBtn = h('button.link', { text: t('manageTags'), onclick: () => { this.managing = !this.managing; this.render(); } });
+    this.manageBox = h('div');
     this.errorEl = h('div.perror', { hidden: true });
     this.list = h('div.plist');
     this.pane.append(
       h('div.pinfo', { text: t('notesPrivate') }),
       h('div.composer', null, this.textarea, h('div.crow', null, timeLabel, h('span.grow'), this.addBtn)),
-      h('div.ptools', null, this.select),
+      h('div.ptools', null, this.select, this.tagSelect, h('span.grow'), this.manageBtn),
+      this.manageBox,
       this.errorEl,
       this.list,
     );
@@ -3778,10 +3880,31 @@ class NotesPane {
     this.p.toast(t('saveFailed', { error: e.message || e }));
   }
 
+  renderTagFilter() {
+    const sel = this.tagSelect;
+    const keep = this.tagFilter;
+    sel.textContent = '';
+    sel.append(h('option', { value: '', text: t('allTags') }));
+    for (const tag of this.tags.tags) sel.append(h('option', { value: tag.id, text: tag.name }));
+    sel.append(h('option', { value: '-', text: t('untagged') }));
+    this.tagFilter = keep && (keep === '-' || this.tags.byId(keep)) ? keep : '';
+    sel.value = this.tagFilter;
+  }
+
+  tagMatch(item) {
+    if (!this.tagFilter) return true;
+    if (item.type === 'flag') return false;
+    const ids = this.tags.of(item.id);
+    return this.tagFilter === '-' ? !ids.length : ids.some((x) => x.id === this.tagFilter);
+  }
+
   render() {
     this.dirty = false;
     const long = this.p.duration() >= 3600;
-    const shown = this.items.filter((x) => this.filter === 'all' || x.type === this.filter);
+    this.renderTagFilter();
+    this.manageBox.textContent = '';
+    if (this.managing) this.manageBox.append(tagManager(this.tags, () => { this.managing = false; this.render(); }));
+    const shown = this.items.filter((x) => (this.filter === 'all' || x.type === this.filter) && this.tagMatch(x));
     const frag = document.createDocumentFragment();
     if (!shown.length) frag.append(h('div.pempty', { text: t('noNotes') }));
     for (const item of shown) frag.append(this.renderItem(item, long));
@@ -3796,10 +3919,17 @@ class NotesPane {
       : null;
     const head = h('div.ihead', null, h('span.kind.k-' + item.type, { text: label }), time, h('span.grow'));
     const body = item.type === 'note' ? h('div.ibody', { text: item.text }) : null;
+    let tags = null;
+    if (item.type !== 'flag') {
+      const open = () => { this.picking = this.picking === item.id ? null : item.id; this.render(); };
+      tags = h('div.itags', null, ...this.tags.of(item.id).map((tag) => tagChip(tag, open)),
+        h('button.link.addtag', { text: t('addTagShort'), title: t('tagsFor'), onclick: open }));
+      if (this.picking === item.id) tags.append(tagPicker(this.tags, item.id, () => { this.picking = null; this.render(); }));
+    }
     const actions = h('div.iactions');
     if (item.type === 'note') actions.append(h('button.link', { text: t('edit'), onclick: () => this.startEdit(item, card) }));
     actions.append(this.deleteButton(item));
-    const card = h('div.card.k-' + item.type, null, head, body, actions);
+    const card = h('div.card.k-' + item.type, { 'data-id': item.id }, head, body, tags, actions);
     return card;
   }
 
@@ -3904,6 +4034,7 @@ class NotesPane {
       if (item.type === 'flag') await this.api.removeFlag(e, item);
       else await this.api.deleteNote(e, item);
       this.items = this.items.filter((x) => x !== item);
+      this.tags.forget(item.id);
       this.showError('');
       this.changed();
       this.p.renderFlagButton();
@@ -3911,16 +4042,224 @@ class NotesPane {
   }
 
   markers() {
-    return this.items.filter((x) => x.time != null).map((x) => ({
-      time: x.time,
-      kind: x.type,
-      label: x.type === 'note' ? t('markerNote') + ': ' + x.text : x.type === 'bookmark' ? t('markerBookmark') : t('markerFlag'),
-    }));
+    return this.items.filter((x) => x.time != null).map((x) => {
+      const tags = x.type === 'flag' ? [] : this.tags.of(x.id);
+      const base = x.type === 'note' ? t('markerNote') + ': ' + x.text : x.type === 'bookmark' ? t('markerBookmark') : t('markerFlag');
+      return {
+        time: x.time,
+        kind: x.type,
+        color: tags.length ? tags[0].color : null,
+        label: tags.length ? base + ' [' + tags.map((g) => g.name).join(', ') + ']' : base,
+      };
+    });
+  }
+
+  // `G`: tags the note or bookmark at the current time (within the last 30 s, or just
+  // ahead), or bookmarks this moment first; opens its tag picker.
+  async tagHere(e) {
+    const now = this.p.video.currentTime;
+    let item = null;
+    for (const x of this.items) if (x.type !== 'flag' && x.time != null && x.time <= now + 5 && x.time >= now - 30 && (!item || Math.abs(x.time - now) < Math.abs(item.time - now))) item = x;
+    if (!item) {
+      await this.addBookmark(e);
+      item = this.items.filter((x) => x.type === 'bookmark').sort((a, b) => Math.abs(a.time - now) - Math.abs(b.time - now))[0];
+      if (!item) return;
+    }
+    this.filter = 'all';
+    this.select.value = 'all';
+    this.tagFilter = '';
+    this.picking = item.id;
+    this.p.sidebar.open('notes');
+    this.render();
+    const card = this.list.querySelector('[data-id="' + CSS.escape(String(item.id)) + '"]');
+    if (card) { card.scrollIntoView({ block: 'nearest' }); const b = card.querySelector('.tagopt'); if (b) b.focus(); }
   }
 
   dispose() {
     this.d.dispose();
   }
+}
+
+// ---- 47-tags.js ----
+// ===================================================================================
+// Private tags on notes and bookmarks. Local only: they are kept in IndexedDB and never
+// sent to Echo360, so only the user sees them (and they go with a backup, M8.6).
+//
+// The tag list belongs to the course (Echo360 section), so every recording of the course
+// offers the same tags; which tags an item has is kept per recording.
+//   tags:<section>      { tags: [{ id, name, color }] }   (a few defaults the first time)
+//   tagmap:<mediaId>    { <note or bookmark id>: [tag id, ...] }
+// ===================================================================================
+
+const TAG_COLORS = ['#f6c343', '#6ea8ff', '#ff6b6b', '#4fd1a5', '#c084fc', '#fb923c', '#94a3b8', '#f472b6'];
+
+class TagStore {
+  constructor(lesson, onChange) {
+    this.courseKey = 'tags:' + (lesson.sectionId || 'all');
+    this.mapKey = lesson.mediaId ? 'tagmap:' + lesson.mediaId : null;
+    this.onChange = onChange || (() => {});
+    this.tags = [];
+    this.map = {};
+    this.ready = false;
+  }
+
+  async load() {
+    const rec = await idbCache.get(this.courseKey);
+    if (rec && Array.isArray(rec.tags)) {
+      this.tags = rec.tags;
+    } else {
+      // First use in this course: a few suggestions, which the user may delete.
+      this.tags = [
+        { id: 'exam', name: t('tagExam'), color: TAG_COLORS[0] },
+        { id: 'assignment', name: t('tagAssignment'), color: TAG_COLORS[1] },
+        { id: 'confused', name: t('tagConfused'), color: TAG_COLORS[2] },
+      ];
+      this.saveTags();
+    }
+    const m = this.mapKey ? await idbCache.get(this.mapKey) : null;
+    this.map = m && typeof m === 'object' ? m : {};
+    this.ready = true;
+    this.onChange();
+  }
+
+  saveTags() { idbCache.put(this.courseKey, { tags: this.tags }); }
+
+  saveMap() { if (this.mapKey) idbCache.put(this.mapKey, this.map); }
+
+  byId(id) { return this.tags.find((x) => x.id === id) || null; }
+
+  // Tags of an item, in the order of the tag list (unknown ids, from tags deleted while
+  // another recording was open, are skipped).
+  of(itemId) {
+    const ids = this.map[itemId] || [];
+    return this.tags.filter((x) => ids.includes(x.id));
+  }
+
+  has(itemId, tagId) { return (this.map[itemId] || []).includes(tagId); }
+
+  toggle(itemId, tagId) {
+    const ids = (this.map[itemId] || []).filter((x) => this.byId(x));
+    const i = ids.indexOf(tagId);
+    if (i >= 0) ids.splice(i, 1); else ids.push(tagId);
+    if (ids.length) this.map[itemId] = ids; else delete this.map[itemId];
+    this.saveMap();
+    this.onChange();
+  }
+
+  // Forgets an item's tags (the item was deleted).
+  forget(itemId) {
+    if (!this.map[itemId]) return;
+    delete this.map[itemId];
+    this.saveMap();
+  }
+
+  create(name, color) {
+    const clean = String(name || '').trim().slice(0, 40);
+    if (!clean) return null;
+    const same = this.tags.find((x) => x.name.toLowerCase() === clean.toLowerCase());
+    if (same) return same;
+    const tag = { id: 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: clean, color: color || TAG_COLORS[this.tags.length % TAG_COLORS.length] };
+    this.tags.push(tag);
+    this.saveTags();
+    this.onChange();
+    return tag;
+  }
+
+  rename(id, name) {
+    const tag = this.byId(id);
+    const clean = String(name || '').trim().slice(0, 40);
+    if (!tag || !clean || clean === tag.name) return;
+    tag.name = clean;
+    this.saveTags();
+    this.onChange();
+  }
+
+  recolor(id, color) {
+    const tag = this.byId(id);
+    if (!tag) return;
+    tag.color = color;
+    this.saveTags();
+    this.onChange();
+  }
+
+  remove(id) {
+    this.tags = this.tags.filter((x) => x.id !== id);
+    for (const k of Object.keys(this.map)) {
+      this.map[k] = this.map[k].filter((x) => x !== id);
+      if (!this.map[k].length) delete this.map[k];
+    }
+    this.saveTags();
+    this.saveMap();
+    this.onChange();
+  }
+}
+
+// A tag as a small coloured chip.
+function tagChip(tag, onclick) {
+  const el = h(onclick ? 'button.tagchip' : 'span.tagchip', { onclick: onclick || null, title: tag.name },
+    h('i', { style: 'background:' + tag.color }), h('span', { text: tag.name }));
+  return el;
+}
+
+// The picker for one item: every tag as a toggle, and a field for a new tag.
+function tagPicker(store, itemId, onDone) {
+  const box = h('div.tagpick', { role: 'group', 'aria-label': t('tagsFor') });
+  const render = () => {
+    box.textContent = '';
+    for (const tag of store.tags) {
+      const on = store.has(itemId, tag.id);
+      box.append(h('button.tagopt' + (on ? '.on' : ''), { 'aria-pressed': String(on), onclick: () => { store.toggle(itemId, tag.id); render(); } },
+        h('i', { style: 'background:' + tag.color }), h('span', { text: tag.name })));
+    }
+    const input = h('input.input.small', { placeholder: t('newTag'), maxLength: 40, 'aria-label': t('newTag') });
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter' && input.value.trim()) {
+        const tag = store.create(input.value);
+        if (tag && !store.has(itemId, tag.id)) store.toggle(itemId, tag.id);
+        render();
+        box.querySelector('input').focus();
+      } else if (e.key === 'Escape') onDone();
+    });
+    box.append(h('div.tagnew', null, input, h('button.link', { text: t('done'), onclick: onDone })));
+  };
+  render();
+  return box;
+}
+
+// Managing the course's tags: rename, colour, delete (two clicks), add.
+function tagManager(store, onClose) {
+  const box = h('div.tagman');
+  const render = () => {
+    box.textContent = '';
+    box.append(h('div.pinfo', { text: t('tagsPrivate') }));
+    for (const tag of store.tags) {
+      const swatch = h('button.tagswatch', { title: t('tagColor'), 'aria-label': t('tagColor'), style: 'background:' + tag.color });
+      swatch.addEventListener('click', () => {
+        const i = TAG_COLORS.indexOf(tag.color);
+        store.recolor(tag.id, TAG_COLORS[(i + 1) % TAG_COLORS.length]);
+        render();
+      });
+      const name = h('input.input.small', { value: tag.name, maxLength: 40, 'aria-label': t('tagName') });
+      name.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') name.blur(); });
+      name.addEventListener('change', () => store.rename(tag.id, name.value));
+      let armed = 0;
+      const del = h('button.link.danger', { text: t('delete') });
+      del.addEventListener('click', () => {
+        if (!armed) { del.textContent = t('confirmDelete'); armed = setTimeout(() => { armed = 0; del.textContent = t('delete'); }, 3000); return; }
+        clearTimeout(armed);
+        store.remove(tag.id);
+        render();
+      });
+      box.append(h('div.tagrow', null, swatch, name, del));
+    }
+    const input = h('input.input.small', { placeholder: t('newTag'), maxLength: 40, 'aria-label': t('newTag') });
+    input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter' && store.create(input.value)) render(); });
+    box.append(h('div.tagrow', null, input, h('button.pbtn', { text: t('addTag'), onclick: () => { if (store.create(input.value)) render(); } })),
+      h('div.crow', null, h('span.grow'), h('button.link', { text: t('done'), onclick: onClose })));
+  };
+  render();
+  return box;
 }
 
 // ---- 48-discussion.js ----
@@ -4219,6 +4558,7 @@ class MarkersLayer {
       if (m.time < 0 || m.time > this.dur) continue;
       const i = document.createElement('i');
       i.className = 'mk mk-' + m.kind;
+      if (m.color) i.style.background = m.color;
       i.style.left = ((m.time / this.dur) * 100).toFixed(3) + '%';
       frag.appendChild(i);
     }

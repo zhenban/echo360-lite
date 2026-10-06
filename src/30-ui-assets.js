@@ -122,6 +122,21 @@ select.input option { background: #1b1b20; }
 .ihead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
 .ibody { margin-top: 6px; font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .iactions, .cactions { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; }
+/* Tags (local, private) */
+.itags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+.tagchip, .tagopt { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px 2px 6px; border-radius: 10px;
+  background: rgba(255,255,255,.08); color: inherit; font: inherit; font-size: 12px; border: 0; cursor: pointer; }
+.tagchip i, .tagopt i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.tagopt { opacity: .6; } .tagopt.on { opacity: 1; background: rgba(255,255,255,.18); }
+.tagopt:hover, .tagchip:hover { background: rgba(255,255,255,.16); }
+.tagpick { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; border-radius: 8px; background: rgba(0,0,0,.25); }
+.tagnew { flex-basis: 100%; display: flex; gap: 8px; align-items: center; }
+.tagnew input { flex: 1; min-width: 0; }
+.addtag { font-size: 12px; }
+.tagman { padding: 10px 12px; margin-bottom: 10px; border-radius: 10px; background: rgba(255,255,255,.045); display: flex; flex-direction: column; gap: 8px; }
+.tagrow { display: flex; gap: 8px; align-items: center; }
+.tagrow input { flex: 1; min-width: 0; }
+.tagswatch { width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(255,255,255,.4); cursor: pointer; flex: none; padding: 0; }
 .kind { font-weight: 600; } .kind.k-note { color: #9cc3ff; } .kind.k-bookmark { color: #7ee2bf; } .kind.k-flag { color: #ff9a9a; }
 .chiptime { height: 22px; padding: 0 8px; border-radius: 11px; background: rgba(79,140,255,.18); color: #b9d2ff; font-size: 12px; font-variant-numeric: tabular-nums; }
 .chiptime:hover { background: rgba(79,140,255,.32); }
@@ -358,12 +373,22 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border: 0; bord
 .toast button:hover { background: rgba(255,255,255,.08); }
 .error { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.7); }
 .error[hidden] { display: none; }
-.card { max-width: 420px; margin: 16px; padding: 20px 22px; border-radius: 14px; background: #1b1b20; box-shadow: 0 10px 40px rgba(0,0,0,.5); }
-.card h2 { margin: 0 0 8px; font-size: 16px; }
-.card p { margin: 0 0 16px; opacity: .8; }
-.card .actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
-.card button { height: 34px; padding: 0 14px; border-radius: 8px; background: rgba(255,255,255,.1); }
-.card button.primary { background: var(--accent); color: #fff; }
+.error .card { max-width: 420px; margin: 16px; padding: 20px 22px; border-radius: 14px; background: #1b1b20; box-shadow: 0 10px 40px rgba(0,0,0,.5); }
+.error .card h2 { margin: 0 0 8px; font-size: 16px; }
+.error .card p { margin: 0 0 16px; opacity: .8; }
+.error .card .actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.keyhelp { position: absolute; inset: 0; z-index: 8; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.6); }
+.keyhelp[hidden] { display: none; }
+.khcard { max-width: min(640px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto; padding: 18px 22px; border-radius: 14px;
+  background: #1b1b20; box-shadow: 0 10px 40px rgba(0,0,0,.5); }
+.khcard h2 { margin: 0 0 12px; font-size: 16px; }
+.khlist { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; font-size: 13px; margin-bottom: 14px; }
+.khlist kbd { display: inline-block; min-width: 1.4em; padding: 1px 6px; margin-right: 3px; border-radius: 5px; text-align: center;
+  background: rgba(255,255,255,.12); font: 12px/1.6 ui-monospace, monospace; }
+.khcard .actions { display: flex; justify-content: flex-end; }
+.kbtn { font-weight: 700; min-width: 32px; justify-content: center; }
+.error .card button { height: 34px; padding: 0 14px; border-radius: 8px; background: rgba(255,255,255,.1); }
+.error .card button.primary { background: var(--accent); color: #fff; }
 @media (max-width: 560px) {
   .hide-sm { display: none !important; }
   .top { padding: 6px 8px 22px; }
@@ -405,6 +430,7 @@ function playerTemplate() {
     <button class="chip tbtn" data-open="slides" hidden aria-pressed="false" title="${t('slidesKey')}">${svg('slides')}<span class="lbl">${t('slides')}</span></button>
     <button class="chip tbtn" data-open="notes" hidden aria-pressed="false" title="${t('notes')}">${svg('notes')}<span class="lbl">${t('notes')}</span></button>
     <button class="chip tbtn" data-open="discussion" hidden aria-pressed="false" title="${t('discussion')}">${svg('discussion')}<span class="lbl">${t('discussion')}</span></button>
+    <button class="chip kbtn" title="${t('keysTitle')} (?)" aria-label="${t('keysTitle')}">?</button>
     <button class="chip orig" title="${t('originalPlayerTitle')}">${t('originalPlayer')}</button>
   </div>
   <div class="bottom">
@@ -476,6 +502,8 @@ function playerTemplate() {
   <div class="toast" hidden><span class="msg"></span><button class="act"></button></div>
   <div class="dropzone" hidden>${t('dropSlides')}</div>
   <div class="error" hidden><div class="card"><h2></h2><p></p><div class="actions"></div></div></div>
+  <div class="keyhelp" hidden role="dialog" aria-label="${t('keysTitle')}"><div class="khcard"><h2>${t('keysTitle')}</h2><div class="khlist"></div>
+    <div class="actions"><button class="pbtn khclose">${t('close')}</button></div></div></div>
 </div>
 <aside class="panel" hidden aria-label="${t('sidebarTabs')}">
   <div class="presize" title="${t('resizePanel')}"></div>

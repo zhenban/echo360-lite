@@ -14,6 +14,15 @@
 const LAYOUTS = ['side', 'pip', 'single'];
 const CORNERS = ['br', 'bl', 'tr', 'tl'];
 
+// Keyboard shortcuts, as listed in the help panel (`?`): [keys, string key].
+const KEY_HELP = [
+  [['Space', 'K'], 'keyPlay'], [['←', '→'], 'keySeek5'], [['J', 'L'], 'keySeek10'], [['↑', '↓'], 'keyVolume'],
+  [['M'], 'keyMute'], [['F'], 'keyFullscreen'], [['S'], 'keySwap'], [['[', ']'], 'keySpeed'],
+  [['C'], 'keyCaptions'], [['T'], 'keyTranscript'], [['B'], 'keyBookmark'], [['G'], 'keyTag'], [['U'], 'keyFlag'],
+  [['Shift+←', 'Shift+→'], 'keySlide'], [['P'], 'keyCopyFrame'], [['A'], 'keyCopyCaptions'],
+  [['?'], 'keyHelp'], [['Esc'], 'keyEscape'],
+];
+
 class LitePlayer {
   constructor(lesson, opts) {
     this.lesson = lesson;
@@ -655,6 +664,9 @@ class LitePlayer {
   }
 
   bindControls() {
+    this.d.listen(this.$('.kbtn'), 'click', (e) => { e.stopPropagation(); this.showKeys(true); });
+    this.d.listen(this.$('.khclose'), 'click', (e) => { e.stopPropagation(); this.showKeys(false); });
+    this.d.listen(this.$('.keyhelp'), 'click', (e) => { if (e.target === this.$('.keyhelp')) this.showKeys(false); });
     const $ = (s) => this.$(s);
     const v = this.video;
     const d = this.d;
@@ -944,11 +956,14 @@ class LitePlayer {
         case 't': case 'T': if (this.sidebar.has('transcript')) this.sidebar.toggle('transcript'); else handled = false; break;
         case 'b': case 'B': if (this.notes && this.notesReady) this.notes.addBookmark(e); else handled = false; break;
         case 'u': case 'U': if (this.notes && this.notesReady && this.notes.canFlag) this.notes.toggleFlag(e); else handled = false; break;
+        case 'g': case 'G': if (this.notes && this.notesReady) this.notes.tagHere(e); else handled = false; break;
         case 'p': case 'P': this.copyFrame(); break;
         case 'a': case 'A': this.copyCaptions(); break;
         case 'Escape':
-          if (this.menusOpen()) { for (const m of this.root.querySelectorAll('.menu')) m.hidden = true; } else handled = false;
+          if (!this.$('.keyhelp').hidden) this.showKeys(false);
+          else if (this.menusOpen()) { for (const m of this.root.querySelectorAll('.menu')) m.hidden = true; } else handled = false;
           break;
+        case '?': this.showKeys(this.$('.keyhelp').hidden); break;
         case ']': this.setRate(nextSpeed(v.playbackRate, 1)); break;
         case '[': this.setRate(nextSpeed(v.playbackRate, -1)); break;
         default: handled = false;
@@ -1333,6 +1348,8 @@ class LitePlayer {
     const api = this.opts.api && l.lessonId && l.mediaId ? this.opts.api(l) : null;
     if (!api) return;
     const canFlag = !!l.sectionId && !l.isAnonymousUser;
+    this.tags = new TagStore(l, () => { if (!this.destroyed && this.notes) this.notes.changed(); });
+    this.tags.load().catch((e) => console.warn(TAG, 'tags:', e && e.message ? e.message : e));
     this.notes = new NotesPane(this, this.$('.pane[data-pane=notes]'), api, canFlag);
     this.notes.load().then((ok) => {
       if (this.destroyed || !ok) return;
@@ -1391,6 +1408,19 @@ class LitePlayer {
     const end = () => { if (appRect) { appRect = null; this.savePrefs(); } };
     this.d.listen(handle, 'pointerup', end);
     this.d.listen(handle, 'pointercancel', end);
+  }
+
+  showKeys(on) {
+    const box = this.$('.keyhelp');
+    if (on) {
+      const list = box.querySelector('.khlist');
+      list.textContent = '';
+      for (const [keys, label] of KEY_HELP) {
+        list.append(h('div', null, ...keys.map((k) => h('kbd', { text: k }))), h('div', { text: t(label) }));
+      }
+    }
+    box.hidden = !on;
+    if (on) box.querySelector('.khclose').focus();
   }
 
   toast(msg, action, fn) {

@@ -1,7 +1,8 @@
 // ===================================================================================
 // Notes tab: private notes, bookmarks and "didn't understand" flags, sorted by time.
 // Data is loaded once at start (it also feeds the progress-bar markers); the list DOM is
-// only rebuilt while the tab is visible.
+// only rebuilt while the tab is visible. Notes and bookmarks can carry local tags
+// (47-tags.js).
 // ===================================================================================
 
 const NOTE_FILTERS = ['all', 'note', 'bookmark', 'flag'];
@@ -14,6 +15,10 @@ class NotesPane {
     this.canFlag = canFlag;
     this.items = [];
     this.filter = 'all';
+    this.tagFilter = '';      // '' all, a tag id, or '-' untagged
+    this.tags = player.tags;
+    this.picking = null;      // item id whose tag picker is open
+    this.managing = false;
     this.visible = false;
     this.dirty = true;
     this.d = new Disposer();
@@ -59,12 +64,17 @@ class NotesPane {
       this.select.append(h('option', { value: f, text: label }));
     }
     this.d.listen(this.select, 'change', () => { this.filter = this.select.value; this.render(); });
+    this.tagSelect = h('select.input.small', { 'aria-label': t('filterTags') });
+    this.d.listen(this.tagSelect, 'change', () => { this.tagFilter = this.tagSelect.value; this.render(); });
+    this.manageBtn = h('button.link', { text: t('manageTags'), onclick: () => { this.managing = !this.managing; this.render(); } });
+    this.manageBox = h('div');
     this.errorEl = h('div.perror', { hidden: true });
     this.list = h('div.plist');
     this.pane.append(
       h('div.pinfo', { text: t('notesPrivate') }),
       h('div.composer', null, this.textarea, h('div.crow', null, timeLabel, h('span.grow'), this.addBtn)),
-      h('div.ptools', null, this.select),
+      h('div.ptools', null, this.select, this.tagSelect, h('span.grow'), this.manageBtn),
+      this.manageBox,
       this.errorEl,
       this.list,
     );
@@ -91,10 +101,31 @@ class NotesPane {
     this.p.toast(t('saveFailed', { error: e.message || e }));
   }
 
+  renderTagFilter() {
+    const sel = this.tagSelect;
+    const keep = this.tagFilter;
+    sel.textContent = '';
+    sel.append(h('option', { value: '', text: t('allTags') }));
+    for (const tag of this.tags.tags) sel.append(h('option', { value: tag.id, text: tag.name }));
+    sel.append(h('option', { value: '-', text: t('untagged') }));
+    this.tagFilter = keep && (keep === '-' || this.tags.byId(keep)) ? keep : '';
+    sel.value = this.tagFilter;
+  }
+
+  tagMatch(item) {
+    if (!this.tagFilter) return true;
+    if (item.type === 'flag') return false;
+    const ids = this.tags.of(item.id);
+    return this.tagFilter === '-' ? !ids.length : ids.some((x) => x.id === this.tagFilter);
+  }
+
   render() {
     this.dirty = false;
     const long = this.p.duration() >= 3600;
-    const shown = this.items.filter((x) => this.filter === 'all' || x.type === this.filter);
+    this.renderTagFilter();
+    this.manageBox.textContent = '';
+    if (this.managing) this.manageBox.append(tagManager(this.tags, () => { this.managing = false; this.render(); }));
+    const shown = this.items.filter((x) => (this.filter === 'all' || x.type === this.filter) && this.tagMatch(x));
     const frag = document.createDocumentFragment();
     if (!shown.length) frag.append(h('div.pempty', { text: t('noNotes') }));
     for (const item of shown) frag.append(this.renderItem(item, long));
@@ -109,10 +140,17 @@ class NotesPane {
       : null;
     const head = h('div.ihead', null, h('span.kind.k-' + item.type, { text: label }), time, h('span.grow'));
     const body = item.type === 'note' ? h('div.ibody', { text: item.text }) : null;
+    let tags = null;
+    if (item.type !== 'flag') {
+      const open = () => { this.picking = this.picking === item.id ? null : item.id; this.render(); };
+      tags = h('div.itags', null, ...this.tags.of(item.id).map((tag) => tagChip(tag, open)),
+        h('button.link.addtag', { text: t('addTagShort'), title: t('tagsFor'), onclick: open }));
+      if (this.picking === item.id) tags.append(tagPicker(this.tags, item.id, () => { this.picking = null; this.render(); }));
+    }
     const actions = h('div.iactions');
     if (item.type === 'note') actions.append(h('button.link', { text: t('edit'), onclick: () => this.startEdit(item, card) }));
     actions.append(this.deleteButton(item));
-    const card = h('div.card.k-' + item.type, null, head, body, actions);
+    const card = h('div.card.k-' + item.type, { 'data-id': item.id }, head, body, tags, actions);
     return card;
   }
 
@@ -217,6 +255,7 @@ class NotesPane {
       if (item.type === 'flag') await this.api.removeFlag(e, item);
       else await this.api.deleteNote(e, item);
       this.items = this.items.filter((x) => x !== item);
+      this.tags.forget(item.id);
       this.showError('');
       this.changed();
       this.p.renderFlagButton();
@@ -224,11 +263,37 @@ class NotesPane {
   }
 
   markers() {
-    return this.items.filter((x) => x.time != null).map((x) => ({
-      time: x.time,
-      kind: x.type,
-      label: x.type === 'note' ? t('markerNote') + ': ' + x.text : x.type === 'bookmark' ? t('markerBookmark') : t('markerFlag'),
-    }));
+    return this.items.filter((x) => x.time != null).map((x) => {
+      const tags = x.type === 'flag' ? [] : this.tags.of(x.id);
+      const base = x.type === 'note' ? t('markerNote') + ': ' + x.text : x.type === 'bookmark' ? t('markerBookmark') : t('markerFlag');
+      return {
+        time: x.time,
+        kind: x.type,
+        color: tags.length ? tags[0].color : null,
+        label: tags.length ? base + ' [' + tags.map((g) => g.name).join(', ') + ']' : base,
+      };
+    });
+  }
+
+  // `G`: tags the note or bookmark at the current time (within the last 30 s, or just
+  // ahead), or bookmarks this moment first; opens its tag picker.
+  async tagHere(e) {
+    const now = this.p.video.currentTime;
+    let item = null;
+    for (const x of this.items) if (x.type !== 'flag' && x.time != null && x.time <= now + 5 && x.time >= now - 30 && (!item || Math.abs(x.time - now) < Math.abs(item.time - now))) item = x;
+    if (!item) {
+      await this.addBookmark(e);
+      item = this.items.filter((x) => x.type === 'bookmark').sort((a, b) => Math.abs(a.time - now) - Math.abs(b.time - now))[0];
+      if (!item) return;
+    }
+    this.filter = 'all';
+    this.select.value = 'all';
+    this.tagFilter = '';
+    this.picking = item.id;
+    this.p.sidebar.open('notes');
+    this.render();
+    const card = this.list.querySelector('[data-id="' + CSS.escape(String(item.id)) + '"]');
+    if (card) { card.scrollIntoView({ block: 'nearest' }); const b = card.querySelector('.tagopt'); if (b) b.focus(); }
   }
 
   dispose() {
