@@ -1,5 +1,5 @@
 {
- "note": "Hand-labelled ground truth for slide matching (M7.5). Lecture of 2026-09-24; chapters as found by M7 (v0.7.x). file: index of the slide PDF in drop order (0 = 02 Domain Modelling, 1 = 03 Design By Contract); page: 1-based page; view: normal (whole page in the usual viewer layout), zoom (zoomed-in or cropped view of the page), none (not a slide). Chapter 35 is uncertain (page 25 or 26). Contains times and page numbers only.",
+ "note": "Hand-labelled ground truth for slide matching (M7.5). Lecture of 2026-09-24; chapters as found by M7 (v0.7.x). file: index of the slide PDF in drop order (0 = 02 Domain Modelling, 1 = 03 Design By Contract); page: 1-based page; view: normal (whole page in the usual viewer layout), zoom (zoomed-in or cropped view of the page), none (not a slide). Chapter 35 is uncertain (page 25 or 26). Chapter 29 corrected to page 20 after checking the page text. Contains times and page numbers only.",
  "lesson": "2026-09-24",
  "chapters": [
   {
@@ -179,7 +179,7 @@
   {
    "start": 2358.12,
    "file": 0,
-   "page": 18,
+   "page": 20,
    "view": "zoom"
   },
   {
