@@ -92,6 +92,9 @@ class LitePlayer {
     this.bindControls();
     this.bindLayoutControls();
     this.bindKeys();
+    this.watched = new WatchedStore(lesson, this.video, this.played);
+    this.watched.load().then(() => { if (!this.destroyed) this.renderWatched(); }).catch(() => {});
+    this.d.listen(window, 'pagehide', () => this.watched.save(this.duration()));
     this.reporter = lesson.analytics ? new Reporter(lesson.analytics, this.video, this.played, this.d.child()) : null;
     if (this.reporter) this.reporter.stateFn = () => ({ captions: this.cc.on, transcript: this.sidebar.visible('transcript') });
     this.setupSilence();
@@ -525,7 +528,7 @@ class LitePlayer {
     on('timeupdate', () => { invalidate(); onTime(); });
     on('seeked', onTime);
     on('progress', invalidate);
-    on('durationchange', () => { this.render(true); if (this.loop) this.loop.render(); this.updateMarkers(); this.renderSilences(); this.renderChapterMarks(); });
+    on('durationchange', () => { this.render(true); if (this.loop) this.loop.render(); this.renderWatched(); this.updateMarkers(); this.renderSilences(); this.renderChapterMarks(); });
     on('ratechange', () => {
       this.$('.speed').textContent = v.playbackRate + 'x';
       for (const b of this.root.querySelectorAll('.speedmenu button')) b.setAttribute('aria-checked', String(+b.dataset.rate === v.playbackRate));
@@ -554,7 +557,7 @@ class LitePlayer {
           still = 0;
         }
       } else { still = 0; lastT = v.currentTime; }
-      if (++tick % 5 === 0) this.savePosition();
+      if (++tick % 5 === 0) { this.savePosition(); this.watched.save(this.duration()); this.renderWatched(); }
     }, 2000);
   }
 
@@ -1441,6 +1444,22 @@ class LitePlayer {
     const end = () => { if (appRect) { appRect = null; this.savePrefs(); } };
     this.d.listen(handle, 'pointerup', end);
     this.d.listen(handle, 'pointercancel', end);
+  }
+
+  // Stretches watched on this device (earlier visits and this one), faint on the rail.
+  renderWatched() {
+    const dur = this.duration();
+    const el = this.$('.wat');
+    if (!dur || !this.watched.ready) return;
+    el.textContent = '';
+    const frag = document.createDocumentFragment();
+    for (const [a, b] of this.watched.ranges()) {
+      const i = document.createElement('i');
+      i.style.left = ((a / dur) * 100).toFixed(3) + '%';
+      i.style.width = (((Math.min(b, dur) - a) / dur) * 100).toFixed(3) + '%';
+      frag.appendChild(i);
+    }
+    el.appendChild(frag);
   }
 
   // Keyboard zoom on the main picture (the primary slot), around its centre; 0 resets.

@@ -30,7 +30,7 @@ function loadSources(names) {
   const files = readdirSync(join(root, 'src')).filter((f) => names.some((n) => f.includes(n))).sort();
   const code = files.map((f) => readFileSync(join(root, 'src', f), 'utf8')).join('\n')
     + '\n;globalThis.__exports = {};'
-    + ['clamp', 'fmtTime', 'parseIsoDuration', 'Disposer', 'PlayedRanges', 'FollowerSync', 'CueIndex', 'parseVtt', 'AudioChain', 'seg', 'thumbnailFor', 'pickAudioRendition', 'parseMediaPlaylist', 'Envelope', 'findSilences', 'silencesFromCues', 'speechSpans', 'silenceIndexAt', 'mp4Boxes', 'parseFragment', 'videoVariants', 'frameDistance', 'sameView', 'buildScenes', 'chapterIndexAt', 'SessionKeeper', 'mediaSession', 'TagStore', 'followSamples', 'followLecture', 'textScores', 'FORCE_OFF', 'captionExcerpt']
+    + ['clamp', 'fmtTime', 'parseIsoDuration', 'Disposer', 'PlayedRanges', 'FollowerSync', 'CueIndex', 'parseVtt', 'AudioChain', 'seg', 'thumbnailFor', 'pickAudioRendition', 'parseMediaPlaylist', 'Envelope', 'findSilences', 'silencesFromCues', 'speechSpans', 'silenceIndexAt', 'mp4Boxes', 'parseFragment', 'videoVariants', 'frameDistance', 'sameView', 'buildScenes', 'chapterIndexAt', 'SessionKeeper', 'mediaSession', 'TagStore', 'watchedShare', 'followSamples', 'followLecture', 'textScores', 'FORCE_OFF', 'captionExcerpt']
       .map((n) => `if (typeof ${n} !== 'undefined') globalThis.__exports.${n} = ${n};`).join('\n');
   vm.runInContext(code, ctx);
   return { ...ctx.__exports, timers, window: ctx.window, setFetch: (fn) => { ctx.__fetch = fn; } };
@@ -606,6 +606,13 @@ test('tags: defaults once per course, create / rename / toggle / delete keeps th
   assert.equal(st.of('n1').map((x) => x.name).join(','), 'Week 3 formulas');
   st.toggle('n1', t1.id);
   assert.equal(Object.keys(st.map).length, 0);     // an item without tags is dropped
+});
+
+test('watched share: overlapping-free ranges, clipped to the duration', () => {
+  const m = loadSources(['00-util', '20-reporter', '53-media-io', '43-watched']);
+  assert.equal(m.watchedShare({ d: 100, r: [[0, 10], [50, 70]] }), 0.3);
+  assert.equal(m.watchedShare({ d: 100, r: [[90, 130]] }), 0.1);
+  assert.equal(m.watchedShare(null), 0);
 });
 
 test('caption excerpt: last span in whole sentences', () => {

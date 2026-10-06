@@ -378,6 +378,9 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border: 0; bord
 .error .card h2 { margin: 0 0 8px; font-size: 16px; }
 .error .card p { margin: 0 0 16px; opacity: .8; }
 .error .card .actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+/* Watched before (this device): faint, under the buffer and the other marks */
+.wat { position: absolute; inset: 0; pointer-events: none; }
+.wat i { position: absolute; top: 0; bottom: 0; background: rgba(255,255,255,.16); }
 /* A-B loop band on the progress bar */
 .loopband { position: absolute; top: 2px; height: 14px; z-index: 2; border-radius: 4px; pointer-events: none;
   background: rgba(246,195,67,.22); box-shadow: inset 0 0 0 1.5px rgba(246,195,67,.9); min-width: 2px; }
@@ -455,7 +458,7 @@ function playerTemplate() {
   </div>
   <div class="bottom">
     <div class="seek" role="slider" aria-label="${t('seek')}" tabindex="0">
-      <div class="rail"><div class="bar buf"></div><div class="sils"></div><div class="chaps"></div><div class="bar hov"></div><div class="bar fill"></div></div>
+      <div class="rail"><div class="wat"></div><div class="bar buf"></div><div class="sils"></div><div class="chaps"></div><div class="bar hov"></div><div class="bar fill"></div></div>
       <div class="imarks"></div>
       <div class="marks"></div>
       <div class="knob-track"><div class="knob"></div></div>

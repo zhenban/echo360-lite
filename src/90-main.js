@@ -3,6 +3,7 @@
 // ===================================================================================
 
 (function main() {
+  if (courseList.matches()) { try { courseList.start(); } catch (e) { /* the page works without it */ } return; }
   const adapter = ADAPTERS.find((a) => { try { return a.matches(); } catch (e) { return false; } });
   if (!adapter) return;
 

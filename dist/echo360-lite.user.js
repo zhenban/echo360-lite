@@ -5,6 +5,7 @@
 // @description  Replaces the Echo360 lecture player with a lightweight native player (far lower CPU use). Falls back to the original player automatically if anything is not recognised.
 // @license      MIT
 // @match        https://echo360.net.au/lesson/*
+// @match        https://echo360.net.au/section/*/home
 // @require      https://cdn.jsdelivr.net/npm/hls.js@1.7.3/dist/hls.min.js
 // @run-at       document-start
 // @grant        none
@@ -393,6 +394,10 @@ const STRINGS = {
     keyLoop: 'Loop: set start / end (A-B), or right-click the progress bar',
     keyLoopClear: 'End the loop',
     keyHelp: 'This list',
+    listWatched: '{pct}% watched',
+    listWatchedTitle: 'Share of this recording you have watched (Echo360 Lite, this device)',
+    listLastAt: 'Last at {pct}%',
+    listLastAtTitle: 'Where you stopped last time (Echo360; no record on this device)',
     loopStart: 'Loop start (drag)',
     loopEnd: 'Loop end (drag)',
     loopClear: 'End loop',
@@ -1388,6 +1393,9 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border: 0; bord
 .error .card h2 { margin: 0 0 8px; font-size: 16px; }
 .error .card p { margin: 0 0 16px; opacity: .8; }
 .error .card .actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+/* Watched before (this device): faint, under the buffer and the other marks */
+.wat { position: absolute; inset: 0; pointer-events: none; }
+.wat i { position: absolute; top: 0; bottom: 0; background: rgba(255,255,255,.16); }
 /* A-B loop band on the progress bar */
 .loopband { position: absolute; top: 2px; height: 14px; z-index: 2; border-radius: 4px; pointer-events: none;
   background: rgba(246,195,67,.22); box-shadow: inset 0 0 0 1.5px rgba(246,195,67,.9); min-width: 2px; }
@@ -1465,7 +1473,7 @@ function playerTemplate() {
   </div>
   <div class="bottom">
     <div class="seek" role="slider" aria-label="${t('seek')}" tabindex="0">
-      <div class="rail"><div class="bar buf"></div><div class="sils"></div><div class="chaps"></div><div class="bar hov"></div><div class="bar fill"></div></div>
+      <div class="rail"><div class="wat"></div><div class="bar buf"></div><div class="sils"></div><div class="chaps"></div><div class="bar hov"></div><div class="bar fill"></div></div>
       <div class="imarks"></div>
       <div class="marks"></div>
       <div class="knob-track"><div class="knob"></div></div>
@@ -2039,6 +2047,9 @@ class LitePlayer {
     this.bindControls();
     this.bindLayoutControls();
     this.bindKeys();
+    this.watched = new WatchedStore(lesson, this.video, this.played);
+    this.watched.load().then(() => { if (!this.destroyed) this.renderWatched(); }).catch(() => {});
+    this.d.listen(window, 'pagehide', () => this.watched.save(this.duration()));
     this.reporter = lesson.analytics ? new Reporter(lesson.analytics, this.video, this.played, this.d.child()) : null;
     if (this.reporter) this.reporter.stateFn = () => ({ captions: this.cc.on, transcript: this.sidebar.visible('transcript') });
     this.setupSilence();
@@ -2472,7 +2483,7 @@ class LitePlayer {
     on('timeupdate', () => { invalidate(); onTime(); });
     on('seeked', onTime);
     on('progress', invalidate);
-    on('durationchange', () => { this.render(true); if (this.loop) this.loop.render(); this.updateMarkers(); this.renderSilences(); this.renderChapterMarks(); });
+    on('durationchange', () => { this.render(true); if (this.loop) this.loop.render(); this.renderWatched(); this.updateMarkers(); this.renderSilences(); this.renderChapterMarks(); });
     on('ratechange', () => {
       this.$('.speed').textContent = v.playbackRate + 'x';
       for (const b of this.root.querySelectorAll('.speedmenu button')) b.setAttribute('aria-checked', String(+b.dataset.rate === v.playbackRate));
@@ -2501,7 +2512,7 @@ class LitePlayer {
           still = 0;
         }
       } else { still = 0; lastT = v.currentTime; }
-      if (++tick % 5 === 0) this.savePosition();
+      if (++tick % 5 === 0) { this.savePosition(); this.watched.save(this.duration()); this.renderWatched(); }
     }, 2000);
   }
 
@@ -3390,6 +3401,22 @@ class LitePlayer {
     this.d.listen(handle, 'pointercancel', end);
   }
 
+  // Stretches watched on this device (earlier visits and this one), faint on the rail.
+  renderWatched() {
+    const dur = this.duration();
+    const el = this.$('.wat');
+    if (!dur || !this.watched.ready) return;
+    el.textContent = '';
+    const frag = document.createDocumentFragment();
+    for (const [a, b] of this.watched.ranges()) {
+      const i = document.createElement('i');
+      i.style.left = ((a / dur) * 100).toFixed(3) + '%';
+      i.style.width = (((Math.min(b, dur) - a) / dur) * 100).toFixed(3) + '%';
+      frag.appendChild(i);
+    }
+    el.appendChild(frag);
+  }
+
   // Keyboard zoom on the main picture (the primary slot), around its centre; 0 resets.
   zoomMain(factor) {
     const slot = this.root.querySelector('.views [data-slot=primary]');
@@ -3790,6 +3817,62 @@ class ABLoop {
     this.last = target;
     this.p.toast(t('loopOutside', { from: fmtTime(this.a), to: fmtTime(this.b) }), t('loopClear'), () => this.clear());
   }
+}
+
+// ---- 43-watched.js ----
+// ===================================================================================
+// What has been watched: the stretches of a recording played on this device, kept across
+// visits, shown faintly on the progress bar and as a percentage on the course page
+// (80-course-list.js).
+//
+// Echo360 keeps no per-user record of which parts were watched that a page can read: the
+// course list only says whether a recording was opened (isRead), and the player only gets
+// the last position (lastPlayedToSeconds). So coverage is local; the course page falls
+// back to Echo360's last position where this device has no record.
+//
+//   watched:<lessonId>   { d: duration (s), r: [[start, end], ...] (s), at: last update }
+// ===================================================================================
+
+const WATCHED_MIN_SEC = 2;     // shorter stretches (a seek landing, a frame) do not count
+
+class WatchedStore {
+  constructor(lesson, video, played) {
+    this.key = lesson.lessonId ? 'watched:' + lesson.lessonId : null;
+    this.video = video;
+    this.played = played;
+    this.base = [];            // stored before this visit
+    this.ready = false;
+  }
+
+  async load() {
+    if (!this.key) return;
+    const rec = await idbCache.get(this.key);
+    if (rec && Array.isArray(rec.r)) this.base = rec.r;
+    this.ready = true;
+  }
+
+  // Everything watched so far: earlier visits and this one.
+  ranges() {
+    const all = new PlayedRanges();
+    all.ranges = this.base.slice();
+    for (const [a, b] of this.played.merged(this.video.played)) if (b - a >= WATCHED_MIN_SEC) all.add(a, b);
+    return all.ranges;
+  }
+
+  save(duration) {
+    if (!this.key || !this.ready || !(duration > 0)) return;
+    const r = this.ranges().map(([a, b]) => [Math.floor(a), Math.ceil(b)]);
+    if (!r.length) return;
+    idbCache.put(this.key, { d: Math.round(duration), r, at: Date.now() });
+  }
+}
+
+// Share of a recording watched (0..1) from a stored record.
+function watchedShare(rec) {
+  if (!rec || !(rec.d > 0) || !Array.isArray(rec.r)) return 0;
+  let s = 0;
+  for (const [a, b] of rec.r) s += Math.max(0, Math.min(b, rec.d) - Math.max(a, 0));
+  return Math.min(1, s / rec.d);
 }
 
 // ---- 45-captions.js ----
@@ -7988,12 +8071,121 @@ const cpuFix = (function () {
   return { start, state };
 })();
 
+// ---- 80-course-list.js ----
+// ===================================================================================
+// Course page (/section/<id>/home): a small "watched" mark next to each recording.
+//
+// Light by design: nothing on the page is moved or replaced, one small label is added to
+// each lesson row (and again if the list is redrawn). The share comes from this device's
+// record (43-watched.js); for recordings opened elsewhere, Echo360's last position is shown
+// instead (one request per such recording, a few at a time, after the page has settled).
+// Anything that fails is skipped without a word.
+// ===================================================================================
+
+const courseList = {
+  matches() {
+    return /(^|\.)echo360\.[a-z.]+$/.test(location.hostname) && /^\/section\/[^/]+\/home/.test(location.pathname);
+  },
+
+  start() {
+    const section = location.pathname.split('/')[2];
+    const known = new Map();   // lessonId -> label info (null while loading)
+    let server = null;         // promise of { lessonId: { mediaId, read } } from the syllabus
+    const style = document.createElement('style');
+    style.textContent = '.e3l-watch{display:inline-block;margin-left:10px;padding:1px 7px;border-radius:9px;font-size:12px;line-height:18px;'
+      + 'vertical-align:middle;background:#e8f3ee;color:#1d6b4f;white-space:nowrap}.e3l-watch.e3l-last{background:#eef1f6;color:#4a5568}'
+      + '.e3l-watch.e3l-done{background:#1d6b4f;color:#fff}';
+
+    const syllabus = () => {
+      if (!server) {
+        server = fetch('/section/' + encodeURIComponent(section) + '/syllabus', { credentials: 'include', headers: { Accept: 'application/json' } })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((j) => {
+            const out = {};
+            for (const x of (j && j.data) || []) {
+              const l = x.lesson;
+              const m = l && l.medias && l.medias[0];
+              if (l && l.lesson && m) out[l.lesson.id] = { mediaId: m.id, read: !!m.isRead };
+            }
+            return out;
+          })
+          .catch(() => ({}));
+      }
+      return server;
+    };
+
+    const queue = [];
+    let running = 0;
+    const pump = () => {
+      while (running < 2 && queue.length) {
+        const job = queue.shift();
+        running++;
+        job().catch(() => {}).finally(() => { running--; setTimeout(pump, 150); });
+      }
+    };
+
+    const label = (row, info) => {
+      const host = row.querySelector('.header-details') || row.querySelector('header') || row;
+      let el = host.querySelector('.e3l-watch');
+      if (!info) { if (el) el.remove(); return; }
+      if (!el) { el = document.createElement('span'); host.append(el); }
+      const pct = Math.max(1, Math.round(info.share * 100));  // never "0%" for something watched
+      el.className = 'e3l-watch' + (info.last ? ' e3l-last' : pct >= 95 ? ' e3l-done' : '');
+      el.textContent = info.last ? t('listLastAt', { pct }) : t('listWatched', { pct });
+      el.title = info.last ? t('listLastAtTitle') : t('listWatchedTitle');
+    };
+
+    const lookup = async (lid) => {
+      const rec = await idbCache.get('watched:' + lid);
+      const share = watchedShare(rec);
+      if (share > 0) return { share, last: false };
+      const s = (await syllabus())[lid];
+      if (!s || !s.read) return null;
+      const r = await fetch('/api/ui/echoplayer/lessons/' + encodeURIComponent(lid) + '/media/' + encodeURIComponent(s.mediaId) + '/player-properties',
+        { credentials: 'include', headers: { Accept: 'application/json' } });
+      if (!r.ok) return null;
+      const d = (await r.json()).data || {};
+      const dur = parseIsoDuration(d.playableAudioVideo && d.playableAudioVideo.duration);
+      const pos = d.lastPlayedToSeconds;
+      return dur > 0 && pos > 0 ? { share: Math.min(1, pos / dur), last: true } : null;
+    };
+
+    const scan = () => {
+      for (const row of document.querySelectorAll('.class-row[data-test-lessonid]')) {
+        const lid = row.getAttribute('data-test-lessonid');
+        // Rows drawn again lose the label; a row that has it is left alone (labelling is
+        // itself a change the observer sees).
+        if (known.has(lid)) { if (known.get(lid) && !row.querySelector('.e3l-watch')) label(row, known.get(lid)); continue; }
+        known.set(lid, null);
+        queue.push(() => lookup(lid).then((info) => {
+          known.set(lid, info);
+          for (const r of document.querySelectorAll('.class-row[data-test-lessonid="' + lid.replace(/"/g, '') + '"]')) label(r, info);
+        }));
+      }
+      pump();
+    };
+
+    let pending = 0;
+    const observe = () => {
+      document.head.append(style);
+      scan();
+      // The list is drawn by the page's own script and redrawn on sorting or filtering.
+      new MutationObserver(() => {
+        if (pending) return;
+        pending = setTimeout(() => { pending = 0; scan(); }, 300);
+      }).observe(document.body, { childList: true, subtree: true });
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', observe, { once: true }); else observe();
+  },
+};
+
 // ---- 90-main.js ----
 // ===================================================================================
 // Bootstrap
 // ===================================================================================
 
 (function main() {
+  if (courseList.matches()) { try { courseList.start(); } catch (e) { /* the page works without it */ } return; }
   const adapter = ADAPTERS.find((a) => { try { return a.matches(); } catch (e) { return false; } });
   if (!adapter) return;
 
