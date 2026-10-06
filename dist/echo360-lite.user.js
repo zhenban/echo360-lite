@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Echo360 Lite Player
 // @namespace    echo360-lite
-// @version      0.8.0
+// @version      0.9.0
 // @description  Replaces the Echo360 lecture player with a lightweight native player (far lower CPU use). Falls back to the original player automatically if anything is not recognised.
 // @license      MIT
 // @match        https://echo360.net.au/lesson/*
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.8.0';
+  const VERSION = '0.9.0';
 
 // ---- 00-util.js ----
 // ===================================================================================
@@ -189,6 +189,18 @@ const STRINGS = {
     captions: 'Captions',
     captionsKey: 'Captions (C)',
     showCaptions: 'Show captions',
+    hideCaptionsPaused: 'Hide while paused',
+    copy: 'Copy',
+    copyFrame: 'Copy the picture',
+    copyFrameDesc: 'The screen view at full resolution (or the main view), ready to paste.',
+    copyCaptions: 'Copy what was just said',
+    copyCaptionsDesc: 'The last part of the transcript in whole sentences, with the lecture name and times. Handy for asking an AI about it.',
+    copyCaptionsSpan: 'How much to copy',
+    copiedFrame: 'Picture copied ({w} × {h})',
+    copiedCaptions: 'Copied {from}–{to} of the transcript',
+    copyFailed: 'Could not copy ({msg})',
+    copyNoCaptions: 'This recording has no transcript to copy.',
+    pausedHint: 'Paused',
     captionSize: 'Text size',
     on: 'On',
     off: 'Off',
@@ -295,6 +307,15 @@ const STRINGS = {
     pageOfN: 'Page {n} of {total}',
     following: 'Following the lecture',
     followingUnsure: 'Following the lecture (page not recognised here; showing the last one found)',
+    followingStale: 'Following the lecture: the current page has not been recognised for a while',
+    pageNotRecognised: 'Current page not recognised',
+    followingShort: 'Following',
+    followingUnsureShort: 'Following (last page found)',
+    followingStaleShort: 'Page not recognised',
+    backToLectureShort: 'Back to the lecture',
+    pdfMainOpen: 'Show the PDF next to the video',
+    pdfMainClose: 'Close the PDF view',
+    pdfSwap: 'Swap the PDF and the video',
     backToLecture: 'Back to the page being talked about',
     shownAt: 'On screen at',
     notFoundInRecording: 'Not found in the recording.',
@@ -963,6 +984,7 @@ const ICON = {
   notes: '<path d="M6 3.5h9l3 3V20a.5.5 0 0 1-.5.5h-11A.5.5 0 0 1 6 20z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 10h6M9 13.5h6M9 17h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
   discussion: '<path d="M4.5 5.5h15v10h-9l-4 3.5v-3.5h-2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
   audio: '<path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+  copy: '<rect x="8.5" y="8.5" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M15.5 5.5v-.5a1.5 1.5 0 0 0-1.5-1.5H6a1.5 1.5 0 0 0-1.5 1.5v8a1.5 1.5 0 0 0 1.5 1.5h.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
   close: '<path d="M6.5 6.5l11 11m0-11l-11 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
   up: '<path d="M6.5 14.5l5.5-5.5 5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
   down: '<path d="M6.5 9.5l5.5 5.5 5.5-5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
@@ -1082,6 +1104,14 @@ select.input option { background: #1b1b20; }
 .audiomenu .opt[aria-disabled=true] { opacity: .45; cursor: default; }
 .audiomenu { max-height: calc(100% - 80px); overflow-y: auto; }
 .qualitymenu { min-width: 200px; }
+.copymenu { min-width: 260px; max-width: 320px; }
+.copymenu .opt { display: flex; flex-direction: column; align-items: stretch; gap: 2px; white-space: normal; }
+.copymenu .opt .row1 { display: flex; justify-content: space-between; gap: 16px; }
+.copymenu .opt .key { opacity: .5; font-size: 12px; }
+.copymenu .opt .desc { font-size: 12px; opacity: .55; line-height: 1.35; }
+.copymenu .sub { padding: 6px 10px 0; font-size: 12px; opacity: .6; }
+.copymenu .choices { display: flex; gap: 4px; padding: 4px 6px 2px; }
+.copymenu .choices button { width: auto; flex: 1; text-align: center; padding: 6px 0; }
 .qualitymenu .sub { padding: 8px 10px 2px; font-size: 12px; opacity: .6; }
 .audiomenu .sep { height: 1px; margin: 6px 4px; background: rgba(255,255,255,.1); }
 .audiomenu .silstatus { padding: 0 10px 6px; font-size: 12px; line-height: 1.4; opacity: .75; }
@@ -1105,6 +1135,10 @@ select.input option { background: #1b1b20; }
 .rstage { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 6px; overflow: hidden; background: #fff; }
 .rpage { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; transition: opacity .18s ease; }
 .rpage.in { opacity: 1; }
+.rstale { position: absolute; inset: 0; z-index: 1; display: none; align-items: center; justify-content: center; padding: 12px; text-align: center;
+  font-size: 13px; font-weight: 600; color: #fff; background: rgba(20,20,24,.72); }
+.stale > .rstale { display: flex; }
+.pstage .rstale { z-index: 2; font-size: 15px; }
 .rbar { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
 .rnav { width: 32px; height: 28px; border-radius: 8px; font-size: 20px; line-height: 1; }
 .rnav:hover:not(:disabled) { background: rgba(255,255,255,.1); }
@@ -1122,6 +1156,8 @@ select.input option { background: #1b1b20; }
 .rfix[open] summary { opacity: .9; margin-bottom: 4px; }
 .rfixbtn { display: block; width: 100%; text-align: left; padding: 5px 8px; border-radius: 6px; }
 .rfixbtn:hover { background: rgba(255,255,255,.08); }
+.rmain { display: block; width: 100%; margin-top: 6px; padding: 5px 8px; border-radius: 8px; font-size: 12px; background: rgba(255,255,255,.08); }
+.rmain:hover { background: rgba(255,255,255,.14); }
 .chaptoggle { display: block; margin: 6px 0; padding: 4px 0; font-size: 12px; color: var(--accent); }
 .sdeck { padding: 8px 2px 4px; border-bottom: 1px solid rgba(255,255,255,.08); margin-bottom: 6px; }
 .sfiles { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
@@ -1157,16 +1193,33 @@ select.input option { background: #1b1b20; }
   .presize { display: none; }
 }
 .views { position: absolute; inset: 0; }
-video { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
-.l-single video[data-slot=secondary] { display: none; }
-.l-side video[data-slot=primary] { width: calc(var(--ratio) * 100%); }
-.l-side video[data-slot=secondary] { left: auto; right: 0; width: calc((1 - var(--ratio)) * 100%); }
+video, .pdfview { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+[data-slot=off] { display: none !important; }
+.l-single :is(video, .pdfview)[data-slot=secondary] { display: none; }
+.l-side :is(video, .pdfview)[data-slot=primary] { width: calc(var(--ratio) * 100%); }
+.l-side :is(video, .pdfview)[data-slot=secondary] { left: auto; right: 0; width: calc((1 - var(--ratio)) * 100%); }
+/* The lecturer's PDF as a picture of its own (see SlideReader). */
+.pdfview { background: #1a1a1d; overflow: hidden; }
+.pstage { position: absolute; inset: 0; }
+.pstage .rpage { position: absolute; left: 50%; top: 50%; width: auto; height: auto; max-width: 100%; max-height: 100%; transform: translate(-50%, -50%); }
+.pbar { position: absolute; left: 50%; top: 58px; z-index: 3; display: flex; align-items: center; gap: 4px; padding: 3px 6px; border-radius: 16px;
+  max-width: calc(100% - 16px); overflow: hidden; transform: translateX(-50%); background: rgba(18,18,22,.82); font-size: 12px; white-space: nowrap;
+  transition: opacity .2s ease; }
+.pfollow { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.idle .pbar { opacity: 0; pointer-events: none; }
+.pnav { width: 26px; height: 24px; border-radius: 8px; font-size: 15px; line-height: 1; }
+.pnav:hover:not(:disabled) { background: rgba(255,255,255,.12); }
+.pnav:disabled { opacity: .3; }
+.plabel { padding: 0 4px; font-variant-numeric: tabular-nums; }
+.pfollow .rback { padding: 3px 10px; font-size: 12px; }
+.pfollow .rfollowing { opacity: .6; padding: 0 6px; }
+.l-pip .pdfview[data-slot=secondary] .pbar { display: none; }
 .divider { position: absolute; top: 0; bottom: 0; left: calc(var(--ratio) * 100%); width: 16px; margin-left: -8px; cursor: col-resize; z-index: 3; display: none; touch-action: none; }
 .divider::after { content: ""; position: absolute; left: 7px; top: 50%; width: 2px; height: 48px; margin-top: -24px; border-radius: 1px; background: rgba(255,255,255,.35); transition: background .15s ease; }
 .divider:hover::after, .divider.dragging::after { background: var(--accent); }
 .l-side .divider { display: block; }
-.l-pip video[data-slot=secondary], .pipframe { left: auto; top: auto; width: calc(var(--pipw) * 100%); height: auto; aspect-ratio: 16 / 9; }
-.l-pip video[data-slot=secondary] { z-index: 2; border-radius: 10px; box-shadow: 0 6px 24px rgba(0,0,0,.55); }
+.l-pip :is(video, .pdfview)[data-slot=secondary], .pipframe { left: auto; top: auto; width: calc(var(--pipw) * 100%); height: auto; aspect-ratio: 16 / 9; }
+.l-pip :is(video, .pdfview)[data-slot=secondary] { z-index: 2; border-radius: 10px; box-shadow: 0 6px 24px rgba(0,0,0,.55); }
 .pipframe { position: absolute; z-index: 3; display: none; border-radius: 10px; cursor: grab; touch-action: none; }
 .pipframe.dragging { cursor: grabbing; }
 .l-pip .pipframe { display: block; }
@@ -1174,10 +1227,10 @@ video { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-f
 .grip { position: absolute; width: 18px; height: 18px; opacity: 0; transition: opacity .15s ease; touch-action: none; }
 .grip::before { content: ""; position: absolute; inset: 4px; border: 2px solid #fff; border-radius: 2px; }
 .pipframe:hover .grip { opacity: .9; }
-.l-pip.c-br video[data-slot=secondary], .l-pip.c-br .pipframe { right: 16px; bottom: 84px; }
-.l-pip.c-bl video[data-slot=secondary], .l-pip.c-bl .pipframe { left: 16px; bottom: 84px; }
-.l-pip.c-tr video[data-slot=secondary], .l-pip.c-tr .pipframe { right: 16px; top: 64px; }
-.l-pip.c-tl video[data-slot=secondary], .l-pip.c-tl .pipframe { left: 16px; top: 64px; }
+.l-pip.c-br :is(video, .pdfview)[data-slot=secondary], .l-pip.c-br .pipframe { right: 16px; bottom: 84px; }
+.l-pip.c-bl :is(video, .pdfview)[data-slot=secondary], .l-pip.c-bl .pipframe { left: 16px; bottom: 84px; }
+.l-pip.c-tr :is(video, .pdfview)[data-slot=secondary], .l-pip.c-tr .pipframe { right: 16px; top: 64px; }
+.l-pip.c-tl :is(video, .pdfview)[data-slot=secondary], .l-pip.c-tl .pipframe { left: 16px; top: 64px; }
 .c-br .grip { left: 0; top: 0; cursor: nwse-resize; }
 .c-bl .grip { right: 0; top: 0; cursor: nesw-resize; }
 .c-tr .grip { left: 0; bottom: 0; cursor: nesw-resize; }
@@ -1185,14 +1238,14 @@ video { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-f
 .layoutmenu button { display: flex; align-items: center; gap: 10px; }
 .layoutmenu svg { width: 20px; height: 20px; }
 .top, .bottom { position: absolute; left: 0; right: 0; transition: opacity .2s ease; }
-.top { top: 0; display: flex; align-items: center; gap: 8px; padding: 10px 14px 28px;
+.top { top: 0; z-index: 4; display: flex; align-items: center; gap: 8px; padding: 10px 14px 28px;
   background: linear-gradient(rgba(0,0,0,.72), rgba(0,0,0,0)); }
 .bottom { bottom: 0; z-index: 4; padding: 28px 14px 8px; background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.78)); }
 .idle .top, .idle .bottom { opacity: 0; pointer-events: none; }
 .idle { cursor: none; }
 .back { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; color: inherit; text-decoration: none; flex: none; }
 .back:hover { background: rgba(255,255,255,.12); }
-.title { flex: 1; min-width: 0; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.title { flex: 0 1 auto; margin-right: auto; min-width: 0; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chip { flex: none; height: 30px; padding: 0 12px; border-radius: 15px; background: rgba(255,255,255,.12); font-size: 13px; }
 .chip:hover { background: rgba(255,255,255,.2); }
 .seek { position: relative; height: 18px; margin: 0 2px 2px; cursor: pointer; touch-action: none; --p: 0; --b: 0; --h: 0; }
@@ -1242,9 +1295,13 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border: 0; bord
   animation: spin .9s linear infinite; display: none; }
 .waiting .spinner { display: block; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.bigplay { width: 72px; height: 72px; border-radius: 50%; background: rgba(0,0,0,.55); display: none; align-items: center; justify-content: center; }
-.bigplay svg { width: 34px; height: 34px; margin-left: 4px; }
-.paused:not(.waiting) .bigplay { display: flex; }
+/* Paused: a small label in the title bar instead of a big icon over the picture. */
+.pausehint { flex: none; display: none; align-items: center; gap: 6px; padding: 4px 10px 4px 8px; margin-right: auto;
+  border-radius: 14px; background: rgba(255,255,255,.12); font-size: 12px; pointer-events: none; }
+.pausehint svg { width: 14px; height: 14px; }
+.paused:not(.waiting) .pausehint { display: inline-flex; }
+.paused:not(.waiting) .title { margin-right: 0; }
+.paused.hidecc-paused .captions { display: none; }
 .toast { position: absolute; z-index: 5; left: 50%; bottom: 96px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px;
   padding: 9px 10px 9px 16px; border-radius: 12px; background: var(--panel); font-size: 13px; box-shadow: 0 8px 30px rgba(0,0,0,.4); max-width: calc(100% - 28px); }
 .toast[hidden] { display: none; }
@@ -1274,14 +1331,26 @@ function playerTemplate() {
   <div class="views">
     <video class="clock" playsinline preload="auto" data-slot="primary"></video>
     <video class="follower" playsinline preload="auto" muted data-slot="secondary"></video>
+    <div class="pdfview" data-slot="off">
+      <div class="pstage"></div>
+      <div class="pbar">
+        <button class="pnav pprev" title="${t('prevPage')}" aria-label="${t('prevPage')}">‹</button>
+        <span class="plabel"></span>
+        <button class="pnav pnext" title="${t('nextPage')}" aria-label="${t('nextPage')}">›</button>
+        <span class="pfollow"></span>
+        <button class="pnav pswap" title="${t('pdfSwap')}" aria-label="${t('pdfSwap')}">⇄</button>
+        <button class="pnav pclose" title="${t('pdfMainClose')}" aria-label="${t('pdfMainClose')}">✕</button>
+      </div>
+    </div>
     <div class="divider" role="separator" aria-orientation="vertical" aria-label="${t('resizeViews')}" tabindex="0"></div>
     <div class="pipframe" title="${t('pipHint')}"><div class="grip" title="${t('resizePip')}"></div></div>
   </div>
   <div class="captions" hidden><span></span></div>
-  <div class="center"><div class="spinner"></div><div class="bigplay">${svg('play')}</div></div>
+  <div class="center"><div class="spinner"></div></div>
   <div class="top">
     <a class="back" title="${t('back')}" aria-label="${t('back')}">${svg('back')}</a>
     <div class="title"></div>
+    <span class="pausehint" aria-hidden="true">${svg('pause')}<span>${t('pausedHint')}</span></span>
  <button class="chip tbtn" data-open="transcript" hidden aria-pressed="false" title="${t('transcriptKey')}">${svg('transcript')}<span class="lbl">${t('transcript')}</span></button>
     <button class="chip tbtn" data-open="slides" hidden aria-pressed="false" title="${t('slidesKey')}">${svg('slides')}<span class="lbl">${t('slides')}</span></button>
     <button class="chip tbtn" data-open="notes" hidden aria-pressed="false" title="${t('notes')}">${svg('notes')}<span class="lbl">${t('notes')}</span></button>
@@ -1308,6 +1377,7 @@ function playerTemplate() {
       <div class="spacer"></div>
       <button class="btn bmbtn hide-sm" hidden title="${t('bookmarkKey')}" aria-label="${t('bookmark')}">${svg('bookmark')}</button>
       <button class="btn flagbtn hide-sm" hidden title="${t('flagKey')}" aria-label="${t('flag')}" aria-pressed="false">${svg('flag')}</button>
+      <button class="btn copybtn" title="${t('copy')}" aria-label="${t('copy')}" aria-haspopup="menu">${svg('copy')}</button>
       <button class="btn audiobtn hide-sm" title="${t('audio')}" aria-label="${t('audio')}" aria-haspopup="menu">${svg('audio')}</button>
       <button class="btn ccbtn" hidden title="${t('captionsKey')}" aria-label="${t('captions')}" aria-haspopup="menu">${svg('cc')}</button>
       <button class="btn swap" title="${t('swapViews')}" aria-label="${t('swapViews')}">${svg('swap')}</button>
@@ -1326,10 +1396,17 @@ function playerTemplate() {
   </div>
   <div class="menu ccmenu" hidden role="menu"><div class="head">${t('captions')}</div>
     <button class="opt cctoggle" role="menuitemcheckbox" aria-checked="false"><span>${t('showCaptions')}</span><span class="state"></span></button>
+    <button class="opt cchidepaused" role="menuitemcheckbox" aria-checked="true"><span>${t('hideCaptionsPaused')}</span><span class="state"></span></button>
     <div class="head">${t('captionSize')}</div>
     <div class="sizes">
       <button role="menuitemradio" data-size="s">S</button><button role="menuitemradio" data-size="m">M</button><button role="menuitemradio" data-size="l">L</button><button role="menuitemradio" data-size="xl">XL</button>
     </div>
+  </div>
+  <div class="menu copymenu" hidden role="menu"><div class="head">${t('copy')}</div>
+    <button class="opt" role="menuitem" data-copy="frame"><span class="row1"><span>${t('copyFrame')}</span><span class="key">P</span></span><span class="desc">${t('copyFrameDesc')}</span></button>
+    <button class="opt" role="menuitem" data-copy="captions"><span class="row1"><span>${t('copyCaptions')}</span><span class="key">A</span></span><span class="desc">${t('copyCaptionsDesc')}</span></button>
+    <div class="sub">${t('copyCaptionsSpan')}</div>
+    <div class="choices copyspan">${[30, 60, 120, 300].map((s) => `<button role="menuitemradio" data-span="${s}">${s < 60 ? s + 's' : s / 60 + 'm'}</button>`).join('')}</div>
   </div>
   <div class="menu audiomenu" hidden role="menu"><div class="head">${t('audio')}</div>
     <div class="why" hidden></div>
@@ -1652,9 +1729,11 @@ class LitePlayer {
     this.prefs = Object.assign(
       {
         primary: null, layout: 'side', ratio: 0.5, pipw: 0.26, corner: 'br', rate: 1, volume: 1, muted: false,
-        captions: false, capSize: 'm', panel: false, tab: 'transcript', panelw: 360,
+        captions: false, capSize: 'm', capHidePaused: true, panel: false, tab: 'transcript', panelw: 360,
         audio: { level: false, voice: false, mono: false },
         silence: { auto: false, min: 30, sens: 'normal' },
+        copySpan: 60,
+        pdfMain: false, pdfFirst: false,
         quality: { screen: 'auto', camera: 'auto' },
       },
       store.get('prefs', {}),
@@ -1720,7 +1799,13 @@ class LitePlayer {
   }
 
   get layout() {
+    if (this.pdfMode) return this.prefs.layout;
     return this.dual && !this.followerFailed ? this.prefs.layout : 'single';
+  }
+
+  // The lecturer's PDF shown in the picture area, next to one video (see SlideReader).
+  get pdfMode() {
+    return !!(this.prefs.pdfMain && this.deck && this.deck.pages.length);
   }
 
   buildDom() {
@@ -1830,9 +1915,11 @@ class LitePlayer {
   applyLayout() {
     const layout = this.layout;
     const st = this.stage;
+    const pdf = this.pdfMode;
     for (const l of LAYOUTS) st.classList.toggle('l-' + l, l === layout);
     for (const c of CORNERS) st.classList.toggle('c-' + c, c === this.prefs.corner);
-    if (layout === 'single') {
+    // One video plays when it is shown alone or next to the PDF.
+    if (layout === 'single' || pdf) {
       this.dropFollower();
       if (this.clockPos !== this.primaryPos && this.sources[this.primaryPos].av) {
         const v = this.video;
@@ -1841,12 +1928,109 @@ class LitePlayer {
     } else {
       this.ensureFollower();
     }
-    const clockIsPrimary = this.clockPos === this.primaryPos || layout === 'single';
-    this.video.dataset.slot = clockIsPrimary ? 'primary' : 'secondary';
-    this.fvideo.dataset.slot = clockIsPrimary ? 'secondary' : 'primary';
+    const pdfView = this.$('.pdfview');
+    if (pdf) {
+      const pdfFirst = !!this.prefs.pdfFirst;
+      this.video.dataset.slot = pdfFirst ? 'secondary' : 'primary';
+      this.fvideo.dataset.slot = 'off';
+      pdfView.dataset.slot = pdfFirst ? 'primary' : 'secondary';
+    } else {
+      const clockIsPrimary = this.clockPos === this.primaryPos || layout === 'single';
+      this.video.dataset.slot = clockIsPrimary ? 'primary' : 'secondary';
+      this.fvideo.dataset.slot = clockIsPrimary ? 'secondary' : 'primary';
+      pdfView.dataset.slot = 'off';
+    }
+    this.$('.layout').style.display = this.dual || pdf ? '' : 'none';
     this.setButton('.layout', layout === 'side' ? 'layoutSide' : layout === 'pip' ? 'layoutPip' : 'layoutSingle', t('layout'));
     for (const b of this.root.querySelectorAll('.layoutmenu button')) b.setAttribute('aria-checked', String(b.dataset.layout === layout));
+    if (this.reader) {
+      this.reader.setActive('main', pdf);
+      if (pdf) this.redrawPdf();
+    }
     this.applyQuality();
+  }
+
+  // ---- the PDF in the picture area ----
+
+  setPdfMain(on) {
+    this.prefs.pdfMain = !!on;
+    // Shown alone the PDF would hide the video (or the other way round): put them side by side.
+    if (on && this.prefs.layout === 'single') this.prefs.layout = 'side';
+    this.savePrefs();
+    this.applyLayout();
+    if (this.reader) this.reader.info();
+  }
+
+  swapPdf() {
+    this.prefs.pdfFirst = !this.prefs.pdfFirst;
+    this.savePrefs();
+    this.applyLayout();
+  }
+
+  // Re-renders the main PDF view at its new size (after a layout or window change).
+  redrawPdf() {
+    if (!this.reader || !this.pdfMode) return;
+    requestAnimationFrame(() => {
+      const tg = this.reader.targets.get('main');
+      if (tg && tg.active && this.reader.view >= 0) this.reader.drawInto(tg, this.reader.view);
+    });
+  }
+
+  renderPdfBar() {
+    const rd = this.reader;
+    const deck = rd && rd.deck;
+    if (!deck || rd.view < 0) return;
+    this.$('.plabel').textContent = rd.label();
+    this.$('.pprev').disabled = rd.view <= 0;
+    this.$('.pnext').disabled = rd.view >= deck.pages.length - 1;
+    const box = this.$('.pfollow');
+    box.textContent = '';
+    box.append(rd.followElement(true));
+  }
+
+  // ---- copying (picture, transcript) ----
+
+  renderCopyMenu() {
+    const span = this.prefs.copySpan || 60;
+    for (const b of this.root.querySelectorAll('.copymenu [data-span]')) b.setAttribute('aria-checked', String(+b.dataset.span === span));
+  }
+
+  // The element showing the screen view if it is playing, else the main view.
+  screenVideo() {
+    const pos = this.slides && this.slides.screenIndex != null ? this.sources.findIndex((s) => s.index === this.slides.screenIndex) : -1;
+    if (pos >= 0 && pos === this.clockPos) return this.video;
+    if (pos >= 0 && pos === this.followerPos) return this.fvideo;
+    return this.layout === 'single' || this.clockPos === this.primaryPos ? this.video : this.fvideo;
+  }
+
+  // Copies the current picture at the video's own resolution. Must run from a user action.
+  copyFrame() {
+    const v = this.screenVideo();
+    if (!v.videoWidth) { this.toast(t('copyFailed', { msg: 'no picture yet' })); return; }
+    const c = document.createElement('canvas');
+    c.width = v.videoWidth;
+    c.height = v.videoHeight;
+    c.getContext('2d').drawImage(v, 0, 0);
+    // The clipboard item is created synchronously (within the user action) from a promise.
+    const blob = new Promise((resolve) => c.toBlob(resolve, 'image/png'));
+    navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+      .then(() => this.toast(t('copiedFrame', { w: c.width, h: c.height })))
+      .catch((e) => this.toast(t('copyFailed', { msg: (e && e.message) || e })));
+  }
+
+  // Copies what was said in the last copySpan seconds, in whole sentences, with the
+  // lecture's name and the time range.
+  copyCaptions() {
+    if (!this.cues || !this.cues.length) { this.toast(t('copyNoCaptions')); return; }
+    const x = captionExcerpt(this.cues, this.video.currentTime, this.prefs.copySpan || 60);
+    if (!x) { this.toast(t('copyNoCaptions')); return; }
+    const long = this.duration() >= 3600;
+    const from = fmtTime(x.start, long);
+    const to = fmtTime(x.end, long);
+    const text = this.lesson.title + '\n' + from + '–' + to + '\n\n' + x.text + '\n';
+    navigator.clipboard.writeText(text)
+      .then(() => this.toast(t('copiedCaptions', { from, to })))
+      .catch((e) => this.toast(t('copyFailed', { msg: (e && e.message) || e })));
   }
 
   // ---- quality ----
@@ -1919,18 +2103,20 @@ class LitePlayer {
   }
 
   setLayout(layout) {
-    if (!this.dual || !LAYOUTS.includes(layout)) return;
+    if (!(this.dual || this.pdfMode) || !LAYOUTS.includes(layout)) return;
     this.followerFailed = false;
     this.prefs.layout = layout;
     this.savePrefs();
     this.applyLayout();
   }
 
+  // Swaps the screen and camera views. With the PDF in the picture area, this changes which
+  // video is shown next to it (or, with one video, swaps the PDF and the video).
   swapViews() {
-    if (!this.dual) return;
+    if (!this.dual) { if (this.pdfMode) this.swapPdf(); return; }
     const next = this.secondaryPos;
     // A source without an audio+video rendition can only be shown as the follower.
-    if (this.layout === 'single' && !this.sources[next].av) return;
+    if ((this.layout === 'single' || this.pdfMode) && !this.sources[next].av) return;
     this.primaryPos = next;
     this.prefs.primary = this.sources[next].index;
     this.savePrefs();
@@ -1995,6 +2181,7 @@ class LitePlayer {
       if (scene !== this.flagScene) { this.flagScene = scene; this.renderFlagButton(); }
       this.silenceTick(ct);
       if (this.slidesPane) this.slidesPane.update(ct);
+      if (this.reader) this.reader.update(ct);
     };
     on('timeupdate', () => { invalidate(); onTime(); });
     on('seeked', onTime);
@@ -2161,17 +2348,31 @@ class LitePlayer {
     });
 
     // Menus (speed, layout): one open at a time, closed by any click elsewhere.
-    const menus = [[$('.speed'), $('.speedmenu')], [$('.layout'), $('.layoutmenu')], [$('.ccbtn'), $('.ccmenu')], [$('.audiobtn'), $('.audiomenu')], [$('.qbtn'), $('.qualitymenu')]];
+    const menus = [[$('.speed'), $('.speedmenu')], [$('.layout'), $('.layoutmenu')], [$('.ccbtn'), $('.ccmenu')], [$('.audiobtn'), $('.audiomenu')], [$('.qbtn'), $('.qualitymenu')], [$('.copybtn'), $('.copymenu')]];
     for (const [btn, menu] of menus) {
       d.listen(btn, 'click', (e) => {
         e.stopPropagation();
         const open = menu.hidden;
         for (const [, m] of menus) m.hidden = true;
         if (open && menu.classList.contains('qualitymenu')) this.renderQualityMenu();
+        if (open && menu.classList.contains('copymenu')) this.renderCopyMenu();
         menu.hidden = !open;
         this.wake();
       });
     }
+    d.listen($('.copymenu'), 'click', (e) => {
+      e.stopPropagation();
+      const b = e.target.closest('button[data-copy], button[data-span]');
+      if (!b) return;
+      if (b.dataset.span) {
+        this.prefs.copySpan = +b.dataset.span;
+        this.savePrefs();
+        this.renderCopyMenu();
+        return;
+      }
+      $('.copymenu').hidden = true;
+      if (b.dataset.copy === 'frame') this.copyFrame(); else this.copyCaptions();
+    });
     d.listen($('.qualitymenu'), 'click', (e) => {
       e.stopPropagation();
       const b = e.target.closest('button[data-q]');
@@ -2179,7 +2380,7 @@ class LitePlayer {
     });
     let resizeTimer = 0;
     d.add(() => clearTimeout(resizeTimer));
-    d.listen(window, 'resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(guard(() => this.applyQuality()), 500); });
+    d.listen(window, 'resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(guard(() => { this.applyQuality(); this.redrawPdf(); }), 500); });
     d.listen($('.speedmenu'), 'click', (e) => {
       const b = e.target.closest('button[data-rate]');
       if (b) { this.setRate(+b.dataset.rate); $('.speedmenu').hidden = true; }
@@ -2189,6 +2390,11 @@ class LitePlayer {
       if (b) { this.setLayout(b.dataset.layout); $('.layoutmenu').hidden = true; }
     });
     d.listen($('.cctoggle'), 'click', () => this.setCaptions(!this.cc.on));
+    d.listen($('.cchidepaused'), 'click', () => {
+      this.prefs.capHidePaused = !this.prefs.capHidePaused;
+      this.savePrefs();
+      this.renderCaptionMenu();
+    });
     d.listen($('.ccmenu .sizes'), 'click', (e) => {
       const b = e.target.closest('button[data-size]');
       if (b) this.setCaptionSize(b.dataset.size);
@@ -2200,7 +2406,7 @@ class LitePlayer {
     d.listen($('.pextras button'), 'click', () => this.opts.onFallback('extras'));
     this.bindPanelResize();
     d.listen(this.root, 'click', (e) => {
-      if (e.target.closest('.menu, .speed, .layout, .ccbtn, .audiobtn, .qbtn')) return;
+      if (e.target.closest('.menu, .speed, .layout, .ccbtn, .audiobtn, .qbtn, .copybtn')) return;
       for (const [, m] of menus) m.hidden = true;
     });
 
@@ -2322,6 +2528,7 @@ class LitePlayer {
       divider.classList.remove('dragging');
       this.dragging = false;
       this.savePrefs();
+      this.redrawPdf();
       this.armIdle();
     };
     d.listen(divider, 'pointerup', endDivider);
@@ -2338,7 +2545,7 @@ class LitePlayer {
 
     // PiP: drag to move (snaps to the nearest corner on release), click to swap views,
     // corner grip to resize. While dragging, both the frame and the video are translated.
-    const pipEls = () => [frame, this.fvideo.dataset.slot === 'secondary' ? this.fvideo : this.video];
+    const pipEls = () => [frame, this.$('.views [data-slot=secondary]')].filter(Boolean);
     let drag = null;
     d.listen(frame, 'pointerdown', (e) => {
       if (e.button !== 0) return;
@@ -2370,7 +2577,9 @@ class LitePlayer {
       drag = null;
       this.dragging = false;
       frame.classList.remove('dragging');
-      if (!was.moved) { this.swapViews(); return; }
+      // A click swaps the two pictures (with the PDF shown: the PDF and the video).
+      if (!was.moved) { if (this.pdfMode) this.swapPdf(); else this.swapViews(); return; }
+      if (was.resize) this.redrawPdf();
       if (!was.resize) {
         const cx = was.rect.left + was.rect.width / 2 + (e.clientX - was.x);
         const cy = was.rect.top + was.rect.height / 2 + (e.clientY - was.y);
@@ -2409,6 +2618,8 @@ class LitePlayer {
         case 't': case 'T': if (this.sidebar.has('transcript')) this.sidebar.toggle('transcript'); else handled = false; break;
         case 'b': case 'B': if (this.notes && this.notesReady) this.notes.addBookmark(e); else handled = false; break;
         case 'u': case 'U': if (this.notes && this.notesReady && this.notes.canFlag) this.notes.toggleFlag(e); else handled = false; break;
+        case 'p': case 'P': this.copyFrame(); break;
+        case 'a': case 'A': this.copyCaptions(); break;
         case 'Escape':
           if (this.menusOpen()) { for (const m of this.root.querySelectorAll('.menu')) m.hidden = true; } else handled = false;
           break;
@@ -2463,6 +2674,10 @@ class LitePlayer {
     toggle.setAttribute('aria-checked', String(on));
     toggle.querySelector('.state').textContent = on ? t('on') : t('off');
     for (const b of this.root.querySelectorAll('.ccmenu .sizes button')) b.setAttribute('aria-checked', String(b.dataset.size === this.prefs.capSize));
+    const hide = this.$('.cchidepaused');
+    hide.setAttribute('aria-checked', String(!!this.prefs.capHidePaused));
+    hide.querySelector('.state').textContent = this.prefs.capHidePaused ? t('on') : t('off');
+    this.stage.classList.toggle('hidecc-paused', !!this.prefs.capHidePaused);
   }
 
   // ---- audio processing ----
@@ -2552,14 +2767,28 @@ class LitePlayer {
   // ---- slide files ----
 
   setupDeck() {
+    this.reader = new SlideReader(this);
+    this.reader.addTarget('main', this.$('.pstage'));
+    this.reader.onInfo(() => { if (!this.destroyed) this.renderPdfBar(); });
     this.deck = new SlideDeckController({
       lesson: this.lesson,
       slides: this.slides,
       cues: () => this.cues,
       disposer: this.d,
-      onChange: () => { if (!this.destroyed && this.slidesPane) this.slidesPane.invalidate(); },
+      onChange: () => {
+        if (this.destroyed) return;
+        if (this.slidesPane) this.slidesPane.invalidate();
+        // The PDF view appears (pages loaded) or goes (files removed) with the deck.
+        if (this.pdfMode !== this.shownPdfMode) { this.shownPdfMode = this.pdfMode; this.applyLayout(); }
+        if (this.reader.active) this.reader.update(this.video.currentTime, true);
+      },
     });
     this.deck.restore().catch((e) => console.warn(TAG, 'slide files:', e && e.message ? e.message : e));
+    const bar = (sel, fn) => this.d.listen(this.$(sel), 'click', (e) => { e.stopPropagation(); fn(); });
+    bar('.pprev', () => this.reader.turn(-1));
+    bar('.pnext', () => this.reader.turn(1));
+    bar('.pswap', () => this.swapPdf());
+    bar('.pclose', () => this.setPdfMain(false));
     // Dropping PDF files anywhere on the player adds them.
     const zone = this.$('.dropzone');
     const hasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
@@ -2919,6 +3148,24 @@ class CueIndex {
     const k = this.started(t);
     return k >= 0 && t < this.cues[k].end ? k : -1;
   }
+}
+
+// What was said in the last `span` seconds before t, in whole sentences: { start, end,
+// text } or null. A cue that continues a sentence from the cue before it pulls that one
+// in (at most 30 s further back); the sentence being spoken at t is completed (at most
+// 20 s ahead). Cues are sentence-ish but often break mid-sentence.
+function captionExcerpt(cues, t, span) {
+  const ends = (s) => /[.?!]["')\]]?\s*$/.test(s);
+  let a = cues.findIndex((c) => c.end > t - span);
+  if (a < 0) return null;
+  let b = a;
+  while (b + 1 < cues.length && cues[b + 1].start <= t) b++;
+  if (cues[a].start > t) return null;
+  const from = t - span;
+  while (a > 0 && !ends(cues[a - 1].text) && cues[a - 1].start >= from - 30) a--;
+  while (b + 1 < cues.length && !ends(cues[b].text) && cues[b + 1].start <= t + 20) b++;
+  const text = cues.slice(a, b + 1).map((c) => c.text.trim()).join(' ').replace(/\s+/g, ' ');
+  return { start: cues[a].start, end: cues[b].end, text };
 }
 
 const CAPTION_SIZES = { s: 0.8, m: 1, l: 1.3, xl: 1.65 };
@@ -5214,17 +5461,144 @@ function chapterSampleStart(samples, scene) {
 
 // ---- 57-slides-pane.js ----
 // ===================================================================================
-// Slides tab of the side panel.
+// Reading along with the lecturer's PDF, and the Slides tab of the side panel.
 //
-// Without slide files: one card per chapter (picture, time, the first sentence spoken on
-// it), the current one highlighted and kept in view.
+// SlideReader holds the reader's state (the page shown, whether it follows the lecture)
+// and draws the page into any number of places: the small reader in the Slides tab and,
+// when the user opens it there, the PDF view in the main picture area. Following turns to
+// the page being talked about; paging by hand pauses it until "back to the page being
+// talked about". After a while without a recognised page it says so instead of presenting
+// an old page as current.
 //
-// With the lecturer's PDF (added here or dropped on the player): a reader that follows the
-// lecture, turning to the page being talked about. Paging by hand pauses following; a
-// button brings it back. Each page lists when it was on screen (click to jump there), and
-// a small menu corrects the page for the part being played. The chapter list folds away
-// below the reader.
+// SlidesPane is the tab: the slide files (add, remove), the small reader with the page's
+// times on screen and a "wrong page?" menu, and the chapter list (folded away below the
+// reader when there is a PDF). Without slide files it is just the chapter list.
 // ===================================================================================
+
+class SlideReader {
+  constructor(player) {
+    this.player = player;
+    this.view = -1;
+    this.follow = true;
+    this.stale = false;
+    this.chapter = -1;
+    this.targets = new Map();   // name -> { stage, active, token }
+    this.infoListeners = new Set();
+  }
+
+  get deck() {
+    const d = this.player.deck;
+    return d && d.pages.length ? d : null;
+  }
+
+  // A place to draw pages into: `stage` gets the canvases (and a "not recognised" layer).
+  addTarget(name, stage) {
+    stage.append(h('div.rstale', { text: t('pageNotRecognised') }));
+    this.targets.set(name, { stage, active: false, token: 0 });
+  }
+
+  setActive(name, on) {
+    const tg = this.targets.get(name);
+    if (!tg || tg.active === on) return;
+    tg.active = on;
+    if (on && this.deck) {
+      if (this.view >= 0) this.drawInto(tg, this.view);
+      this.update(this.player.video.currentTime, true);
+    }
+  }
+
+  get active() {
+    for (const tg of this.targets.values()) if (tg.active) return true;
+    return false;
+  }
+
+  onInfo(fn) { this.infoListeners.add(fn); }
+
+  info() { for (const fn of this.infoListeners) fn(); }
+
+  // Called on time updates while some place shows the reader.
+  update(t, force) {
+    const deck = this.deck;
+    if (!deck || !this.active) return;
+    const chapter = chapterIndexAt(this.player.slides.chapters, t);
+    // Long without a recognised page: do not keep presenting an old page as current.
+    const stale = this.follow && deck.unrecognisedFor(t) > FOLLOW_STALE_SEC;
+    const staleChanged = stale !== this.stale;
+    this.stale = stale;
+    for (const tg of this.targets.values()) tg.stage.classList.toggle('stale', stale);
+    if (this.follow) {
+      const p = deck.pageAt(t);
+      if (p !== this.view || force) this.showPage(p >= 0 ? p : Math.max(0, this.view), force);
+      else if (chapter !== this.chapter || staleChanged) this.info();
+    } else if (force) this.showPage(this.view, true);
+    this.chapter = chapter;
+  }
+
+  // Manual paging pauses following.
+  turn(dir) {
+    const deck = this.deck;
+    if (!deck) return;
+    this.follow = false;
+    this.showPage(clamp(this.view + dir, 0, deck.pages.length - 1), true);
+  }
+
+  resumeFollow() {
+    this.follow = true;
+    this.update(this.player.video.currentTime, true);
+  }
+
+  showPage(i, force) {
+    if (!this.deck || i < 0) return;
+    const changed = i !== this.view;
+    this.view = i;
+    if (changed || force) for (const tg of this.targets.values()) if (tg.active) this.drawInto(tg, i);
+    this.info();
+  }
+
+  // Draws page i into a place, with a short cross-fade over the previous page.
+  drawInto(tg, i) {
+    const deck = this.deck;
+    const token = ++tg.token;
+    const stage = tg.stage;
+    const p = deck.pages[i];
+    const dpr = window.devicePixelRatio || 1;
+    // As wide as fits the place at the page's aspect ratio.
+    const ar = p.ar || 0.5625;
+    const w = stage.clientWidth || 320;
+    const hgt = stage.clientHeight || w * ar;
+    const width = Math.max(200, Math.min(w, hgt / ar)) * dpr;
+    deck.render(i, width).then((src) => {
+      if (token !== tg.token) return;
+      const c = document.createElement('canvas');
+      c.width = src.width;
+      c.height = src.height;
+      c.getContext('2d').drawImage(src, 0, 0);
+      c.className = 'rpage';
+      stage.append(c);
+      requestAnimationFrame(() => c.classList.add('in'));
+      const old = [...stage.querySelectorAll('canvas')].filter((x) => x !== c);
+      setTimeout(() => { for (const x of old) x.remove(); }, 220);
+    }).catch((e) => console.warn(TAG, 'render page:', e && e.message ? e.message : e));
+  }
+
+  // "Page 5 of 21 · file" for the page shown.
+  label() {
+    const deck = this.deck;
+    const p = deck.pages[this.view];
+    if (!p) return '';
+    return t('pageOfN', { n: p.num, total: deck.pages.filter((x) => x.file === p.file).length })
+      + (deck.files.length > 1 ? ' · ' + p.file.replace(/\.pdf$/i, '') : '');
+  }
+
+  // The following line: following (sure / unsure / stale), or a button back to it.
+  // `compact` gives the short wording for the toolbar over the PDF view.
+  followElement(compact) {
+    const now = this.player.video.currentTime;
+    if (!this.follow) return h('button.rback', { text: compact ? t('backToLectureShort') : t('backToLecture'), onclick: () => this.resumeFollow() });
+    const state = this.stale ? 'Stale' : this.deck.knownAt(now) ? '' : 'Unsure';
+    return h('span.rfollowing', { text: t('following' + state + (compact ? 'Short' : '')) });
+  }
+}
 
 class SlidesPane {
   constructor(player, el) {
@@ -5235,39 +5609,38 @@ class SlidesPane {
     this.dirty = true;
     this.current = -1;
     this.cards = [];
-    this.view = -1;          // page shown in the reader
-    this.follow = true;
     this.showChapters = false;
-    this.renderToken = 0;
     this.d = new Disposer();
+    this.reader = player.reader;
     this.deckBox = h('div.sdeck');
-    this.reader = h('div.reader', { hidden: true });
+    this.readerBox = h('div.reader', { hidden: true });
     this.status = h('div.sstatus', { 'aria-live': 'polite' });
     this.chapToggle = h('button.chaptoggle', { hidden: true, onclick: () => { this.showChapters = !this.showChapters; this.render(); } });
     this.list = h('div.slist');
-    el.append(this.deckBox, this.reader, this.chapToggle, this.status, this.list);
+    el.append(this.deckBox, this.readerBox, this.chapToggle, this.status, this.list);
     this.buildReader();
+    this.reader.onInfo(() => { if (this.visible) this.renderPageInfo(); });
     this.d.listen(this.list, 'click', (e) => {
       const card = e.target.closest('.scard');
       if (card) this.player.seek(this.chapters[+card.dataset.i].start);
     });
   }
 
-  get deck() {
-    const d = this.player.deck;
-    return d && d.pages.length ? d : null;
-  }
+  get deck() { return this.reader.deck; }
 
   buildReader() {
-    const r = this.reader;
-    this.stage = h('div.rstage');
-    this.prevBtn = h('button.rnav', { 'aria-label': t('prevPage'), title: t('prevPage'), text: '‹', onclick: () => this.turn(-1) });
-    this.nextBtn = h('button.rnav', { 'aria-label': t('nextPage'), title: t('nextPage'), text: '›', onclick: () => this.turn(1) });
+    const r = this.readerBox;
+    const stage = h('div.rstage');
+    this.reader.addTarget('side', stage);
+    this.stage = stage;
+    this.prevBtn = h('button.rnav', { 'aria-label': t('prevPage'), title: t('prevPage'), text: '‹', onclick: () => this.reader.turn(-1) });
+    this.nextBtn = h('button.rnav', { 'aria-label': t('nextPage'), title: t('nextPage'), text: '›', onclick: () => this.reader.turn(1) });
     this.pageLabel = h('span.rlabel');
+    this.mainBtn = h('button.rmain', { onclick: () => this.player.setPdfMain(!this.player.prefs.pdfMain) });
     this.followBox = h('div.rfollow');
     this.timesBox = h('div.rtimes');
     this.fixBox = h('details.rfix');
-    r.append(this.stage, h('div.rbar', null, this.prevBtn, this.pageLabel, this.nextBtn), this.followBox, this.timesBox, this.fixBox);
+    r.append(stage, h('div.rbar', null, this.prevBtn, this.pageLabel, this.nextBtn), this.mainBtn, this.followBox, this.timesBox, this.fixBox);
   }
 
   setChapters(chapters, statusText) {
@@ -5285,7 +5658,8 @@ class SlidesPane {
 
   show(on) {
     this.visible = on;
-    if (on) { this.view = -1; this.render(); }
+    this.reader.setActive('side', on && !!this.deck);
+    if (on) this.render();
   }
 
   renderDeck() {
@@ -5314,13 +5688,14 @@ class SlidesPane {
     this.status.textContent = this.statusText || '';
     this.renderDeck();
     const deck = this.deck;
-    this.reader.hidden = !deck;
+    this.readerBox.hidden = !deck;
+    this.reader.setActive('side', this.visible && !!deck);
     this.chapToggle.hidden = !deck;
     this.chapToggle.textContent = this.showChapters ? t('hideChapters') : t('showChapters', { n: this.chapters.length });
     const listShown = !deck || this.showChapters;
     this.list.hidden = !listShown;
     this.status.hidden = !listShown;
-    if (deck) this.updateReader(this.player.video.currentTime, true);
+    if (deck) this.reader.update(this.player.video.currentTime, true);
     if (!listShown) return;
     if (!this.dirty) { this.update(this.player.video.currentTime, true); return; }
     this.dirty = false;
@@ -5351,11 +5726,9 @@ class SlidesPane {
     this.update(this.player.video.currentTime, true);
   }
 
-  // Called on time updates: chapter highlight and, while following, the reader's page.
+  // Called on time updates: the chapter highlight (the reader updates itself).
   update(t, force) {
-    if (!this.visible || document.hidden) return;
-    if (this.deck) this.updateReader(t, force);
-    if (!this.cards.length || this.list.hidden) return;
+    if (!this.visible || document.hidden || !this.cards.length || this.list.hidden) return;
     const k = chapterIndexAt(this.chapters, t);
     if (k === this.current && !force) return;
     if (this.cards[this.current]) this.cards[this.current].classList.remove('cur');
@@ -5366,81 +5739,27 @@ class SlidesPane {
     }
   }
 
-  updateReader(t, force) {
-    const deck = this.deck;
-    const chapter = chapterIndexAt(this.chapters, t);
-    if (this.follow) {
-      const p = deck.pageAt(t);
-      if (p !== this.view || force) this.showPage(p >= 0 ? p : Math.max(0, this.view), force);
-      else if (chapter !== this.readerChapter) this.renderPageInfo(); // follow hint, correction menu
-    } else if (force) this.showPage(this.view, true);
-    this.readerChapter = chapter;
-  }
-
-  // Manual paging pauses following.
-  turn(dir) {
-    const deck = this.deck;
-    if (!deck) return;
-    this.follow = false;
-    this.showPage(clamp(this.view + dir, 0, deck.pages.length - 1), true);
-  }
-
-  resumeFollow() {
-    this.follow = true;
-    this.updateReader(this.player.video.currentTime, true);
-  }
-
-  showPage(i, force) {
-    const deck = this.deck;
-    if (!deck || i < 0) return;
-    const changed = i !== this.view;
-    this.view = i;
-    if (changed || force) this.drawPage(i);
-    this.renderPageInfo();
-  }
-
-  // Draws page i with a short cross-fade over the previous one.
-  drawPage(i) {
-    const deck = this.deck;
-    const token = ++this.renderToken;
-    const width = Math.max(200, this.stage.clientWidth || 320) * (window.devicePixelRatio || 1);
-    const p = deck.pages[i];
-    this.stage.style.aspectRatio = '1 / ' + (p.ar || 0.5625).toFixed(4);
-    deck.render(i, width).then((src) => {
-      if (token !== this.renderToken) return;
-      const c = document.createElement('canvas');
-      c.width = src.width;
-      c.height = src.height;
-      c.getContext('2d').drawImage(src, 0, 0);
-      c.className = 'rpage';
-      this.stage.append(c);
-      requestAnimationFrame(() => c.classList.add('in'));
-      const old = [...this.stage.querySelectorAll('canvas')].filter((x) => x !== c);
-      setTimeout(() => { for (const x of old) x.remove(); }, 220);
-    }).catch((e) => console.warn(TAG, 'render page:', e && e.message ? e.message : e));
-  }
-
   renderPageInfo() {
     const deck = this.deck;
-    const i = this.view;
-    const p = deck.pages[i];
-    const multi = deck.files.length > 1;
-    this.pageLabel.textContent = t('pageOfN', { n: p.num, total: deck.pages.filter((x) => x.file === p.file).length })
-      + (multi ? ' · ' + p.file.replace(/\.pdf$/i, '') : '');
+    const rd = this.reader;
+    const i = rd.view;
+    const p = deck && deck.pages[i];
+    if (!p) return;
+    this.pageLabel.textContent = rd.label();
     this.pageLabel.title = p.title || '';
     this.prevBtn.disabled = i <= 0;
     this.nextBtn.disabled = i >= deck.pages.length - 1;
+    this.mainBtn.textContent = this.player.prefs.pdfMain ? t('pdfMainClose') : t('pdfMainOpen');
 
     this.followBox.textContent = '';
-    if (this.follow) this.followBox.append(h('span.rfollowing', { text: deck.knownAt(this.player.video.currentTime) ? t('following') : t('followingUnsure') }));
-    else this.followBox.append(h('button.rback', { text: t('backToLecture'), onclick: () => this.resumeFollow() }));
+    this.followBox.append(rd.followElement());
 
     const long = this.player.duration() >= 3600;
     const times = deck.timesOf(i);
     this.timesBox.textContent = '';
     if (times.length) {
       this.timesBox.append(h('span.rtl', { text: t('shownAt') }));
-      for (const r of times) this.timesBox.append(h('button.rtime', { text: fmtTime(r.start, long), onclick: () => { this.player.seek(r.start); this.resumeFollow(); } }));
+      for (const r of times) this.timesBox.append(h('button.rtime', { text: fmtTime(r.start, long), onclick: () => { this.player.seek(r.start); rd.resumeFollow(); } }));
     } else if (deck.state === 'ready') {
       this.timesBox.append(h('span.rtl', { text: t('notFoundInRecording') }));
     }
@@ -5449,14 +5768,15 @@ class SlidesPane {
     const fixed = deck.correctionAt(this.player.video.currentTime);
     this.fixBox.textContent = '';
     this.fixBox.append(h('summary', { text: t('wrongPage') }),
-      h('button.rfixbtn', { text: t('useThisPage', { n: p.num }), onclick: () => { deck.correct(this.player.video.currentTime, i); this.fixBox.open = false; this.resumeFollow(); } }),
-      h('button.rfixbtn', { text: t('markNotSlide'), onclick: () => { deck.correct(this.player.video.currentTime, 'none'); this.fixBox.open = false; this.resumeFollow(); } }));
+      h('button.rfixbtn', { text: t('useThisPage', { n: p.num }), onclick: () => { deck.correct(this.player.video.currentTime, i); this.fixBox.open = false; rd.resumeFollow(); } }),
+      h('button.rfixbtn', { text: t('markNotSlide'), onclick: () => { deck.correct(this.player.video.currentTime, 'none'); this.fixBox.open = false; rd.resumeFollow(); } }));
     if (fixed) {
-      this.fixBox.append(h('button.rfixbtn', { text: t('undoCorrection'), onclick: () => { deck.correct(this.player.video.currentTime, null); this.fixBox.open = false; this.resumeFollow(); } }));
+      this.fixBox.append(h('button.rfixbtn', { text: t('undoCorrection'), onclick: () => { deck.correct(this.player.video.currentTime, null); this.fixBox.open = false; rd.resumeFollow(); } }));
     }
   }
 
   dispose() {
+    this.reader.setActive('side', false);
     this.d.dispose();
   }
 }
@@ -5947,6 +6267,7 @@ function runSlideMatch(input, signal) {
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.4.299/build/';
 const FOLLOW_MIN_SEC = 15;     // a chapter shorter than this does not turn the page
 const FOLLOW_GUESS_SPAN = 3;   // unsure pages are used only between known pages this close
+const FOLLOW_STALE_SEC = 120;  // after this long without a recognised page, say so
 const DECK_RENDER_CACHE = 6;   // rendered pages kept
 
 let pdfjsPromise = null;
@@ -6241,6 +6562,16 @@ class SlideDeckController {
   knownAt(t) {
     const k = chapterIndexAt(this.slides.chapters, t);
     return k >= 0 && this.knownPage(k) >= 0;
+  }
+
+  // Seconds since a page was last recognised at time t (0 while recognised, Infinity if
+  // never). Following stops claiming a page after FOLLOW_STALE_SEC.
+  unrecognisedFor(t) {
+    const chs = this.slides.chapters;
+    const k = chapterIndexAt(chs, t);
+    if (k >= 0 && this.knownPage(k) >= 0) return 0;
+    for (let j = k - 1; j >= 0; j--) if (this.knownPage(j) >= 0) return Math.max(0, t - chs[j].end);
+    return Infinity;
   }
 
   // When page i was on screen: [{ start, end }] from matched or corrected chapters, with

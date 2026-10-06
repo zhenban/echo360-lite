@@ -29,7 +29,7 @@ function loadSources(names) {
   const files = readdirSync(join(root, 'src')).filter((f) => names.some((n) => f.includes(n))).sort();
   const code = files.map((f) => readFileSync(join(root, 'src', f), 'utf8')).join('\n')
     + '\n;globalThis.__exports = {};'
-    + ['clamp', 'fmtTime', 'parseIsoDuration', 'Disposer', 'PlayedRanges', 'FollowerSync', 'CueIndex', 'parseVtt', 'AudioChain', 'seg', 'thumbnailFor', 'pickAudioRendition', 'parseMediaPlaylist', 'Envelope', 'findSilences', 'silencesFromCues', 'speechSpans', 'silenceIndexAt', 'mp4Boxes', 'parseFragment', 'videoVariants', 'frameDistance', 'sameView', 'buildScenes', 'chapterIndexAt', 'followPages', 'decidePages', 'alignSequence']
+    + ['clamp', 'fmtTime', 'parseIsoDuration', 'Disposer', 'PlayedRanges', 'FollowerSync', 'CueIndex', 'parseVtt', 'AudioChain', 'seg', 'thumbnailFor', 'pickAudioRendition', 'parseMediaPlaylist', 'Envelope', 'findSilences', 'silencesFromCues', 'speechSpans', 'silenceIndexAt', 'mp4Boxes', 'parseFragment', 'videoVariants', 'frameDistance', 'sameView', 'buildScenes', 'chapterIndexAt', 'followPages', 'decidePages', 'alignSequence', 'captionExcerpt']
       .map((n) => `if (typeof ${n} !== 'undefined') globalThis.__exports.${n} = ${n};`).join('\n');
   vm.runInContext(code, ctx);
   return { ...ctx.__exports, timers, window: ctx.window };
@@ -534,4 +534,24 @@ test('page decision: clear matches stand alone, unsure ones need the sequence an
   // The sequence prefers staying or moving on to jumping around.
   const path = m.alignSequence([Float32Array.from([0.9, 0.1]), Float32Array.from([0.5, 0.52]), Float32Array.from([0.9, 0.1])], null);
   assert.equal(JSON.stringify(path), '[0,0,0]');
+});
+
+test('caption excerpt: last span in whole sentences', () => {
+  const m = loadSources(['00-util', '45-captions']);
+  const cues = [
+    { start: 0, end: 5, text: 'First sentence.' },
+    { start: 5, end: 9, text: 'This one starts here' },
+    { start: 9, end: 14, text: 'and ends here.' },
+    { start: 14, end: 18, text: 'Now we talk about' },
+    { start: 18, end: 22, text: 'Fourier series.' },
+    { start: 40, end: 44, text: 'Later.' },
+  ];
+  // The last 6 s before t = 16 begin in the cue at 9-14, which continues the one at 5-9, so
+  // the excerpt reaches back to 5; the sentence being spoken at 16 is completed (to 22).
+  const x = m.captionExcerpt(cues, 16, 6);
+  assert.equal(x.start, 5);
+  assert.equal(x.end, 22);
+  assert.equal(x.text, 'This one starts here and ends here. Now we talk about Fourier series.');
+  assert.equal(m.captionExcerpt(cues, 3, 60).start, 0);
+  assert.equal(m.captionExcerpt([], 3, 60), null);
 });

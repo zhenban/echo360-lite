@@ -1,15 +1,142 @@
 // ===================================================================================
-// Slides tab of the side panel.
+// Reading along with the lecturer's PDF, and the Slides tab of the side panel.
 //
-// Without slide files: one card per chapter (picture, time, the first sentence spoken on
-// it), the current one highlighted and kept in view.
+// SlideReader holds the reader's state (the page shown, whether it follows the lecture)
+// and draws the page into any number of places: the small reader in the Slides tab and,
+// when the user opens it there, the PDF view in the main picture area. Following turns to
+// the page being talked about; paging by hand pauses it until "back to the page being
+// talked about". After a while without a recognised page it says so instead of presenting
+// an old page as current.
 //
-// With the lecturer's PDF (added here or dropped on the player): a reader that follows the
-// lecture, turning to the page being talked about. Paging by hand pauses following; a
-// button brings it back. Each page lists when it was on screen (click to jump there), and
-// a small menu corrects the page for the part being played. The chapter list folds away
-// below the reader.
+// SlidesPane is the tab: the slide files (add, remove), the small reader with the page's
+// times on screen and a "wrong page?" menu, and the chapter list (folded away below the
+// reader when there is a PDF). Without slide files it is just the chapter list.
 // ===================================================================================
+
+class SlideReader {
+  constructor(player) {
+    this.player = player;
+    this.view = -1;
+    this.follow = true;
+    this.stale = false;
+    this.chapter = -1;
+    this.targets = new Map();   // name -> { stage, active, token }
+    this.infoListeners = new Set();
+  }
+
+  get deck() {
+    const d = this.player.deck;
+    return d && d.pages.length ? d : null;
+  }
+
+  // A place to draw pages into: `stage` gets the canvases (and a "not recognised" layer).
+  addTarget(name, stage) {
+    stage.append(h('div.rstale', { text: t('pageNotRecognised') }));
+    this.targets.set(name, { stage, active: false, token: 0 });
+  }
+
+  setActive(name, on) {
+    const tg = this.targets.get(name);
+    if (!tg || tg.active === on) return;
+    tg.active = on;
+    if (on && this.deck) {
+      if (this.view >= 0) this.drawInto(tg, this.view);
+      this.update(this.player.video.currentTime, true);
+    }
+  }
+
+  get active() {
+    for (const tg of this.targets.values()) if (tg.active) return true;
+    return false;
+  }
+
+  onInfo(fn) { this.infoListeners.add(fn); }
+
+  info() { for (const fn of this.infoListeners) fn(); }
+
+  // Called on time updates while some place shows the reader.
+  update(t, force) {
+    const deck = this.deck;
+    if (!deck || !this.active) return;
+    const chapter = chapterIndexAt(this.player.slides.chapters, t);
+    // Long without a recognised page: do not keep presenting an old page as current.
+    const stale = this.follow && deck.unrecognisedFor(t) > FOLLOW_STALE_SEC;
+    const staleChanged = stale !== this.stale;
+    this.stale = stale;
+    for (const tg of this.targets.values()) tg.stage.classList.toggle('stale', stale);
+    if (this.follow) {
+      const p = deck.pageAt(t);
+      if (p !== this.view || force) this.showPage(p >= 0 ? p : Math.max(0, this.view), force);
+      else if (chapter !== this.chapter || staleChanged) this.info();
+    } else if (force) this.showPage(this.view, true);
+    this.chapter = chapter;
+  }
+
+  // Manual paging pauses following.
+  turn(dir) {
+    const deck = this.deck;
+    if (!deck) return;
+    this.follow = false;
+    this.showPage(clamp(this.view + dir, 0, deck.pages.length - 1), true);
+  }
+
+  resumeFollow() {
+    this.follow = true;
+    this.update(this.player.video.currentTime, true);
+  }
+
+  showPage(i, force) {
+    if (!this.deck || i < 0) return;
+    const changed = i !== this.view;
+    this.view = i;
+    if (changed || force) for (const tg of this.targets.values()) if (tg.active) this.drawInto(tg, i);
+    this.info();
+  }
+
+  // Draws page i into a place, with a short cross-fade over the previous page.
+  drawInto(tg, i) {
+    const deck = this.deck;
+    const token = ++tg.token;
+    const stage = tg.stage;
+    const p = deck.pages[i];
+    const dpr = window.devicePixelRatio || 1;
+    // As wide as fits the place at the page's aspect ratio.
+    const ar = p.ar || 0.5625;
+    const w = stage.clientWidth || 320;
+    const hgt = stage.clientHeight || w * ar;
+    const width = Math.max(200, Math.min(w, hgt / ar)) * dpr;
+    deck.render(i, width).then((src) => {
+      if (token !== tg.token) return;
+      const c = document.createElement('canvas');
+      c.width = src.width;
+      c.height = src.height;
+      c.getContext('2d').drawImage(src, 0, 0);
+      c.className = 'rpage';
+      stage.append(c);
+      requestAnimationFrame(() => c.classList.add('in'));
+      const old = [...stage.querySelectorAll('canvas')].filter((x) => x !== c);
+      setTimeout(() => { for (const x of old) x.remove(); }, 220);
+    }).catch((e) => console.warn(TAG, 'render page:', e && e.message ? e.message : e));
+  }
+
+  // "Page 5 of 21 · file" for the page shown.
+  label() {
+    const deck = this.deck;
+    const p = deck.pages[this.view];
+    if (!p) return '';
+    return t('pageOfN', { n: p.num, total: deck.pages.filter((x) => x.file === p.file).length })
+      + (deck.files.length > 1 ? ' · ' + p.file.replace(/\.pdf$/i, '') : '');
+  }
+
+  // The following line: following (sure / unsure / stale), or a button back to it.
+  // `compact` gives the short wording for the toolbar over the PDF view.
+  followElement(compact) {
+    const now = this.player.video.currentTime;
+    if (!this.follow) return h('button.rback', { text: compact ? t('backToLectureShort') : t('backToLecture'), onclick: () => this.resumeFollow() });
+    const state = this.stale ? 'Stale' : this.deck.knownAt(now) ? '' : 'Unsure';
+    return h('span.rfollowing', { text: t('following' + state + (compact ? 'Short' : '')) });
+  }
+}
 
 class SlidesPane {
   constructor(player, el) {
@@ -20,39 +147,38 @@ class SlidesPane {
     this.dirty = true;
     this.current = -1;
     this.cards = [];
-    this.view = -1;          // page shown in the reader
-    this.follow = true;
     this.showChapters = false;
-    this.renderToken = 0;
     this.d = new Disposer();
+    this.reader = player.reader;
     this.deckBox = h('div.sdeck');
-    this.reader = h('div.reader', { hidden: true });
+    this.readerBox = h('div.reader', { hidden: true });
     this.status = h('div.sstatus', { 'aria-live': 'polite' });
     this.chapToggle = h('button.chaptoggle', { hidden: true, onclick: () => { this.showChapters = !this.showChapters; this.render(); } });
     this.list = h('div.slist');
-    el.append(this.deckBox, this.reader, this.chapToggle, this.status, this.list);
+    el.append(this.deckBox, this.readerBox, this.chapToggle, this.status, this.list);
     this.buildReader();
+    this.reader.onInfo(() => { if (this.visible) this.renderPageInfo(); });
     this.d.listen(this.list, 'click', (e) => {
       const card = e.target.closest('.scard');
       if (card) this.player.seek(this.chapters[+card.dataset.i].start);
     });
   }
 
-  get deck() {
-    const d = this.player.deck;
-    return d && d.pages.length ? d : null;
-  }
+  get deck() { return this.reader.deck; }
 
   buildReader() {
-    const r = this.reader;
-    this.stage = h('div.rstage');
-    this.prevBtn = h('button.rnav', { 'aria-label': t('prevPage'), title: t('prevPage'), text: '‹', onclick: () => this.turn(-1) });
-    this.nextBtn = h('button.rnav', { 'aria-label': t('nextPage'), title: t('nextPage'), text: '›', onclick: () => this.turn(1) });
+    const r = this.readerBox;
+    const stage = h('div.rstage');
+    this.reader.addTarget('side', stage);
+    this.stage = stage;
+    this.prevBtn = h('button.rnav', { 'aria-label': t('prevPage'), title: t('prevPage'), text: '‹', onclick: () => this.reader.turn(-1) });
+    this.nextBtn = h('button.rnav', { 'aria-label': t('nextPage'), title: t('nextPage'), text: '›', onclick: () => this.reader.turn(1) });
     this.pageLabel = h('span.rlabel');
+    this.mainBtn = h('button.rmain', { onclick: () => this.player.setPdfMain(!this.player.prefs.pdfMain) });
     this.followBox = h('div.rfollow');
     this.timesBox = h('div.rtimes');
     this.fixBox = h('details.rfix');
-    r.append(this.stage, h('div.rbar', null, this.prevBtn, this.pageLabel, this.nextBtn), this.followBox, this.timesBox, this.fixBox);
+    r.append(stage, h('div.rbar', null, this.prevBtn, this.pageLabel, this.nextBtn), this.mainBtn, this.followBox, this.timesBox, this.fixBox);
   }
 
   setChapters(chapters, statusText) {
@@ -70,7 +196,8 @@ class SlidesPane {
 
   show(on) {
     this.visible = on;
-    if (on) { this.view = -1; this.render(); }
+    this.reader.setActive('side', on && !!this.deck);
+    if (on) this.render();
   }
 
   renderDeck() {
@@ -99,13 +226,14 @@ class SlidesPane {
     this.status.textContent = this.statusText || '';
     this.renderDeck();
     const deck = this.deck;
-    this.reader.hidden = !deck;
+    this.readerBox.hidden = !deck;
+    this.reader.setActive('side', this.visible && !!deck);
     this.chapToggle.hidden = !deck;
     this.chapToggle.textContent = this.showChapters ? t('hideChapters') : t('showChapters', { n: this.chapters.length });
     const listShown = !deck || this.showChapters;
     this.list.hidden = !listShown;
     this.status.hidden = !listShown;
-    if (deck) this.updateReader(this.player.video.currentTime, true);
+    if (deck) this.reader.update(this.player.video.currentTime, true);
     if (!listShown) return;
     if (!this.dirty) { this.update(this.player.video.currentTime, true); return; }
     this.dirty = false;
@@ -136,11 +264,9 @@ class SlidesPane {
     this.update(this.player.video.currentTime, true);
   }
 
-  // Called on time updates: chapter highlight and, while following, the reader's page.
+  // Called on time updates: the chapter highlight (the reader updates itself).
   update(t, force) {
-    if (!this.visible || document.hidden) return;
-    if (this.deck) this.updateReader(t, force);
-    if (!this.cards.length || this.list.hidden) return;
+    if (!this.visible || document.hidden || !this.cards.length || this.list.hidden) return;
     const k = chapterIndexAt(this.chapters, t);
     if (k === this.current && !force) return;
     if (this.cards[this.current]) this.cards[this.current].classList.remove('cur');
@@ -151,81 +277,27 @@ class SlidesPane {
     }
   }
 
-  updateReader(t, force) {
-    const deck = this.deck;
-    const chapter = chapterIndexAt(this.chapters, t);
-    if (this.follow) {
-      const p = deck.pageAt(t);
-      if (p !== this.view || force) this.showPage(p >= 0 ? p : Math.max(0, this.view), force);
-      else if (chapter !== this.readerChapter) this.renderPageInfo(); // follow hint, correction menu
-    } else if (force) this.showPage(this.view, true);
-    this.readerChapter = chapter;
-  }
-
-  // Manual paging pauses following.
-  turn(dir) {
-    const deck = this.deck;
-    if (!deck) return;
-    this.follow = false;
-    this.showPage(clamp(this.view + dir, 0, deck.pages.length - 1), true);
-  }
-
-  resumeFollow() {
-    this.follow = true;
-    this.updateReader(this.player.video.currentTime, true);
-  }
-
-  showPage(i, force) {
-    const deck = this.deck;
-    if (!deck || i < 0) return;
-    const changed = i !== this.view;
-    this.view = i;
-    if (changed || force) this.drawPage(i);
-    this.renderPageInfo();
-  }
-
-  // Draws page i with a short cross-fade over the previous one.
-  drawPage(i) {
-    const deck = this.deck;
-    const token = ++this.renderToken;
-    const width = Math.max(200, this.stage.clientWidth || 320) * (window.devicePixelRatio || 1);
-    const p = deck.pages[i];
-    this.stage.style.aspectRatio = '1 / ' + (p.ar || 0.5625).toFixed(4);
-    deck.render(i, width).then((src) => {
-      if (token !== this.renderToken) return;
-      const c = document.createElement('canvas');
-      c.width = src.width;
-      c.height = src.height;
-      c.getContext('2d').drawImage(src, 0, 0);
-      c.className = 'rpage';
-      this.stage.append(c);
-      requestAnimationFrame(() => c.classList.add('in'));
-      const old = [...this.stage.querySelectorAll('canvas')].filter((x) => x !== c);
-      setTimeout(() => { for (const x of old) x.remove(); }, 220);
-    }).catch((e) => console.warn(TAG, 'render page:', e && e.message ? e.message : e));
-  }
-
   renderPageInfo() {
     const deck = this.deck;
-    const i = this.view;
-    const p = deck.pages[i];
-    const multi = deck.files.length > 1;
-    this.pageLabel.textContent = t('pageOfN', { n: p.num, total: deck.pages.filter((x) => x.file === p.file).length })
-      + (multi ? ' · ' + p.file.replace(/\.pdf$/i, '') : '');
+    const rd = this.reader;
+    const i = rd.view;
+    const p = deck && deck.pages[i];
+    if (!p) return;
+    this.pageLabel.textContent = rd.label();
     this.pageLabel.title = p.title || '';
     this.prevBtn.disabled = i <= 0;
     this.nextBtn.disabled = i >= deck.pages.length - 1;
+    this.mainBtn.textContent = this.player.prefs.pdfMain ? t('pdfMainClose') : t('pdfMainOpen');
 
     this.followBox.textContent = '';
-    if (this.follow) this.followBox.append(h('span.rfollowing', { text: deck.knownAt(this.player.video.currentTime) ? t('following') : t('followingUnsure') }));
-    else this.followBox.append(h('button.rback', { text: t('backToLecture'), onclick: () => this.resumeFollow() }));
+    this.followBox.append(rd.followElement());
 
     const long = this.player.duration() >= 3600;
     const times = deck.timesOf(i);
     this.timesBox.textContent = '';
     if (times.length) {
       this.timesBox.append(h('span.rtl', { text: t('shownAt') }));
-      for (const r of times) this.timesBox.append(h('button.rtime', { text: fmtTime(r.start, long), onclick: () => { this.player.seek(r.start); this.resumeFollow(); } }));
+      for (const r of times) this.timesBox.append(h('button.rtime', { text: fmtTime(r.start, long), onclick: () => { this.player.seek(r.start); rd.resumeFollow(); } }));
     } else if (deck.state === 'ready') {
       this.timesBox.append(h('span.rtl', { text: t('notFoundInRecording') }));
     }
@@ -234,14 +306,15 @@ class SlidesPane {
     const fixed = deck.correctionAt(this.player.video.currentTime);
     this.fixBox.textContent = '';
     this.fixBox.append(h('summary', { text: t('wrongPage') }),
-      h('button.rfixbtn', { text: t('useThisPage', { n: p.num }), onclick: () => { deck.correct(this.player.video.currentTime, i); this.fixBox.open = false; this.resumeFollow(); } }),
-      h('button.rfixbtn', { text: t('markNotSlide'), onclick: () => { deck.correct(this.player.video.currentTime, 'none'); this.fixBox.open = false; this.resumeFollow(); } }));
+      h('button.rfixbtn', { text: t('useThisPage', { n: p.num }), onclick: () => { deck.correct(this.player.video.currentTime, i); this.fixBox.open = false; rd.resumeFollow(); } }),
+      h('button.rfixbtn', { text: t('markNotSlide'), onclick: () => { deck.correct(this.player.video.currentTime, 'none'); this.fixBox.open = false; rd.resumeFollow(); } }));
     if (fixed) {
-      this.fixBox.append(h('button.rfixbtn', { text: t('undoCorrection'), onclick: () => { deck.correct(this.player.video.currentTime, null); this.fixBox.open = false; this.resumeFollow(); } }));
+      this.fixBox.append(h('button.rfixbtn', { text: t('undoCorrection'), onclick: () => { deck.correct(this.player.video.currentTime, null); this.fixBox.open = false; rd.resumeFollow(); } }));
     }
   }
 
   dispose() {
+    this.reader.setActive('side', false);
     this.d.dispose();
   }
 }

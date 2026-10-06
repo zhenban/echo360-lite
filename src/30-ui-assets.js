@@ -26,6 +26,7 @@ const ICON = {
   notes: '<path d="M6 3.5h9l3 3V20a.5.5 0 0 1-.5.5h-11A.5.5 0 0 1 6 20z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 10h6M9 13.5h6M9 17h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
   discussion: '<path d="M4.5 5.5h15v10h-9l-4 3.5v-3.5h-2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
   audio: '<path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+  copy: '<rect x="8.5" y="8.5" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M15.5 5.5v-.5a1.5 1.5 0 0 0-1.5-1.5H6a1.5 1.5 0 0 0-1.5 1.5v8a1.5 1.5 0 0 0 1.5 1.5h.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
   close: '<path d="M6.5 6.5l11 11m0-11l-11 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
   up: '<path d="M6.5 14.5l5.5-5.5 5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
   down: '<path d="M6.5 9.5l5.5 5.5 5.5-5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
@@ -145,6 +146,14 @@ select.input option { background: #1b1b20; }
 .audiomenu .opt[aria-disabled=true] { opacity: .45; cursor: default; }
 .audiomenu { max-height: calc(100% - 80px); overflow-y: auto; }
 .qualitymenu { min-width: 200px; }
+.copymenu { min-width: 260px; max-width: 320px; }
+.copymenu .opt { display: flex; flex-direction: column; align-items: stretch; gap: 2px; white-space: normal; }
+.copymenu .opt .row1 { display: flex; justify-content: space-between; gap: 16px; }
+.copymenu .opt .key { opacity: .5; font-size: 12px; }
+.copymenu .opt .desc { font-size: 12px; opacity: .55; line-height: 1.35; }
+.copymenu .sub { padding: 6px 10px 0; font-size: 12px; opacity: .6; }
+.copymenu .choices { display: flex; gap: 4px; padding: 4px 6px 2px; }
+.copymenu .choices button { width: auto; flex: 1; text-align: center; padding: 6px 0; }
 .qualitymenu .sub { padding: 8px 10px 2px; font-size: 12px; opacity: .6; }
 .audiomenu .sep { height: 1px; margin: 6px 4px; background: rgba(255,255,255,.1); }
 .audiomenu .silstatus { padding: 0 10px 6px; font-size: 12px; line-height: 1.4; opacity: .75; }
@@ -168,6 +177,10 @@ select.input option { background: #1b1b20; }
 .rstage { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 6px; overflow: hidden; background: #fff; }
 .rpage { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; transition: opacity .18s ease; }
 .rpage.in { opacity: 1; }
+.rstale { position: absolute; inset: 0; z-index: 1; display: none; align-items: center; justify-content: center; padding: 12px; text-align: center;
+  font-size: 13px; font-weight: 600; color: #fff; background: rgba(20,20,24,.72); }
+.stale > .rstale { display: flex; }
+.pstage .rstale { z-index: 2; font-size: 15px; }
 .rbar { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
 .rnav { width: 32px; height: 28px; border-radius: 8px; font-size: 20px; line-height: 1; }
 .rnav:hover:not(:disabled) { background: rgba(255,255,255,.1); }
@@ -185,6 +198,8 @@ select.input option { background: #1b1b20; }
 .rfix[open] summary { opacity: .9; margin-bottom: 4px; }
 .rfixbtn { display: block; width: 100%; text-align: left; padding: 5px 8px; border-radius: 6px; }
 .rfixbtn:hover { background: rgba(255,255,255,.08); }
+.rmain { display: block; width: 100%; margin-top: 6px; padding: 5px 8px; border-radius: 8px; font-size: 12px; background: rgba(255,255,255,.08); }
+.rmain:hover { background: rgba(255,255,255,.14); }
 .chaptoggle { display: block; margin: 6px 0; padding: 4px 0; font-size: 12px; color: var(--accent); }
 .sdeck { padding: 8px 2px 4px; border-bottom: 1px solid rgba(255,255,255,.08); margin-bottom: 6px; }
 .sfiles { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
@@ -220,16 +235,33 @@ select.input option { background: #1b1b20; }
   .presize { display: none; }
 }
 .views { position: absolute; inset: 0; }
-video { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
-.l-single video[data-slot=secondary] { display: none; }
-.l-side video[data-slot=primary] { width: calc(var(--ratio) * 100%); }
-.l-side video[data-slot=secondary] { left: auto; right: 0; width: calc((1 - var(--ratio)) * 100%); }
+video, .pdfview { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+[data-slot=off] { display: none !important; }
+.l-single :is(video, .pdfview)[data-slot=secondary] { display: none; }
+.l-side :is(video, .pdfview)[data-slot=primary] { width: calc(var(--ratio) * 100%); }
+.l-side :is(video, .pdfview)[data-slot=secondary] { left: auto; right: 0; width: calc((1 - var(--ratio)) * 100%); }
+/* The lecturer's PDF as a picture of its own (see SlideReader). */
+.pdfview { background: #1a1a1d; overflow: hidden; }
+.pstage { position: absolute; inset: 0; }
+.pstage .rpage { position: absolute; left: 50%; top: 50%; width: auto; height: auto; max-width: 100%; max-height: 100%; transform: translate(-50%, -50%); }
+.pbar { position: absolute; left: 50%; top: 58px; z-index: 3; display: flex; align-items: center; gap: 4px; padding: 3px 6px; border-radius: 16px;
+  max-width: calc(100% - 16px); overflow: hidden; transform: translateX(-50%); background: rgba(18,18,22,.82); font-size: 12px; white-space: nowrap;
+  transition: opacity .2s ease; }
+.pfollow { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.idle .pbar { opacity: 0; pointer-events: none; }
+.pnav { width: 26px; height: 24px; border-radius: 8px; font-size: 15px; line-height: 1; }
+.pnav:hover:not(:disabled) { background: rgba(255,255,255,.12); }
+.pnav:disabled { opacity: .3; }
+.plabel { padding: 0 4px; font-variant-numeric: tabular-nums; }
+.pfollow .rback { padding: 3px 10px; font-size: 12px; }
+.pfollow .rfollowing { opacity: .6; padding: 0 6px; }
+.l-pip .pdfview[data-slot=secondary] .pbar { display: none; }
 .divider { position: absolute; top: 0; bottom: 0; left: calc(var(--ratio) * 100%); width: 16px; margin-left: -8px; cursor: col-resize; z-index: 3; display: none; touch-action: none; }
 .divider::after { content: ""; position: absolute; left: 7px; top: 50%; width: 2px; height: 48px; margin-top: -24px; border-radius: 1px; background: rgba(255,255,255,.35); transition: background .15s ease; }
 .divider:hover::after, .divider.dragging::after { background: var(--accent); }
 .l-side .divider { display: block; }
-.l-pip video[data-slot=secondary], .pipframe { left: auto; top: auto; width: calc(var(--pipw) * 100%); height: auto; aspect-ratio: 16 / 9; }
-.l-pip video[data-slot=secondary] { z-index: 2; border-radius: 10px; box-shadow: 0 6px 24px rgba(0,0,0,.55); }
+.l-pip :is(video, .pdfview)[data-slot=secondary], .pipframe { left: auto; top: auto; width: calc(var(--pipw) * 100%); height: auto; aspect-ratio: 16 / 9; }
+.l-pip :is(video, .pdfview)[data-slot=secondary] { z-index: 2; border-radius: 10px; box-shadow: 0 6px 24px rgba(0,0,0,.55); }
 .pipframe { position: absolute; z-index: 3; display: none; border-radius: 10px; cursor: grab; touch-action: none; }
 .pipframe.dragging { cursor: grabbing; }
 .l-pip .pipframe { display: block; }
@@ -237,10 +269,10 @@ video { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-f
 .grip { position: absolute; width: 18px; height: 18px; opacity: 0; transition: opacity .15s ease; touch-action: none; }
 .grip::before { content: ""; position: absolute; inset: 4px; border: 2px solid #fff; border-radius: 2px; }
 .pipframe:hover .grip { opacity: .9; }
-.l-pip.c-br video[data-slot=secondary], .l-pip.c-br .pipframe { right: 16px; bottom: 84px; }
-.l-pip.c-bl video[data-slot=secondary], .l-pip.c-bl .pipframe { left: 16px; bottom: 84px; }
-.l-pip.c-tr video[data-slot=secondary], .l-pip.c-tr .pipframe { right: 16px; top: 64px; }
-.l-pip.c-tl video[data-slot=secondary], .l-pip.c-tl .pipframe { left: 16px; top: 64px; }
+.l-pip.c-br :is(video, .pdfview)[data-slot=secondary], .l-pip.c-br .pipframe { right: 16px; bottom: 84px; }
+.l-pip.c-bl :is(video, .pdfview)[data-slot=secondary], .l-pip.c-bl .pipframe { left: 16px; bottom: 84px; }
+.l-pip.c-tr :is(video, .pdfview)[data-slot=secondary], .l-pip.c-tr .pipframe { right: 16px; top: 64px; }
+.l-pip.c-tl :is(video, .pdfview)[data-slot=secondary], .l-pip.c-tl .pipframe { left: 16px; top: 64px; }
 .c-br .grip { left: 0; top: 0; cursor: nwse-resize; }
 .c-bl .grip { right: 0; top: 0; cursor: nesw-resize; }
 .c-tr .grip { left: 0; bottom: 0; cursor: nesw-resize; }
@@ -248,14 +280,14 @@ video { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-f
 .layoutmenu button { display: flex; align-items: center; gap: 10px; }
 .layoutmenu svg { width: 20px; height: 20px; }
 .top, .bottom { position: absolute; left: 0; right: 0; transition: opacity .2s ease; }
-.top { top: 0; display: flex; align-items: center; gap: 8px; padding: 10px 14px 28px;
+.top { top: 0; z-index: 4; display: flex; align-items: center; gap: 8px; padding: 10px 14px 28px;
   background: linear-gradient(rgba(0,0,0,.72), rgba(0,0,0,0)); }
 .bottom { bottom: 0; z-index: 4; padding: 28px 14px 8px; background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.78)); }
 .idle .top, .idle .bottom { opacity: 0; pointer-events: none; }
 .idle { cursor: none; }
 .back { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; color: inherit; text-decoration: none; flex: none; }
 .back:hover { background: rgba(255,255,255,.12); }
-.title { flex: 1; min-width: 0; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.title { flex: 0 1 auto; margin-right: auto; min-width: 0; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chip { flex: none; height: 30px; padding: 0 12px; border-radius: 15px; background: rgba(255,255,255,.12); font-size: 13px; }
 .chip:hover { background: rgba(255,255,255,.2); }
 .seek { position: relative; height: 18px; margin: 0 2px 2px; cursor: pointer; touch-action: none; --p: 0; --b: 0; --h: 0; }
@@ -305,9 +337,13 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border: 0; bord
   animation: spin .9s linear infinite; display: none; }
 .waiting .spinner { display: block; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.bigplay { width: 72px; height: 72px; border-radius: 50%; background: rgba(0,0,0,.55); display: none; align-items: center; justify-content: center; }
-.bigplay svg { width: 34px; height: 34px; margin-left: 4px; }
-.paused:not(.waiting) .bigplay { display: flex; }
+/* Paused: a small label in the title bar instead of a big icon over the picture. */
+.pausehint { flex: none; display: none; align-items: center; gap: 6px; padding: 4px 10px 4px 8px; margin-right: auto;
+  border-radius: 14px; background: rgba(255,255,255,.12); font-size: 12px; pointer-events: none; }
+.pausehint svg { width: 14px; height: 14px; }
+.paused:not(.waiting) .pausehint { display: inline-flex; }
+.paused:not(.waiting) .title { margin-right: 0; }
+.paused.hidecc-paused .captions { display: none; }
 .toast { position: absolute; z-index: 5; left: 50%; bottom: 96px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px;
   padding: 9px 10px 9px 16px; border-radius: 12px; background: var(--panel); font-size: 13px; box-shadow: 0 8px 30px rgba(0,0,0,.4); max-width: calc(100% - 28px); }
 .toast[hidden] { display: none; }
@@ -337,14 +373,26 @@ function playerTemplate() {
   <div class="views">
     <video class="clock" playsinline preload="auto" data-slot="primary"></video>
     <video class="follower" playsinline preload="auto" muted data-slot="secondary"></video>
+    <div class="pdfview" data-slot="off">
+      <div class="pstage"></div>
+      <div class="pbar">
+        <button class="pnav pprev" title="${t('prevPage')}" aria-label="${t('prevPage')}">‹</button>
+        <span class="plabel"></span>
+        <button class="pnav pnext" title="${t('nextPage')}" aria-label="${t('nextPage')}">›</button>
+        <span class="pfollow"></span>
+        <button class="pnav pswap" title="${t('pdfSwap')}" aria-label="${t('pdfSwap')}">⇄</button>
+        <button class="pnav pclose" title="${t('pdfMainClose')}" aria-label="${t('pdfMainClose')}">✕</button>
+      </div>
+    </div>
     <div class="divider" role="separator" aria-orientation="vertical" aria-label="${t('resizeViews')}" tabindex="0"></div>
     <div class="pipframe" title="${t('pipHint')}"><div class="grip" title="${t('resizePip')}"></div></div>
   </div>
   <div class="captions" hidden><span></span></div>
-  <div class="center"><div class="spinner"></div><div class="bigplay">${svg('play')}</div></div>
+  <div class="center"><div class="spinner"></div></div>
   <div class="top">
     <a class="back" title="${t('back')}" aria-label="${t('back')}">${svg('back')}</a>
     <div class="title"></div>
+    <span class="pausehint" aria-hidden="true">${svg('pause')}<span>${t('pausedHint')}</span></span>
  <button class="chip tbtn" data-open="transcript" hidden aria-pressed="false" title="${t('transcriptKey')}">${svg('transcript')}<span class="lbl">${t('transcript')}</span></button>
     <button class="chip tbtn" data-open="slides" hidden aria-pressed="false" title="${t('slidesKey')}">${svg('slides')}<span class="lbl">${t('slides')}</span></button>
     <button class="chip tbtn" data-open="notes" hidden aria-pressed="false" title="${t('notes')}">${svg('notes')}<span class="lbl">${t('notes')}</span></button>
@@ -371,6 +419,7 @@ function playerTemplate() {
       <div class="spacer"></div>
       <button class="btn bmbtn hide-sm" hidden title="${t('bookmarkKey')}" aria-label="${t('bookmark')}">${svg('bookmark')}</button>
       <button class="btn flagbtn hide-sm" hidden title="${t('flagKey')}" aria-label="${t('flag')}" aria-pressed="false">${svg('flag')}</button>
+      <button class="btn copybtn" title="${t('copy')}" aria-label="${t('copy')}" aria-haspopup="menu">${svg('copy')}</button>
       <button class="btn audiobtn hide-sm" title="${t('audio')}" aria-label="${t('audio')}" aria-haspopup="menu">${svg('audio')}</button>
       <button class="btn ccbtn" hidden title="${t('captionsKey')}" aria-label="${t('captions')}" aria-haspopup="menu">${svg('cc')}</button>
       <button class="btn swap" title="${t('swapViews')}" aria-label="${t('swapViews')}">${svg('swap')}</button>
@@ -389,10 +438,17 @@ function playerTemplate() {
   </div>
   <div class="menu ccmenu" hidden role="menu"><div class="head">${t('captions')}</div>
     <button class="opt cctoggle" role="menuitemcheckbox" aria-checked="false"><span>${t('showCaptions')}</span><span class="state"></span></button>
+    <button class="opt cchidepaused" role="menuitemcheckbox" aria-checked="true"><span>${t('hideCaptionsPaused')}</span><span class="state"></span></button>
     <div class="head">${t('captionSize')}</div>
     <div class="sizes">
       <button role="menuitemradio" data-size="s">S</button><button role="menuitemradio" data-size="m">M</button><button role="menuitemradio" data-size="l">L</button><button role="menuitemradio" data-size="xl">XL</button>
     </div>
+  </div>
+  <div class="menu copymenu" hidden role="menu"><div class="head">${t('copy')}</div>
+    <button class="opt" role="menuitem" data-copy="frame"><span class="row1"><span>${t('copyFrame')}</span><span class="key">P</span></span><span class="desc">${t('copyFrameDesc')}</span></button>
+    <button class="opt" role="menuitem" data-copy="captions"><span class="row1"><span>${t('copyCaptions')}</span><span class="key">A</span></span><span class="desc">${t('copyCaptionsDesc')}</span></button>
+    <div class="sub">${t('copyCaptionsSpan')}</div>
+    <div class="choices copyspan">${[30, 60, 120, 300].map((s) => `<button role="menuitemradio" data-span="${s}">${s < 60 ? s + 's' : s / 60 + 'm'}</button>`).join('')}</div>
   </div>
   <div class="menu audiomenu" hidden role="menu"><div class="head">${t('audio')}</div>
     <div class="why" hidden></div>

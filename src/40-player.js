@@ -22,9 +22,11 @@ class LitePlayer {
     this.prefs = Object.assign(
       {
         primary: null, layout: 'side', ratio: 0.5, pipw: 0.26, corner: 'br', rate: 1, volume: 1, muted: false,
-        captions: false, capSize: 'm', panel: false, tab: 'transcript', panelw: 360,
+        captions: false, capSize: 'm', capHidePaused: true, panel: false, tab: 'transcript', panelw: 360,
         audio: { level: false, voice: false, mono: false },
         silence: { auto: false, min: 30, sens: 'normal' },
+        copySpan: 60,
+        pdfMain: false, pdfFirst: false,
         quality: { screen: 'auto', camera: 'auto' },
       },
       store.get('prefs', {}),
@@ -90,7 +92,13 @@ class LitePlayer {
   }
 
   get layout() {
+    if (this.pdfMode) return this.prefs.layout;
     return this.dual && !this.followerFailed ? this.prefs.layout : 'single';
+  }
+
+  // The lecturer's PDF shown in the picture area, next to one video (see SlideReader).
+  get pdfMode() {
+    return !!(this.prefs.pdfMain && this.deck && this.deck.pages.length);
   }
 
   buildDom() {
@@ -200,9 +208,11 @@ class LitePlayer {
   applyLayout() {
     const layout = this.layout;
     const st = this.stage;
+    const pdf = this.pdfMode;
     for (const l of LAYOUTS) st.classList.toggle('l-' + l, l === layout);
     for (const c of CORNERS) st.classList.toggle('c-' + c, c === this.prefs.corner);
-    if (layout === 'single') {
+    // One video plays when it is shown alone or next to the PDF.
+    if (layout === 'single' || pdf) {
       this.dropFollower();
       if (this.clockPos !== this.primaryPos && this.sources[this.primaryPos].av) {
         const v = this.video;
@@ -211,12 +221,109 @@ class LitePlayer {
     } else {
       this.ensureFollower();
     }
-    const clockIsPrimary = this.clockPos === this.primaryPos || layout === 'single';
-    this.video.dataset.slot = clockIsPrimary ? 'primary' : 'secondary';
-    this.fvideo.dataset.slot = clockIsPrimary ? 'secondary' : 'primary';
+    const pdfView = this.$('.pdfview');
+    if (pdf) {
+      const pdfFirst = !!this.prefs.pdfFirst;
+      this.video.dataset.slot = pdfFirst ? 'secondary' : 'primary';
+      this.fvideo.dataset.slot = 'off';
+      pdfView.dataset.slot = pdfFirst ? 'primary' : 'secondary';
+    } else {
+      const clockIsPrimary = this.clockPos === this.primaryPos || layout === 'single';
+      this.video.dataset.slot = clockIsPrimary ? 'primary' : 'secondary';
+      this.fvideo.dataset.slot = clockIsPrimary ? 'secondary' : 'primary';
+      pdfView.dataset.slot = 'off';
+    }
+    this.$('.layout').style.display = this.dual || pdf ? '' : 'none';
     this.setButton('.layout', layout === 'side' ? 'layoutSide' : layout === 'pip' ? 'layoutPip' : 'layoutSingle', t('layout'));
     for (const b of this.root.querySelectorAll('.layoutmenu button')) b.setAttribute('aria-checked', String(b.dataset.layout === layout));
+    if (this.reader) {
+      this.reader.setActive('main', pdf);
+      if (pdf) this.redrawPdf();
+    }
     this.applyQuality();
+  }
+
+  // ---- the PDF in the picture area ----
+
+  setPdfMain(on) {
+    this.prefs.pdfMain = !!on;
+    // Shown alone the PDF would hide the video (or the other way round): put them side by side.
+    if (on && this.prefs.layout === 'single') this.prefs.layout = 'side';
+    this.savePrefs();
+    this.applyLayout();
+    if (this.reader) this.reader.info();
+  }
+
+  swapPdf() {
+    this.prefs.pdfFirst = !this.prefs.pdfFirst;
+    this.savePrefs();
+    this.applyLayout();
+  }
+
+  // Re-renders the main PDF view at its new size (after a layout or window change).
+  redrawPdf() {
+    if (!this.reader || !this.pdfMode) return;
+    requestAnimationFrame(() => {
+      const tg = this.reader.targets.get('main');
+      if (tg && tg.active && this.reader.view >= 0) this.reader.drawInto(tg, this.reader.view);
+    });
+  }
+
+  renderPdfBar() {
+    const rd = this.reader;
+    const deck = rd && rd.deck;
+    if (!deck || rd.view < 0) return;
+    this.$('.plabel').textContent = rd.label();
+    this.$('.pprev').disabled = rd.view <= 0;
+    this.$('.pnext').disabled = rd.view >= deck.pages.length - 1;
+    const box = this.$('.pfollow');
+    box.textContent = '';
+    box.append(rd.followElement(true));
+  }
+
+  // ---- copying (picture, transcript) ----
+
+  renderCopyMenu() {
+    const span = this.prefs.copySpan || 60;
+    for (const b of this.root.querySelectorAll('.copymenu [data-span]')) b.setAttribute('aria-checked', String(+b.dataset.span === span));
+  }
+
+  // The element showing the screen view if it is playing, else the main view.
+  screenVideo() {
+    const pos = this.slides && this.slides.screenIndex != null ? this.sources.findIndex((s) => s.index === this.slides.screenIndex) : -1;
+    if (pos >= 0 && pos === this.clockPos) return this.video;
+    if (pos >= 0 && pos === this.followerPos) return this.fvideo;
+    return this.layout === 'single' || this.clockPos === this.primaryPos ? this.video : this.fvideo;
+  }
+
+  // Copies the current picture at the video's own resolution. Must run from a user action.
+  copyFrame() {
+    const v = this.screenVideo();
+    if (!v.videoWidth) { this.toast(t('copyFailed', { msg: 'no picture yet' })); return; }
+    const c = document.createElement('canvas');
+    c.width = v.videoWidth;
+    c.height = v.videoHeight;
+    c.getContext('2d').drawImage(v, 0, 0);
+    // The clipboard item is created synchronously (within the user action) from a promise.
+    const blob = new Promise((resolve) => c.toBlob(resolve, 'image/png'));
+    navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+      .then(() => this.toast(t('copiedFrame', { w: c.width, h: c.height })))
+      .catch((e) => this.toast(t('copyFailed', { msg: (e && e.message) || e })));
+  }
+
+  // Copies what was said in the last copySpan seconds, in whole sentences, with the
+  // lecture's name and the time range.
+  copyCaptions() {
+    if (!this.cues || !this.cues.length) { this.toast(t('copyNoCaptions')); return; }
+    const x = captionExcerpt(this.cues, this.video.currentTime, this.prefs.copySpan || 60);
+    if (!x) { this.toast(t('copyNoCaptions')); return; }
+    const long = this.duration() >= 3600;
+    const from = fmtTime(x.start, long);
+    const to = fmtTime(x.end, long);
+    const text = this.lesson.title + '\n' + from + '–' + to + '\n\n' + x.text + '\n';
+    navigator.clipboard.writeText(text)
+      .then(() => this.toast(t('copiedCaptions', { from, to })))
+      .catch((e) => this.toast(t('copyFailed', { msg: (e && e.message) || e })));
   }
 
   // ---- quality ----
@@ -289,18 +396,20 @@ class LitePlayer {
   }
 
   setLayout(layout) {
-    if (!this.dual || !LAYOUTS.includes(layout)) return;
+    if (!(this.dual || this.pdfMode) || !LAYOUTS.includes(layout)) return;
     this.followerFailed = false;
     this.prefs.layout = layout;
     this.savePrefs();
     this.applyLayout();
   }
 
+  // Swaps the screen and camera views. With the PDF in the picture area, this changes which
+  // video is shown next to it (or, with one video, swaps the PDF and the video).
   swapViews() {
-    if (!this.dual) return;
+    if (!this.dual) { if (this.pdfMode) this.swapPdf(); return; }
     const next = this.secondaryPos;
     // A source without an audio+video rendition can only be shown as the follower.
-    if (this.layout === 'single' && !this.sources[next].av) return;
+    if ((this.layout === 'single' || this.pdfMode) && !this.sources[next].av) return;
     this.primaryPos = next;
     this.prefs.primary = this.sources[next].index;
     this.savePrefs();
@@ -365,6 +474,7 @@ class LitePlayer {
       if (scene !== this.flagScene) { this.flagScene = scene; this.renderFlagButton(); }
       this.silenceTick(ct);
       if (this.slidesPane) this.slidesPane.update(ct);
+      if (this.reader) this.reader.update(ct);
     };
     on('timeupdate', () => { invalidate(); onTime(); });
     on('seeked', onTime);
@@ -531,17 +641,31 @@ class LitePlayer {
     });
 
     // Menus (speed, layout): one open at a time, closed by any click elsewhere.
-    const menus = [[$('.speed'), $('.speedmenu')], [$('.layout'), $('.layoutmenu')], [$('.ccbtn'), $('.ccmenu')], [$('.audiobtn'), $('.audiomenu')], [$('.qbtn'), $('.qualitymenu')]];
+    const menus = [[$('.speed'), $('.speedmenu')], [$('.layout'), $('.layoutmenu')], [$('.ccbtn'), $('.ccmenu')], [$('.audiobtn'), $('.audiomenu')], [$('.qbtn'), $('.qualitymenu')], [$('.copybtn'), $('.copymenu')]];
     for (const [btn, menu] of menus) {
       d.listen(btn, 'click', (e) => {
         e.stopPropagation();
         const open = menu.hidden;
         for (const [, m] of menus) m.hidden = true;
         if (open && menu.classList.contains('qualitymenu')) this.renderQualityMenu();
+        if (open && menu.classList.contains('copymenu')) this.renderCopyMenu();
         menu.hidden = !open;
         this.wake();
       });
     }
+    d.listen($('.copymenu'), 'click', (e) => {
+      e.stopPropagation();
+      const b = e.target.closest('button[data-copy], button[data-span]');
+      if (!b) return;
+      if (b.dataset.span) {
+        this.prefs.copySpan = +b.dataset.span;
+        this.savePrefs();
+        this.renderCopyMenu();
+        return;
+      }
+      $('.copymenu').hidden = true;
+      if (b.dataset.copy === 'frame') this.copyFrame(); else this.copyCaptions();
+    });
     d.listen($('.qualitymenu'), 'click', (e) => {
       e.stopPropagation();
       const b = e.target.closest('button[data-q]');
@@ -549,7 +673,7 @@ class LitePlayer {
     });
     let resizeTimer = 0;
     d.add(() => clearTimeout(resizeTimer));
-    d.listen(window, 'resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(guard(() => this.applyQuality()), 500); });
+    d.listen(window, 'resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(guard(() => { this.applyQuality(); this.redrawPdf(); }), 500); });
     d.listen($('.speedmenu'), 'click', (e) => {
       const b = e.target.closest('button[data-rate]');
       if (b) { this.setRate(+b.dataset.rate); $('.speedmenu').hidden = true; }
@@ -559,6 +683,11 @@ class LitePlayer {
       if (b) { this.setLayout(b.dataset.layout); $('.layoutmenu').hidden = true; }
     });
     d.listen($('.cctoggle'), 'click', () => this.setCaptions(!this.cc.on));
+    d.listen($('.cchidepaused'), 'click', () => {
+      this.prefs.capHidePaused = !this.prefs.capHidePaused;
+      this.savePrefs();
+      this.renderCaptionMenu();
+    });
     d.listen($('.ccmenu .sizes'), 'click', (e) => {
       const b = e.target.closest('button[data-size]');
       if (b) this.setCaptionSize(b.dataset.size);
@@ -570,7 +699,7 @@ class LitePlayer {
     d.listen($('.pextras button'), 'click', () => this.opts.onFallback('extras'));
     this.bindPanelResize();
     d.listen(this.root, 'click', (e) => {
-      if (e.target.closest('.menu, .speed, .layout, .ccbtn, .audiobtn, .qbtn')) return;
+      if (e.target.closest('.menu, .speed, .layout, .ccbtn, .audiobtn, .qbtn, .copybtn')) return;
       for (const [, m] of menus) m.hidden = true;
     });
 
@@ -692,6 +821,7 @@ class LitePlayer {
       divider.classList.remove('dragging');
       this.dragging = false;
       this.savePrefs();
+      this.redrawPdf();
       this.armIdle();
     };
     d.listen(divider, 'pointerup', endDivider);
@@ -708,7 +838,7 @@ class LitePlayer {
 
     // PiP: drag to move (snaps to the nearest corner on release), click to swap views,
     // corner grip to resize. While dragging, both the frame and the video are translated.
-    const pipEls = () => [frame, this.fvideo.dataset.slot === 'secondary' ? this.fvideo : this.video];
+    const pipEls = () => [frame, this.$('.views [data-slot=secondary]')].filter(Boolean);
     let drag = null;
     d.listen(frame, 'pointerdown', (e) => {
       if (e.button !== 0) return;
@@ -740,7 +870,9 @@ class LitePlayer {
       drag = null;
       this.dragging = false;
       frame.classList.remove('dragging');
-      if (!was.moved) { this.swapViews(); return; }
+      // A click swaps the two pictures (with the PDF shown: the PDF and the video).
+      if (!was.moved) { if (this.pdfMode) this.swapPdf(); else this.swapViews(); return; }
+      if (was.resize) this.redrawPdf();
       if (!was.resize) {
         const cx = was.rect.left + was.rect.width / 2 + (e.clientX - was.x);
         const cy = was.rect.top + was.rect.height / 2 + (e.clientY - was.y);
@@ -779,6 +911,8 @@ class LitePlayer {
         case 't': case 'T': if (this.sidebar.has('transcript')) this.sidebar.toggle('transcript'); else handled = false; break;
         case 'b': case 'B': if (this.notes && this.notesReady) this.notes.addBookmark(e); else handled = false; break;
         case 'u': case 'U': if (this.notes && this.notesReady && this.notes.canFlag) this.notes.toggleFlag(e); else handled = false; break;
+        case 'p': case 'P': this.copyFrame(); break;
+        case 'a': case 'A': this.copyCaptions(); break;
         case 'Escape':
           if (this.menusOpen()) { for (const m of this.root.querySelectorAll('.menu')) m.hidden = true; } else handled = false;
           break;
@@ -833,6 +967,10 @@ class LitePlayer {
     toggle.setAttribute('aria-checked', String(on));
     toggle.querySelector('.state').textContent = on ? t('on') : t('off');
     for (const b of this.root.querySelectorAll('.ccmenu .sizes button')) b.setAttribute('aria-checked', String(b.dataset.size === this.prefs.capSize));
+    const hide = this.$('.cchidepaused');
+    hide.setAttribute('aria-checked', String(!!this.prefs.capHidePaused));
+    hide.querySelector('.state').textContent = this.prefs.capHidePaused ? t('on') : t('off');
+    this.stage.classList.toggle('hidecc-paused', !!this.prefs.capHidePaused);
   }
 
   // ---- audio processing ----
@@ -922,14 +1060,28 @@ class LitePlayer {
   // ---- slide files ----
 
   setupDeck() {
+    this.reader = new SlideReader(this);
+    this.reader.addTarget('main', this.$('.pstage'));
+    this.reader.onInfo(() => { if (!this.destroyed) this.renderPdfBar(); });
     this.deck = new SlideDeckController({
       lesson: this.lesson,
       slides: this.slides,
       cues: () => this.cues,
       disposer: this.d,
-      onChange: () => { if (!this.destroyed && this.slidesPane) this.slidesPane.invalidate(); },
+      onChange: () => {
+        if (this.destroyed) return;
+        if (this.slidesPane) this.slidesPane.invalidate();
+        // The PDF view appears (pages loaded) or goes (files removed) with the deck.
+        if (this.pdfMode !== this.shownPdfMode) { this.shownPdfMode = this.pdfMode; this.applyLayout(); }
+        if (this.reader.active) this.reader.update(this.video.currentTime, true);
+      },
     });
     this.deck.restore().catch((e) => console.warn(TAG, 'slide files:', e && e.message ? e.message : e));
+    const bar = (sel, fn) => this.d.listen(this.$(sel), 'click', (e) => { e.stopPropagation(); fn(); });
+    bar('.pprev', () => this.reader.turn(-1));
+    bar('.pnext', () => this.reader.turn(1));
+    bar('.pswap', () => this.swapPdf());
+    bar('.pclose', () => this.setPdfMain(false));
     // Dropping PDF files anywhere on the player adds them.
     const zone = this.$('.dropzone');
     const hasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes('Files');

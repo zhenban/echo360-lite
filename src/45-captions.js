@@ -34,6 +34,24 @@ class CueIndex {
   }
 }
 
+// What was said in the last `span` seconds before t, in whole sentences: { start, end,
+// text } or null. A cue that continues a sentence from the cue before it pulls that one
+// in (at most 30 s further back); the sentence being spoken at t is completed (at most
+// 20 s ahead). Cues are sentence-ish but often break mid-sentence.
+function captionExcerpt(cues, t, span) {
+  const ends = (s) => /[.?!]["')\]]?\s*$/.test(s);
+  let a = cues.findIndex((c) => c.end > t - span);
+  if (a < 0) return null;
+  let b = a;
+  while (b + 1 < cues.length && cues[b + 1].start <= t) b++;
+  if (cues[a].start > t) return null;
+  const from = t - span;
+  while (a > 0 && !ends(cues[a - 1].text) && cues[a - 1].start >= from - 30) a--;
+  while (b + 1 < cues.length && !ends(cues[b].text) && cues[b + 1].start <= t + 20) b++;
+  const text = cues.slice(a, b + 1).map((c) => c.text.trim()).join(' ').replace(/\s+/g, ' ');
+  return { start: cues[a].start, end: cues[b].end, text };
+}
+
 const CAPTION_SIZES = { s: 0.8, m: 1, l: 1.3, xl: 1.65 };
 
 class CaptionsView {

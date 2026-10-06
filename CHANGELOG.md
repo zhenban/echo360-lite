@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.0
+- The slide PDF can go into the picture area as a view of its own: side by side with the video (drag the divider) or as the main picture with the video in a small window, or the other way round. Open it from the Slides tab; swap or close it from its toolbar. The small reader in the side panel stays.
+- New Copy button (`P` / `A`): copy the current picture at full resolution (the screen view if it is playing), or copy what was just said: the last 60 seconds of the transcript in whole sentences, with the lecture name and times, ready to paste into an AI chat. The length can be changed in the menu (30 s to 5 min).
+- Paused: a small "Paused" label in the title bar instead of a big play icon over the picture. Captions hide while paused (can be turned off in the captions menu).
+- When no page has been recognised for two minutes, the reader says "Current page not recognised" instead of presenting an old page as current.
+
 ## 0.8.0
 - Read along with the lecturer's slides: drop the slide PDF on the player (or add it in the Slides tab) and the tab becomes a PDF reader that turns to the page being talked about. Several PDFs per lecture are fine.
 - Page through it yourself at any time: following pauses, and "Back to the page being talked about" resumes it. Each page lists when it was on screen; click a time to jump there.

@@ -23,6 +23,7 @@
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.4.299/build/';
 const FOLLOW_MIN_SEC = 15;     // a chapter shorter than this does not turn the page
 const FOLLOW_GUESS_SPAN = 3;   // unsure pages are used only between known pages this close
+const FOLLOW_STALE_SEC = 120;  // after this long without a recognised page, say so
 const DECK_RENDER_CACHE = 6;   // rendered pages kept
 
 let pdfjsPromise = null;
@@ -317,6 +318,16 @@ class SlideDeckController {
   knownAt(t) {
     const k = chapterIndexAt(this.slides.chapters, t);
     return k >= 0 && this.knownPage(k) >= 0;
+  }
+
+  // Seconds since a page was last recognised at time t (0 while recognised, Infinity if
+  // never). Following stops claiming a page after FOLLOW_STALE_SEC.
+  unrecognisedFor(t) {
+    const chs = this.slides.chapters;
+    const k = chapterIndexAt(chs, t);
+    if (k >= 0 && this.knownPage(k) >= 0) return 0;
+    for (let j = k - 1; j >= 0; j--) if (this.knownPage(j) >= 0) return Math.max(0, t - chs[j].end);
+    return Infinity;
   }
 
   // When page i was on screen: [{ start, end }] from matched or corrected chapters, with
