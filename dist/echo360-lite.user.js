@@ -394,6 +394,11 @@ const STRINGS = {
     keyLoop: 'Loop: set start / end (A-B), or right-click the progress bar',
     keyLoopClear: 'End the loop',
     keyHelp: 'This list',
+    keyPopout: 'Floating window (keeps playing on top of other windows)',
+    popout: 'Floating window',
+    popoutHere: 'Playing in a floating window.',
+    popoutBack: 'Back to this page',
+    popoutFailed: 'Could not open a floating window ({msg})',
     listWatched: '{pct}% watched',
     listWatchedTitle: 'Share of this recording you have watched (Echo360 Lite, this device)',
     listLastAt: 'Last at {pct}%',
@@ -1025,6 +1030,7 @@ const ICON = {
   fwd10: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4v4h-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><text x="11.8" y="15.6" font-size="7.5" font-weight="700" text-anchor="middle" fill="currentColor" font-family="system-ui,sans-serif">10</text>',
   volume: '<path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z" fill="currentColor"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
   muted: '<path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z" fill="currentColor"/><path d="M16 9.5l5 5m0-5l-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+  popout: '<rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="11" y="11" width="8" height="6" rx="1" fill="currentColor"/>',
   fullscreen: '<path d="M4 9V4.5h4.5M20 9V4.5h-4.5M4 15v4.5h4.5M20 15v4.5h-4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
   exitFullscreen: '<path d="M8.5 4v4.5H4M15.5 4v4.5H20M8.5 20v-4.5H4M15.5 20v-4.5H20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
   back: '<path d="M14.5 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
@@ -1498,6 +1504,7 @@ function playerTemplate() {
       <button class="btn layout" title="${t('layout')}" aria-label="${t('layout')}" aria-haspopup="menu">${svg('layoutSide')}</button>
       <button class="qbtn hide-sm" title="${t('quality')}" aria-label="${t('quality')}" aria-haspopup="menu"></button>
       <button class="speed" title="${t('speed')}" aria-label="${t('speed')}">1x</button>
+      <button class="btn popbtn" hidden aria-pressed="false" title="${t('popout')} (W)" aria-label="${t('popout')}">${svg('popout')}</button>
       <button class="btn fs" title="${t('fullscreen')}" aria-label="${t('fullscreen')}">${svg('fullscreen')}</button>
     </div>
   </div>
@@ -1975,7 +1982,7 @@ const KEY_HELP = [
   [['M'], 'keyMute'], [['F'], 'keyFullscreen'], [['S'], 'keySwap'], [['[', ']'], 'keySpeed'],
   [['C'], 'keyCaptions'], [['T'], 'keyTranscript'], [['B'], 'keyBookmark'], [['G'], 'keyTag'], [['U'], 'keyFlag'],
   [['Shift+←', 'Shift+→'], 'keySlide'], [['P'], 'keyCopyFrame'], [['A'], 'keyCopyCaptions'],
-  [['+', '-'], 'keyZoom'], [['0'], 'keyZoomReset'], [['I', 'O'], 'keyLoop'], [['X'], 'keyLoopClear'],
+  [['W'], 'keyPopout'], [['+', '-'], 'keyZoom'], [['0'], 'keyZoomReset'], [['I', 'O'], 'keyLoop'], [['X'], 'keyLoopClear'],
   [['?'], 'keyHelp'], [['Esc'], 'keyEscape'],
 ];
 
@@ -2603,6 +2610,59 @@ class LitePlayer {
     this.savePrefs();
   }
 
+  // ---- floating window (Document Picture-in-Picture) ----
+
+  canPopout() { return typeof window.documentPictureInPicture === 'object' && !!window.documentPictureInPicture; }
+
+  // Moves the whole player (both views, controls, captions, side panel) into a floating
+  // window and back. Nothing is rebuilt: the same elements, streams and audio graph move.
+  async togglePopout() {
+    if (this.popout) { this.popout.close(); return; }
+    if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
+    const r = this.host.getBoundingClientRect();
+    let pip;
+    try {
+      pip = await window.documentPictureInPicture.requestWindow({ width: Math.round(Math.min(960, r.width * 0.6)), height: Math.round(Math.min(600, r.height * 0.6)) });
+    } catch (e) {
+      this.toast(t('popoutFailed', { msg: (e && e.message) || e }));
+      return;
+    }
+    const playing = !this.video.paused;
+    this.popout = pip;
+    const holder = h('div.e3l-holder', { style: 'display:flex;align-items:center;justify-content:center;gap:12px;width:100%;height:' + Math.round(r.height) + 'px;background:#111;color:#ccc;font:14px system-ui,sans-serif' },
+      h('span', { text: t('popoutHere') }),
+      h('button', { text: t('popoutBack'), style: 'padding:6px 12px;border-radius:8px;border:0;cursor:pointer', onclick: () => pip.close() }));
+    this.host.replaceWith(holder);
+    const doc = pip.document;
+    doc.body.style.cssText = 'margin:0;background:#000;overflow:hidden';
+    doc.title = this.lesson.title;
+    const css = this.host.style.cssText;
+    this.host.style.cssText = 'position:fixed;inset:0;width:100%;height:100%';
+    doc.body.append(this.host);
+    this.host.classList.add('in-popout');
+    const keys = (e) => this.onKey(e);
+    doc.addEventListener('keydown', keys, true);
+    const resize = () => { this.applyQuality(); this.redrawPdf(); };
+    pip.addEventListener('resize', resize);
+    // Moving can pause the elements in some browsers: carry on as before.
+    if (playing && this.video.paused) this.video.play().catch(() => {});
+    this.$('.popbtn').setAttribute('aria-pressed', 'true');
+    pip.addEventListener('pagehide', () => {
+      const still = !this.video.paused;
+      doc.removeEventListener('keydown', keys, true);
+      this.host.classList.remove('in-popout');
+      this.host.style.cssText = css;
+      holder.replaceWith(this.host);
+      this.popout = null;
+      if (still && this.video.paused) this.video.play().catch(() => {});
+      if (!this.destroyed) {
+        this.$('.popbtn').setAttribute('aria-pressed', 'false');
+        this.applyQuality();
+        this.redrawPdf();
+      }
+    }, { once: true });
+  }
+
   toggleFullscreen() {
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     else this.host.requestFullscreen().catch(() => {});
@@ -2643,6 +2703,9 @@ class LitePlayer {
     });
     d.listen($('.volume'), 'input', (e) => { v.volume = +e.target.value; v.muted = v.volume === 0; });
     d.listen($('.fs'), 'click', () => this.toggleFullscreen());
+    $('.popbtn').hidden = !this.canPopout();
+    d.listen($('.popbtn'), 'click', () => this.togglePopout());
+    d.add(() => { if (this.popout) this.popout.close(); });
     d.listen($('.swap'), 'click', () => this.swapViews());
     d.listen($('.orig'), 'click', () => this.opts.onFallback('user'));
     d.listen(document, 'fullscreenchange', () => {
@@ -2920,7 +2983,7 @@ class LitePlayer {
   }
 
   bindKeys() {
-    this.d.listen(document, 'keydown', (e) => {
+    this.onKey = (e) => {
       if (e.ctrlKey || e.metaKey || e.altKey || this.destroyed) return;
       const target = e.composedPath()[0];
       if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) && target.type !== 'range') return;
@@ -2955,12 +3018,14 @@ class LitePlayer {
         case 'i': case 'I': this.loop.setA(v.currentTime); break;
         case 'o': case 'O': this.loop.setB(v.currentTime); break;
         case 'x': case 'X': if (this.loop.a != null) this.loop.clear(); else handled = false; break;
+        case 'w': case 'W': if (this.canPopout()) this.togglePopout(); else handled = false; break;
         case ']': this.setRate(nextSpeed(v.playbackRate, 1)); break;
         case '[': this.setRate(nextSpeed(v.playbackRate, -1)); break;
         default: handled = false;
       }
       if (handled) { e.preventDefault(); e.stopPropagation(); this.wake(); }
-    }, true);
+    };
+    this.d.listen(document, 'keydown', this.onKey, true);
   }
 
   // ---- captions and transcript ----
@@ -3634,13 +3699,19 @@ class Zoomer {
       this.drag = { el, x: e.clientX, y: e.clientY, z: this.get(el), id: e.pointerId };
       this.dragged = false;
     });
-    d.listen(window, 'pointermove', (e) => {
+    d.listen(this.host, 'pointermove', (e) => {
       const g = this.drag;
       if (!g || e.pointerId !== g.id) return;
       const dx = e.clientX - g.x;
       const dy = e.clientY - g.y;
       if (!this.dragged && Math.hypot(dx, dy) < 4) return;
-      if (!this.dragged) { this.dragged = true; g.el.classList.add('panning'); }
+      if (!this.dragged) {
+        this.dragged = true;
+        g.el.classList.add('panning');
+        // Captured once it is a drag (a plain click must still reach the picture), so the
+        // drag works wherever the player is, also in a floating window.
+        try { this.host.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+      }
       const W = g.el.offsetWidth;
       const H = g.el.offsetHeight;
       this.set(g.el, g.z.s, g.z.cx - dx / (W * g.z.s), g.z.cy - dy / (H * g.z.s));
@@ -3652,8 +3723,8 @@ class Zoomer {
       // The click event comes right after; it reads `dragged` and then it is cleared.
       setTimeout(() => { this.dragged = false; }, 0);
     };
-    d.listen(window, 'pointerup', end);
-    d.listen(window, 'pointercancel', end);
+    d.listen(this.host, 'pointerup', end);
+    d.listen(this.host, 'pointercancel', end);
   }
 }
 

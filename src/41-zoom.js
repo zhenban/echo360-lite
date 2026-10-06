@@ -147,13 +147,19 @@ class Zoomer {
       this.drag = { el, x: e.clientX, y: e.clientY, z: this.get(el), id: e.pointerId };
       this.dragged = false;
     });
-    d.listen(window, 'pointermove', (e) => {
+    d.listen(this.host, 'pointermove', (e) => {
       const g = this.drag;
       if (!g || e.pointerId !== g.id) return;
       const dx = e.clientX - g.x;
       const dy = e.clientY - g.y;
       if (!this.dragged && Math.hypot(dx, dy) < 4) return;
-      if (!this.dragged) { this.dragged = true; g.el.classList.add('panning'); }
+      if (!this.dragged) {
+        this.dragged = true;
+        g.el.classList.add('panning');
+        // Captured once it is a drag (a plain click must still reach the picture), so the
+        // drag works wherever the player is, also in a floating window.
+        try { this.host.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+      }
       const W = g.el.offsetWidth;
       const H = g.el.offsetHeight;
       this.set(g.el, g.z.s, g.z.cx - dx / (W * g.z.s), g.z.cy - dy / (H * g.z.s));
@@ -165,7 +171,7 @@ class Zoomer {
       // The click event comes right after; it reads `dragged` and then it is cleared.
       setTimeout(() => { this.dragged = false; }, 0);
     };
-    d.listen(window, 'pointerup', end);
-    d.listen(window, 'pointercancel', end);
+    d.listen(this.host, 'pointerup', end);
+    d.listen(this.host, 'pointercancel', end);
   }
 }

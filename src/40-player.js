@@ -20,7 +20,7 @@ const KEY_HELP = [
   [['M'], 'keyMute'], [['F'], 'keyFullscreen'], [['S'], 'keySwap'], [['[', ']'], 'keySpeed'],
   [['C'], 'keyCaptions'], [['T'], 'keyTranscript'], [['B'], 'keyBookmark'], [['G'], 'keyTag'], [['U'], 'keyFlag'],
   [['Shift+←', 'Shift+→'], 'keySlide'], [['P'], 'keyCopyFrame'], [['A'], 'keyCopyCaptions'],
-  [['+', '-'], 'keyZoom'], [['0'], 'keyZoomReset'], [['I', 'O'], 'keyLoop'], [['X'], 'keyLoopClear'],
+  [['W'], 'keyPopout'], [['+', '-'], 'keyZoom'], [['0'], 'keyZoomReset'], [['I', 'O'], 'keyLoop'], [['X'], 'keyLoopClear'],
   [['?'], 'keyHelp'], [['Esc'], 'keyEscape'],
 ];
 
@@ -648,6 +648,59 @@ class LitePlayer {
     this.savePrefs();
   }
 
+  // ---- floating window (Document Picture-in-Picture) ----
+
+  canPopout() { return typeof window.documentPictureInPicture === 'object' && !!window.documentPictureInPicture; }
+
+  // Moves the whole player (both views, controls, captions, side panel) into a floating
+  // window and back. Nothing is rebuilt: the same elements, streams and audio graph move.
+  async togglePopout() {
+    if (this.popout) { this.popout.close(); return; }
+    if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
+    const r = this.host.getBoundingClientRect();
+    let pip;
+    try {
+      pip = await window.documentPictureInPicture.requestWindow({ width: Math.round(Math.min(960, r.width * 0.6)), height: Math.round(Math.min(600, r.height * 0.6)) });
+    } catch (e) {
+      this.toast(t('popoutFailed', { msg: (e && e.message) || e }));
+      return;
+    }
+    const playing = !this.video.paused;
+    this.popout = pip;
+    const holder = h('div.e3l-holder', { style: 'display:flex;align-items:center;justify-content:center;gap:12px;width:100%;height:' + Math.round(r.height) + 'px;background:#111;color:#ccc;font:14px system-ui,sans-serif' },
+      h('span', { text: t('popoutHere') }),
+      h('button', { text: t('popoutBack'), style: 'padding:6px 12px;border-radius:8px;border:0;cursor:pointer', onclick: () => pip.close() }));
+    this.host.replaceWith(holder);
+    const doc = pip.document;
+    doc.body.style.cssText = 'margin:0;background:#000;overflow:hidden';
+    doc.title = this.lesson.title;
+    const css = this.host.style.cssText;
+    this.host.style.cssText = 'position:fixed;inset:0;width:100%;height:100%';
+    doc.body.append(this.host);
+    this.host.classList.add('in-popout');
+    const keys = (e) => this.onKey(e);
+    doc.addEventListener('keydown', keys, true);
+    const resize = () => { this.applyQuality(); this.redrawPdf(); };
+    pip.addEventListener('resize', resize);
+    // Moving can pause the elements in some browsers: carry on as before.
+    if (playing && this.video.paused) this.video.play().catch(() => {});
+    this.$('.popbtn').setAttribute('aria-pressed', 'true');
+    pip.addEventListener('pagehide', () => {
+      const still = !this.video.paused;
+      doc.removeEventListener('keydown', keys, true);
+      this.host.classList.remove('in-popout');
+      this.host.style.cssText = css;
+      holder.replaceWith(this.host);
+      this.popout = null;
+      if (still && this.video.paused) this.video.play().catch(() => {});
+      if (!this.destroyed) {
+        this.$('.popbtn').setAttribute('aria-pressed', 'false');
+        this.applyQuality();
+        this.redrawPdf();
+      }
+    }, { once: true });
+  }
+
   toggleFullscreen() {
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     else this.host.requestFullscreen().catch(() => {});
@@ -688,6 +741,9 @@ class LitePlayer {
     });
     d.listen($('.volume'), 'input', (e) => { v.volume = +e.target.value; v.muted = v.volume === 0; });
     d.listen($('.fs'), 'click', () => this.toggleFullscreen());
+    $('.popbtn').hidden = !this.canPopout();
+    d.listen($('.popbtn'), 'click', () => this.togglePopout());
+    d.add(() => { if (this.popout) this.popout.close(); });
     d.listen($('.swap'), 'click', () => this.swapViews());
     d.listen($('.orig'), 'click', () => this.opts.onFallback('user'));
     d.listen(document, 'fullscreenchange', () => {
@@ -965,7 +1021,7 @@ class LitePlayer {
   }
 
   bindKeys() {
-    this.d.listen(document, 'keydown', (e) => {
+    this.onKey = (e) => {
       if (e.ctrlKey || e.metaKey || e.altKey || this.destroyed) return;
       const target = e.composedPath()[0];
       if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) && target.type !== 'range') return;
@@ -1000,12 +1056,14 @@ class LitePlayer {
         case 'i': case 'I': this.loop.setA(v.currentTime); break;
         case 'o': case 'O': this.loop.setB(v.currentTime); break;
         case 'x': case 'X': if (this.loop.a != null) this.loop.clear(); else handled = false; break;
+        case 'w': case 'W': if (this.canPopout()) this.togglePopout(); else handled = false; break;
         case ']': this.setRate(nextSpeed(v.playbackRate, 1)); break;
         case '[': this.setRate(nextSpeed(v.playbackRate, -1)); break;
         default: handled = false;
       }
       if (handled) { e.preventDefault(); e.stopPropagation(); this.wake(); }
-    }, true);
+    };
+    this.d.listen(document, 'keydown', this.onKey, true);
   }
 
   // ---- captions and transcript ----
