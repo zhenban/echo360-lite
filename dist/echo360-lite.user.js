@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Echo360 Lite Player
 // @namespace    echo360-lite
-// @version      0.9.0
+// @version      0.10.0
 // @description  Replaces the Echo360 lecture player with a lightweight native player (far lower CPU use). Falls back to the original player automatically if anything is not recognised.
 // @license      MIT
 // @match        https://echo360.net.au/lesson/*
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.9.0';
+  const VERSION = '0.10.0';
 
 // ---- 00-util.js ----
 // ===================================================================================
@@ -300,7 +300,8 @@ const STRINGS = {
     slidesLocal: 'Add the lecturer\'s slide PDF to read along: it turns to the page being talked about. The file stays on this device.',
     removeFile: 'Remove {name}',
     deckLoading: 'Opening the slide files…',
-    deckMatching: 'Finding where each page was shown: {pct}%',
+    deckReading: 'Reading the slides on screen: {pct}%',
+    deckWaiting: 'Waiting to find the screen view…',
     deckError: 'Could not read the slide file ({msg}).',
     prevPage: 'Previous page',
     nextPage: 'Next page',
@@ -2745,7 +2746,11 @@ class LitePlayer {
   onSlidesChange() {
     const a = this.slides;
     // The screen view is known now: the per-view quality settings may apply differently.
-    if (a.screenIndex !== this.knownScreen) { this.knownScreen = a.screenIndex; this.applyQuality(); }
+    if (a.screenIndex !== this.knownScreen) {
+      this.knownScreen = a.screenIndex;
+      this.applyQuality();
+      if (this.deck) this.deck.screenKnown();
+    }
     this.renderChapterMarks();
     if (!a.chapters.length) return;
     if (!this.slidesPane) {
@@ -2757,11 +2762,6 @@ class LitePlayer {
     const status = a.state === 'done' ? t('slidesFound', { n: a.chapters.length })
       : a.state === 'thumbnails' ? t('slidesRough', { pct }) : t('slidesFinding', { pct });
     this.slidesPane.setChapters(a.chapters, status);
-    // Final chapters: the slide files (if any) can be matched to them.
-    if (a.state === 'done' && this.deck && this.deckChapters !== a.chapters) {
-      this.deckChapters = a.chapters;
-      this.deck.chaptersChanged();
-    }
   }
 
   // ---- slide files ----
@@ -2772,8 +2772,8 @@ class LitePlayer {
     this.reader.onInfo(() => { if (!this.destroyed) this.renderPdfBar(); });
     this.deck = new SlideDeckController({
       lesson: this.lesson,
+      video: this.video,
       slides: this.slides,
-      cues: () => this.cues,
       disposer: this.d,
       onChange: () => {
         if (this.destroyed) return;
@@ -4947,11 +4947,16 @@ function videoVariants(master, base) {
 
 class HlsVideoReader {
   // maxHeight: the tallest rendition to use (the smallest one if none is small enough).
-  constructor(masterUrl, maxHeight) {
+  // minHeight (optional): use the smallest rendition at least this tall instead (the
+  // tallest one if none is).
+  constructor(masterUrl, maxHeight, minHeight) {
     this.masterUrl = masterUrl;
     this.maxHeight = maxHeight || 360;
+    this.minHeight = minHeight || 0;
     this.segments = [];
     this.info = null;
+    this.bytes = 0;          // downloaded so far
+    this.lastNeed = 0;       // bytes the last keyframe needed
   }
 
   static supported() {
@@ -4963,8 +4968,13 @@ class HlsVideoReader {
     let url = this.masterUrl;
     if (/#EXT-X-STREAM-INF/.test(master)) {
       const vs = videoVariants(master, this.masterUrl);
-      const fit = vs.filter((v) => v.height && v.height <= this.maxHeight);
-      const pick = fit.length ? fit[fit.length - 1] : vs[0];
+      let pick;
+      if (this.minHeight) {
+        pick = vs.find((v) => v.height >= this.minHeight) || vs[vs.length - 1];
+      } else {
+        const fit = vs.filter((v) => v.height && v.height <= this.maxHeight);
+        pick = fit.length ? fit[fit.length - 1] : vs[0];
+      }
       if (!pick) throw new Error('no video variant');
       url = pick.uri;
     }
@@ -5012,13 +5022,24 @@ class HlsVideoReader {
   // First frame of segment i, as a signature-ready callback: fn(frame) is called once.
   async keyframe(i, signal, fn) {
     const s = this.segments[i];
-    let buf = await fetchRange(s.url, s.offset, Math.min(s.length, KEYFRAME_PROBE_BYTES), signal);
-    let frag = parseFragment(buf, s.offset);
+    // A keyframe grows with the picture (about 20 KB at 360p) and its content; asking for a
+    // little more than the last one needed usually saves a second request.
+    const base = Math.round(KEYFRAME_PROBE_BYTES * Math.max(1, ((this.info && this.info.height) || 360) / 360) ** 2);
+    const probe = Math.max(base, Math.round((this.lastNeed || 0) * 1.2));
+    let buf = await fetchRange(s.url, s.offset, Math.min(s.length, probe), signal);
+    this.bytes += buf.byteLength;
+    const frag = parseFragment(buf, s.offset);
     const k = frag.samples[0];
     if (!k || !k.key) throw new Error('segment does not start with a keyframe');
+    this.lastNeed = k.offset + k.size;
     if (k.offset + k.size > buf.byteLength) {
-      buf = await fetchRange(s.url, s.offset, Math.min(s.length, k.offset + k.size), signal);
-      frag = parseFragment(buf, s.offset);
+      // Only the rest of it.
+      const more = await fetchRange(s.url, s.offset + buf.byteLength, Math.min(s.length, k.offset + k.size) - buf.byteLength, signal);
+      this.bytes += more.byteLength;
+      const all = new Uint8Array(buf.byteLength + more.byteLength);
+      all.set(new Uint8Array(buf), 0);
+      all.set(new Uint8Array(more), buf.byteLength);
+      buf = all.buffer;
     }
     const ts = this.info.timescale;
     const chunk = new EncodedVideoChunk({ type: 'key', timestamp: Math.round((k.time / ts) * 1e6), data: new Uint8Array(buf, k.offset, k.size) });
@@ -5424,32 +5445,6 @@ class SlideAnalyzer {
       chapters: this.chapters.map((c) => ({ start: c.start, end: c.end, precise: c.precise, repTime: c.repTime, blob: c.blob || null, thumb: c.blob ? '' : c.thumb })),
     });
   }
-
-  // The keyframe that best shows each chapter (its repTime), scaled to w x h, as RGBA
-  // arrays (null where it could not be read). Used to match chapters to slide pages.
-  // Reads about 20 KB per chapter at 360p.
-  async chapterFrames(w, h, signal, onProgress) {
-    const src = this.lesson.sources.find((s) => s.index === this.screenIndex);
-    if (!src || !HlsVideoReader.supported()) return this.chapters.map(() => null);
-    if (!this.reader) this.reader = await new HlsVideoReader(src.v || src.av, 360).open(signal);
-    const canvas = new OffscreenCanvas(w, h);
-    const g = canvas.getContext('2d', { willReadFrequently: true });
-    const out = [];
-    for (let i = 0; i < this.chapters.length; i++) {
-      let rgba = null;
-      try {
-        await this.reader.keyframe(this.reader.segmentAt(this.chapters[i].repTime), signal, (f) => {
-          g.drawImage(f, 0, 0, w, h);
-          rgba = g.getImageData(0, 0, w, h).data;
-        });
-      } catch (e) {
-        if (signal && signal.aborted) throw e;
-      }
-      out.push(rgba);
-      if (onProgress) onProgress((i + 1) / this.chapters.length);
-    }
-    return out;
-  }
 }
 
 // Index of the first sample of a scene.
@@ -5481,7 +5476,7 @@ class SlideReader {
     this.view = -1;
     this.follow = true;
     this.stale = false;
-    this.chapter = -1;
+    this.sample = -1;
     this.targets = new Map();   // name -> { stage, active, token }
     this.infoListeners = new Set();
   }
@@ -5520,7 +5515,7 @@ class SlideReader {
   update(t, force) {
     const deck = this.deck;
     if (!deck || !this.active) return;
-    const chapter = chapterIndexAt(this.player.slides.chapters, t);
+    const sample = deck.sampleAt(t);
     // Long without a recognised page: do not keep presenting an old page as current.
     const stale = this.follow && deck.unrecognisedFor(t) > FOLLOW_STALE_SEC;
     const staleChanged = stale !== this.stale;
@@ -5529,9 +5524,9 @@ class SlideReader {
     if (this.follow) {
       const p = deck.pageAt(t);
       if (p !== this.view || force) this.showPage(p >= 0 ? p : Math.max(0, this.view), force);
-      else if (chapter !== this.chapter || staleChanged) this.info();
+      else if (sample !== this.sample || staleChanged) this.info();
     } else if (force) this.showPage(this.view, true);
-    this.chapter = chapter;
+    this.sample = sample;
   }
 
   // Manual paging pauses following.
@@ -5677,7 +5672,7 @@ class SlidesPane {
     files.append(h('button.sfadd', { text: deck.files.length ? t('addMoreSlides') : t('addSlides'), onclick: () => input.click() }), input);
     let msg = '';
     if (deck.state === 'loading') msg = t('deckLoading');
-    else if (deck.state === 'matching') msg = t('deckMatching', { pct: Math.floor(deck.progress * 100) });
+    else if (deck.state === 'reading') msg = deck.ocr ? t('deckReading', { pct: Math.floor(deck.progress * 100) }) : t('deckWaiting');
     else if (deck.state === 'error') msg = t('deckError', { msg: deck.error });
     else if (!deck.files.length) msg = t('slidesLocal');
     box.append(files);
@@ -5781,494 +5776,674 @@ class SlidesPane {
   }
 }
 
-// ---- 58-slide-match.js ----
+// ---- 58-slide-ocr.js ----
 // ===================================================================================
-// Which page of the lecturer's slide file each chapter shows (or "not a slide").
+// Reading the text on the screen view, for following the lecturer's slides (M7.5).
 //
-// Pure functions on numbers; they run in a Worker (see runSlideMatch below), so the page
-// never waits for them. The approach, checked against a hand-labelled lecture
-// (test/fixtures/slides-*.json):
+// Runs only while the recording has slide files. Every 10 s HLS segment starts with a
+// keyframe; the keyframes of the screen view are read at 720p (the smallest rendition at
+// least that tall, or the tallest there is: text in 360p is not readable) and their text is
+// recognised with Tesseract.js (pinned, from jsDelivr, loaded on first use).
 //
-//   1. Layout. The slide sits in the same place in the screen recording most of the time
-//      (a full-screen show or a viewer window). It is found once per lecture: on every
-//      chapter, search page sizes from 50% to 100% of the frame width at every position,
-//      comparing 16 x 9 grids of brightness and edge density with the average page (the
-//      template gives the outline), then the best few placements with every page. The
-//      confident results, grouped by transform, give the layout (or a few, when the window
-//      was resized during the lecture). Views that fit none of them (zoomed in, other
-//      windows) end up as "not a slide".
-//   2. Image score. Each chapter is compared with every page in small neighbourhoods of
-//      the layouts, on 64 x 36 grids. Edge density (mean gradient per cell) separates pages
-//      of one template much better than brightness, which is mostly "white page, yellow
-//      footer".
-//   3. Text score. Words spoken during the chapter against the words on each page (tf-idf
-//      cosine). Only a small tie-breaker: speech rarely repeats the slide text.
-//   4. Sequence. A Viterbi pass over the chapters prefers staying on a page or moving to
-//      the next one, allows jumps back and forward at a cost, and has a "not a slide" state.
-//   5. Gate. A chapter keeps its page only with a strong image score and a clear lead over
-//      the other pages, or with a plausible score that the sequence and a clearly matched
-//      neighbour agree with. Anything unsure is "not matched": a wrong page is worse than
-//      none.
+// - A keyframe that looks like the previous one reuses its text: most of a lecture is the
+//   same slide for many segments in a row. The comparison (at 160 x 90) uses the 360p
+//   keyframe (about 20 KB); the 720p one (about 100 KB for a detailed screen) is only
+//   downloaded where something changed.
+// - Order: from the playback position onward; a seek starts again there; then the rest.
+// - Pace: while playing, each reading is followed by a rest as long as it took (about half
+//   of one core); while paused, readings follow each other. Downloads wait for the
+//   playback buffer like all background work, and nothing runs with Data Saver on.
+// - The texts are cached per recording (independent of the slide files) and a reading
+//   continues where it stopped on the next visit.
+//
+// Cached record  ocr:<mediaId>  { v, screen, height, texts: [string], at: [text index per
+// sample, -1 = not read, OCR_FAILED], stats }.
+// For later features (M10 text recognition reuses the keyframes and their text):
+//   reader.times[i], reader.texts, reader.at[i].
 // ===================================================================================
 
-const MATCH_W = 256;            // frames and pages are compared at 256 pixels wide
-const MATCH_H = 144;
-const MATCH_SCORE = 0.55;       // image score needed on its own (with a clear lead)
-const MATCH_LEAD = 0.10;        // lead over the best different page
-const MATCH_SCORE_SEQ = 0.45;   // image score needed when the sequence supports the page
+const TESS_BASE = 'https://cdn.jsdelivr.net/npm/';
+const TESS_FILES = {
+  lib: 'tesseract.js@7.0.0/dist/tesseract.esm.min.js',
+  worker: 'tesseract.js@7.0.0/dist/worker.min.js',
+  core: 'tesseract.js-core@7.0.0',
+  lang: '@tesseract.js-data/eng@1.0.0/4.0.0_best_int',
+};
+const OCR_HEIGHT = 720;
+const OCR_CMP_W = 160;
+const OCR_CMP_H = 90;
+const OCR_SAVE_EVERY = 10;     // readings between cache writes
+const OCR_FAILED = -3;         // a sample whose keyframe could not be read
 
-// ---- feature images ----
-
-function lumaOf(rgba, n) {
-  const L = new Float32Array(n);
-  for (let i = 0, j = 0; i < n; i++, j += 4) L[i] = rgba[j] * 0.299 + rgba[j + 1] * 0.587 + rgba[j + 2] * 0.114;
-  return L;
-}
-
-// |dx| + |dy|: averaged over a cell, this is the cell's edge density.
-function gradOf(L, w, h) {
-  const G = new Float32Array(w * h);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const i = y * w + x;
-      let g = 0;
-      if (x > 0) g += Math.abs(L[i] - L[i - 1]);
-      if (y > 0) g += Math.abs(L[i] - L[i - w]);
-      G[i] = g;
-    }
+let tesseractPromise = null;
+function loadTesseract() {
+  if (!tesseractPromise) {
+    tesseractPromise = import(TESS_BASE + TESS_FILES.lib).then((m) => m.default || m);
+    tesseractPromise.catch(() => { tesseractPromise = null; });
   }
-  return G;
+  return tesseractPromise;
 }
 
-function integralOf(A, w, h) {
-  const I = new Float64Array((w + 1) * (h + 1));
-  for (let y = 0; y < h; y++) {
-    let row = 0;
-    for (let x = 0; x < w; x++) {
-      row += A[y * w + x];
-      I[(y + 1) * (w + 1) + x + 1] = I[y * (w + 1) + x + 1] + row;
-    }
+// Brightness of a frame at 160 x 90.
+function lumaThumb(g, img) {
+  g.drawImage(img, 0, 0, OCR_CMP_W, OCR_CMP_H);
+  const d = g.getImageData(0, 0, OCR_CMP_W, OCR_CMP_H).data;
+  const out = new Uint8Array(OCR_CMP_W * OCR_CMP_H);
+  for (let i = 0, j = 0; i < out.length; i++, j += 4) out[i] = (d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8;
+  return out;
+}
+
+// Pixels of two 160 x 90 thumbnails whose brightness differs by more than OCR_PIXEL_DIFF.
+// One pixel is an 8 x 8 block of a 720p frame: a word of slide text changes several of them
+// by much more than that, while re-encoding the same picture changes them by a few levels.
+const OCR_PIXEL_DIFF = 24;
+function thumbChange(a, b) {
+  let n = 0;
+  for (let i = 0; i < a.length; i++) if (Math.abs(a[i] - b[i]) > OCR_PIXEL_DIFF) n++;
+  return n;
+}
+
+// The same text, if fewer pixels changed than a short word of text covers (about 3 x 6 at
+// 160 x 90 for the smallest readable slide text): a mouse pointer, a blinking caret or the
+// clock in a menu bar change fewer.
+const OCR_SAME_MAX = 12;
+
+class SlideTextReader {
+  // opts: { lesson, video, source (the screen view), disposer, onChange }
+  constructor(opts) {
+    this.lesson = opts.lesson;
+    this.video = opts.video;
+    this.source = opts.source;
+    this.onChange = opts.onChange || (() => {});
+    this.ac = new AbortController();
+    opts.disposer.add(() => this.stop());
+    this.gate = new BackgroundGate(this.video, this.ac.signal);
+    this.reader = null;
+    this.times = [];         // start of each sample (segment)
+    this.texts = [];
+    this.at = null;          // Int32Array: text index per sample, -1 = not read
+    this.state = 'idle';     // idle | loading | reading | done | unavailable
+    this.error = '';
+    this.stats = { read: 0, same: 0, failed: 0, ms: 0, bytes: 0, wall: 0 };
+    this.debug = store.get('debug', false) ? { changes: [] } : null;
+    this.engine = null;
   }
-  return I;
-}
 
-// Means of the cells of a gw x gh grid laid over a w x h image at transform t (page width
-// t.s, top-left t.x, t.y) for a page of aspect ar (height / width). Cells not fully inside
-// get mask 0. Returns the share of cells inside.
-function cellMeans(I, w, h, t, ar, gw, gh, out, mask) {
-  const cw = t.s / gw;
-  const ch = (t.s * ar) / gh;
-  const W1 = w + 1;
-  let inside = 0;
-  for (let j = 0; j < gh; j++) {
-    const ys = t.y + j * ch;
-    const ye = ys + ch;
-    const rowOk = ys >= -0.01 && ye <= h + 0.01;
-    const a = Math.min(h, Math.max(0, Math.round(ys)));
-    const b = Math.min(h, Math.max(0, Math.round(ye)));
-    for (let i = 0; i < gw; i++) {
-      const k = j * gw + i;
-      const xs = t.x + i * cw;
-      const xe = xs + cw;
-      if (!rowOk || xs < -0.01 || xe > w + 0.01) { mask[k] = 0; out[k] = 0; continue; }
-      const c = Math.min(w, Math.max(0, Math.round(xs)));
-      const d = Math.min(w, Math.max(0, Math.round(xe)));
-      out[k] = (I[b * W1 + d] - I[a * W1 + d] - I[b * W1 + c] + I[a * W1 + c]) / Math.max(1, (b - a) * (d - c));
-      mask[k] = 1;
-      inside++;
-    }
+  get key() { return 'ocr:' + this.lesson.mediaId + ':' + this.source.index; }
+
+  done() {
+    return this.at ? this.at.reduce((n, x) => n + (x !== -1 ? 1 : 0), 0) : 0;
   }
-  return inside / (gw * gh);
-}
 
-// Normalised cross-correlation of P and f over the cells where mask is set.
-function nccMasked(P, f, mask, n) {
-  let mp = 0;
-  let mf = 0;
-  let m = 0;
-  for (let i = 0; i < n; i++) if (mask[i]) { mp += P[i]; mf += f[i]; m++; }
-  if (m < 4) return -1;
-  mp /= m;
-  mf /= m;
-  let sab = 0;
-  let saa = 0;
-  let sbb = 0;
-  for (let i = 0; i < n; i++) {
-    if (!mask[i]) continue;
-    const a = P[i] - mp;
-    const b = f[i] - mf;
-    sab += a * b;
-    saa += a * a;
-    sbb += b * b;
+  progress() {
+    return this.at && this.at.length ? this.done() / this.at.length : 0;
   }
-  return saa && sbb ? sab / Math.sqrt(saa * sbb) : 0;
-}
 
-// ---- pages and frames ----
-
-// Grids of one page, from an RGBA rendering MATCH_W pixels wide and h high.
-function pageFeatures(rgba, w, h) {
-  const L = lumaOf(rgba, w * h);
-  const IL = integralOf(L, w, h);
-  const IG = integralOf(gradOf(L, w, h), w, h);
-  const ar = h / w;
-  const full = { s: w, x: 0, y: 0 };
-  const grid = (I, gw) => {
-    const gh = Math.max(4, Math.round(gw * ar));
-    const out = new Float32Array(gw * gh);
-    cellMeans(I, w, h, full, ar, gw, gh, out, new Uint8Array(gw * gh));
-    return out;
-  };
-  return {
-    ar, gh16: Math.max(4, Math.round(16 * ar)), gh64: Math.max(4, Math.round(64 * ar)),
-    l16: grid(IL, 16), g16: grid(IG, 16), l64: grid(IL, 64), g64: grid(IG, 64),
-  };
-}
-
-// Integral images of a frame, from RGBA at MATCH_W x MATCH_H.
-function frameFeatures(rgba, w, h) {
-  const L = lumaOf(rgba, w * h);
-  let mean = 0;
-  for (let i = 0; i < L.length; i++) mean += L[i];
-  return { w, h, IL: integralOf(L, w, h), IG: integralOf(gradOf(L, w, h), w, h), mean: mean / L.length };
-}
-
-function gridBuffers() {
-  const n = 64 * 64;
-  return { a: new Float32Array(n), b: new Float32Array(n), m: new Uint8Array(n) };
-}
-
-// Score of page p at transform t: 0.3 brightness + 0.7 edge-density correlation, on the
-// 16-wide (fine = false) or 64-wide grids. Placements mostly outside the frame score -1.
-// (Leaving out cells with extra edges, to tolerate ink, was tried: it raised the scores of
-// non-slides as much as those of inked slides and produced a wrong match.)
-function pageScore(f, p, t, fine, buf) {
-  const gw = fine ? 64 : 16;
-  const gh = fine ? p.gh64 : p.gh16;
-  const n = gw * gh;
-  if (cellMeans(f.IL, f.w, f.h, t, p.ar, gw, gh, buf.a, buf.m) < 0.8) return -1;
-  cellMeans(f.IG, f.w, f.h, t, p.ar, gw, gh, buf.b, buf.m);
-  return 0.3 * nccMasked(fine ? p.l64 : p.l16, buf.a, buf.m, n) + 0.7 * nccMasked(fine ? p.g64 : p.g16, buf.b, buf.m, n);
-}
-
-// Pages whose edge grids look alike (animation steps exported as separate pages, repeated
-// title slides). They are not counted as competitors when measuring a lead.
-function similarPages(pages) {
-  const sim = pages.map(() => new Uint8Array(pages.length));
-  for (let i = 0; i < pages.length; i++) {
-    for (let j = i + 1; j < pages.length; j++) {
-      if (pages[i].gh64 !== pages[j].gh64) continue;
-      const n = 64 * pages[i].gh64;
-      if (nccMasked(pages[i].g64, pages[j].g64, new Uint8Array(n).fill(1), n) > 0.85) { sim[i][j] = 1; sim[j][i] = 1; }
-    }
-  }
-  return sim;
-}
-
-function leadOf(scores, page, sim) {
-  let second = -1;
-  for (let i = 0; i < scores.length; i++) if (i !== page && !sim[page][i] && scores[i] > second) second = scores[i];
-  return scores[page] - second;
-}
-
-// ---- 1. layout ----
-
-// The average page (mean grids of all pages of the most common aspect). The template's
-// background, title area and footer give the page's outline, so the coarse layout search
-// compares with this one picture instead of every page.
-function meanPage(pages) {
-  const ar = pages[0].ar;
-  const same = pages.filter((p) => p.ar === ar);
-  const avg = (k) => {
-    const out = new Float32Array(same[0][k].length);
-    for (const p of same) for (let i = 0; i < out.length; i++) out[i] += p[k][i] / same.length;
-    return out;
-  };
-  return { ar, gh16: same[0].gh16, gh64: same[0].gh64, l16: avg('l16'), g16: avg('g16'), l64: avg('l64'), g64: avg('g64') };
-}
-
-// Best (page, transform) for one frame over the layout search space (page width 50% to
-// 100% of the frame; the page may run off the right or bottom edge a little, as a viewer
-// window often does), and the best fine score of every page.
-function searchLayout(f, pages, mean) {
-  const buf = gridBuffers();
-  const cands = [];
-  for (let k = 0; k < 11; k++) {
-    const s = f.w * (0.5 + (k * 0.5) / 10);
-    const ph = s * mean.ar;
-    for (let y = 0; y + 0.9 * ph <= f.h + 0.5; y += 3) {
-      for (let x = 0; x + 0.85 * s <= f.w + 0.5; x += 3) cands.push({ v: pageScore(f, mean, { s, x, y }, false, buf), s, x, y });
-    }
-  }
-  cands.sort((a, b) => b.v - a.v);
-  let top = null;
-  const scores = new Float32Array(pages.length).fill(-1);
-  for (const c of cands.slice(0, 8)) {
-    for (let i = 0; i < pages.length; i++) {
-      const v = pageScore(f, pages[i], c, true, buf);
-      if (v > scores[i]) scores[i] = v;
-      if (!top || v > top.score) top = { page: i, s: c.s, x: c.x, y: c.y, score: v };
-    }
-  }
-  return { top, scores };
-}
-
-// The lecture's layouts: the confident layout searches grouped by transform (size within
-// 6%, position within 6 px); each group seen at least twice is a layout { s, x, y,
-// support } (median of the group). A lecturer may resize the viewer window once or twice
-// during a lecture, so there can be more than one. `tried` collects what each chapter gave
-// (for diagnostics).
-function findLayouts(frames, pages, sim, tried) {
-  const mean = meanPage(pages);
-  const good = [];
-  for (let i = 0; i < frames.length; i++) {
-    if (!frames[i]) continue;
-    const r = searchLayout(frames[i], pages, mean);
-    const lead = r.top ? leadOf(r.scores, r.top.page, sim) : 0;
-    if (tried) tried.push(Object.assign({ chapter: i, lead }, r.top));
-    if (r.top && r.top.score >= MATCH_SCORE && lead >= MATCH_LEAD) good.push(r.top);
-  }
-  const groups = [];
-  for (const g of good) {
-    const near = groups.find((gr) => Math.abs(gr[0].s - g.s) <= 0.06 * gr[0].s && Math.abs(gr[0].x - g.x) <= 6 && Math.abs(gr[0].y - g.y) <= 6);
-    if (near) near.push(g); else groups.push([g]);
-  }
-  return groups.filter((gr) => gr.length >= 2).sort((a, b) => b.length - a.length).map((gr) => {
-    const med = (k) => gr.map((g) => g[k]).sort((a, b) => a - b)[gr.length >> 1];
-    return { s: med('s'), x: med('x'), y: med('y'), support: gr.length };
-  });
-}
-
-// ---- 2. image scores per chapter ----
-
-// Score of every page for one frame, searched in small neighbourhoods of the layouts.
-function scoreAgainstLayouts(f, pages, layouts) {
-  const buf = gridBuffers();
-  const ts = [];
-  for (const layout of layouts) {
-    for (const ds of [0.95, 0.98, 1.01, 1.04]) {
-      for (let dx = -6; dx <= 6; dx += 2) {
-        for (let dy = -4; dy <= 4; dy += 2) ts.push({ s: layout.s * ds, x: layout.x + dx, y: layout.y + dy });
-      }
-    }
-  }
-  // The coarse pass picks the candidate pages, the fine pass scores them. Pages that are
-  // not candidates keep a score well below any candidate.
-  const coarse = new Float32Array(pages.length).fill(-1);
-  for (const t of ts) for (let i = 0; i < pages.length; i++) coarse[i] = Math.max(coarse[i], pageScore(f, pages[i], t, false, buf));
-  const cand = [...coarse.keys()].sort((a, b) => coarse[b] - coarse[a]).slice(0, 6);
-  const scores = Float32Array.from(coarse, (v) => Math.min(v, 0.4) - 0.2);
-  for (const i of cand) {
-    let best = -1;
-    for (const t of ts) best = Math.max(best, pageScore(f, pages[i], t, true, buf));
-    scores[i] = best;
-  }
-  return scores;
-}
-
-// ---- 3. text ----
-
-const STOP_WORDS = new Set(('the and for are but not you all any can had her was one our out has have this that with from they '
-  + 'will would there their what about which when your then them these some into more than only other such also each just like '
-  + 'been were said very where while here should could does using used use get got let').split(' '));
-
-function words(text) {
-  return String(text || '').toLowerCase().match(/[a-z][a-z0-9]{2,}/g) || [];
-}
-
-// tf-idf cosine similarity of each chapter's speech to each page's text.
-function textScores(chapterTexts, pageTexts) {
-  const df = new Map();
-  const pageBags = pageTexts.map((t) => {
-    const bag = new Map();
-    for (const w of words(t)) if (!STOP_WORDS.has(w)) bag.set(w, (bag.get(w) || 0) + 1);
-    for (const w of bag.keys()) df.set(w, (df.get(w) || 0) + 1);
-    return bag;
-  });
-  const n = pageTexts.length;
-  const vec = (bag) => {
-    const v = new Map();
-    let norm = 0;
-    for (const [w, c] of bag) {
-      const x = (1 + Math.log(c)) * Math.log((n + 1) / ((df.get(w) || 0) + 1));
-      if (x > 0) { v.set(w, x); norm += x * x; }
-    }
-    return { v, norm: Math.sqrt(norm) || 1 };
-  };
-  const pv = pageBags.map(vec);
-  return chapterTexts.map((t) => {
-    const bag = new Map();
-    for (const w of words(t)) if (!STOP_WORDS.has(w) && df.has(w)) bag.set(w, (bag.get(w) || 0) + 1);
-    const cv = vec(bag);
-    return Float32Array.from(pv, (p) => {
-      let dot = 0;
-      for (const [w, x] of cv.v) { const y = p.v.get(w); if (y) dot += x * y; }
-      return dot / (cv.norm * p.norm);
+  start() {
+    this.run().catch((e) => {
+      if (this.ac.signal.aborted) return;
+      console.warn(TAG, 'slide text:', e && e.message ? e.message : e);
+      this.state = 'unavailable';
+      this.error = String((e && e.message) || e);
+      this.onChange();
     });
-  });
+  }
+
+  stop() {
+    this.ac.abort();
+    if (this.engine) this.engine.then((w) => w.terminate()).catch(() => {});
+    this.engine = null;
+  }
+
+  async run() {
+    const signal = this.ac.signal;
+    if (!HlsVideoReader.supported()) throw new Error('WebCodecs not available');
+    if (navigator.connection && navigator.connection.saveData) throw new Error('Data Saver is on');
+    this.state = 'loading';
+    this.onChange();
+    const url = this.source.v || this.source.av;
+    this.reader = await new HlsVideoReader(url, Infinity, OCR_HEIGHT).open(signal);
+    this.probe = await new HlsVideoReader(url, 360).open(signal);
+    this.times = this.reader.segments.map((s) => s.start);
+    if (this.probe.segments.length !== this.times.length) this.probe = this.reader;
+    const n = this.times.length;
+    const cached = this.lesson.mediaId ? await idbCache.get(this.key) : undefined;
+    if (cached && cached.v === 1 && cached.height === this.reader.info.height && Array.isArray(cached.at) && cached.at.length === n) {
+      this.texts = cached.texts;
+      this.at = Int32Array.from(cached.at);
+      Object.assign(this.stats, cached.stats || {});
+    } else {
+      this.at = new Int32Array(n).fill(-1);
+    }
+    if (this.done() === n) { this.state = 'done'; this.onChange(); return; }
+    this.state = 'reading';
+    this.onChange();
+    const canvas = new OffscreenCanvas(this.reader.info.width, this.reader.info.height);
+    const g = canvas.getContext('2d');
+    const small = new OffscreenCanvas(OCR_CMP_W, OCR_CMP_H).getContext('2d', { willReadFrequently: true });
+    // The previous sample of this pass, and the thumbnail of the last one whose text was
+    // read: changes are measured against that, so that slow changes (ink added a little at
+    // a time) still add up.
+    let prev = -1;
+    let ref = null;
+    const bytes = () => this.reader.bytes + (this.probe !== this.reader ? this.probe.bytes : 0);
+    let unsaved = 0;
+    const t0 = performance.now();
+    const wall0 = this.stats.wall;
+    for (let i = this.next(); i >= 0; i = this.next()) {
+      await this.gate.turn(200, 0, 20);
+      let thumb = null;
+      let full = false;
+      const bytes0 = bytes();
+      try {
+        await this.probe.keyframe(i, signal, (f) => { thumb = lumaThumb(small, f); });
+      } catch (e) {
+        if (signal.aborted) throw e;
+      }
+      const change = thumb && prev === i - 1 && ref ? thumbChange(ref, thumb) : -1;
+      const same = change >= 0 && change < OCR_SAME_MAX;
+      if (this.debug) this.debug.changes[i] = change;
+      if (thumb && !same) {
+        try {
+          await this.reader.keyframe(i, signal, (f) => { g.drawImage(f, 0, 0, canvas.width, canvas.height); full = true; });
+        } catch (e) {
+          if (signal.aborted) throw e;
+        }
+      }
+      this.stats.bytes += bytes() - bytes0;
+      if (!thumb || (!same && !full)) {
+        this.at[i] = OCR_FAILED;
+        this.stats.failed++;
+        ref = null;
+      } else if (same) {
+        this.at[i] = this.at[i - 1];
+        this.stats.same++;
+      } else {
+        const blob = await canvas.convertToBlob({ type: 'image/png' });
+        const a = performance.now();
+        const text = await this.recognize(blob);
+        const ms = performance.now() - a;
+        this.at[i] = this.addText(text);
+        ref = thumb;
+        this.stats.read++;
+        this.stats.ms += Math.round(ms);
+        // Half pace while playing: rest as long as the reading took.
+        if (!this.video.paused) await this.gate.wait(ms);
+      }
+      prev = ref ? i : -1;
+      this.stats.wall = wall0 + Math.round(performance.now() - t0);
+      if (++unsaved >= OCR_SAVE_EVERY) { unsaved = 0; this.save(); }
+      this.onChange();
+    }
+    this.state = 'done';
+    this.save();
+    this.onChange();
+  }
+
+  addText(text) {
+    this.texts.push(text);
+    return this.texts.length - 1;
+  }
+
+  // The next sample to read: the first unread one from the playback position on, else the
+  // first unread one. -1 when all are read.
+  next() {
+    const at = this.at;
+    const here = this.reader.segmentAt(this.video.currentTime || 0);
+    for (let i = here; i < at.length; i++) if (at[i] === -1) return i;
+    for (let i = 0; i < here; i++) if (at[i] === -1) return i;
+    return -1;
+  }
+
+  async recognize(blob) {
+    if (!this.engine) {
+      this.engine = loadTesseract().then((T) => T.createWorker('eng', 1, {
+        workerPath: TESS_BASE + TESS_FILES.worker,
+        corePath: TESS_BASE + TESS_FILES.core,
+        langPath: TESS_BASE + TESS_FILES.lang,
+      }));
+      this.engine.catch(() => { this.engine = null; });
+    }
+    const w = await this.engine;
+    if (this.ac.signal.aborted) throw new Error('aborted');
+    return String((await w.recognize(blob)).data.text || '');
+  }
+
+  save() {
+    if (!this.lesson.mediaId || !this.at) return;
+    idbCache.put(this.key, { v: 1, screen: this.source.index, height: this.reader.info.height, texts: this.texts, at: Array.from(this.at), stats: this.stats, savedAt: Date.now() });
+  }
 }
 
-// ---- 4. sequence ----
+// ---- 58-slide-text.js ----
+// ===================================================================================
+// Which page of the lecturer's slide files is on screen, from the text on screen.
+//
+// Pure functions on strings and numbers (the reading of the screen is in 59-slide-ocr.js).
+//
+//   1. Words. The text recognised in each distinct screen picture is compared with each
+//      page's text (tf-idf cosine). Words on many pages (course name, footer) count little;
+//      words on many screen pictures (the viewer's toolbar, tab titles, a file path) count
+//      little too, whatever the software.
+//   2. Evidence. How a score should be read is learnt from the lecture itself: the second
+//      best page of a picture is always a wrong page, so the second best scores show what
+//      "wrong" looks like in this lecture; the best scores are a mix of that and "right",
+//      whose share and spread are fitted to them. A score then counts as the log of how
+//      much more likely it is under "right" than under "wrong". A picture with little text
+//      gives little evidence either way.
+//   3. Sequence. A hidden Markov model over the pictures in time order decides all pages
+//      at once (Viterbi). States: every page, and "not a slide" (remembering the last page,
+//      so coming back to it is cheap). Staying or moving on one page is usual; going back,
+//      jumping and leaving the slides are rarer; a jump to another file is rarer still.
+//      Pages with little text are placed by their neighbours.
+// ===================================================================================
 
-// Viterbi over chapters. States: pages 0..n-1 and n = "not a slide". Emission: image score
-// plus a little text score for pages, a constant for "not a slide". Transitions favour the
-// same page and the next one; other jumps cost more. Returns the page per chapter, -1 for
-// "not a slide".
-function alignSequence(img, txt) {
-  const C = img.length;
-  if (!C) return [];
-  const n = img[0].length;
-  const NONE = n;
-  const emit = (c, s) => (s === NONE ? 0.42 : img[c][s] + 0.15 * (txt ? txt[c][s] : 0));
-  const trans = (a, b) => {
-    if (a === b) return 0;
-    if (a === NONE || b === NONE) return 0.04;
-    if (b === a + 1) return 0.02;
-    if (b > a && b <= a + 3) return 0.08;
-    return 0.14;
-  };
-  let score = new Float32Array(n + 1);
-  const back = [];
-  for (let s = 0; s <= n; s++) score[s] = emit(0, s);
-  for (let c = 1; c < C; c++) {
-    const next = new Float32Array(n + 1);
-    const bp = new Int16Array(n + 1);
-    for (let s = 0; s <= n; s++) {
-      let best = -Infinity;
-      let arg = 0;
-      for (let r = 0; r <= n; r++) {
-        const v = score[r] - trans(r, s);
-        if (v > best) { best = v; arg = r; }
-      }
-      next[s] = best + emit(c, s);
-      bp[s] = arg;
+const SLIDE_STOP = new Set(('the and for are but not you all any can had her was one our out has have this that with from they will would there their '
+  + 'what about which when your then them these some into more than only other such also each just like been were said very where while here '
+  + 'should could does using used use get got let its how why who may might must shall ours yours his him she hers').split(' '));
+
+function slideWords(text) {
+  return (String(text || '').toLowerCase().match(/[a-z][a-z0-9]{2,}/g) || []).filter((w) => !SLIDE_STOP.has(w));
+}
+
+function wordBag(words) {
+  const b = new Map();
+  for (const w of words) b.set(w, (b.get(w) || 0) + 1);
+  return b;
+}
+
+// scores[f * P + p]: cosine between picture f and page p. explained[f * P + p]: share of
+// the picture's text that is on page p (each word weighted by how rare it is among the
+// pictures, so the viewer's own words count little): a slide on screen, even zoomed in,
+// explains much of what is readable; a code editor showing the slide's code next to a file
+// tree, menus and other code does not. words[f]: distinct page words in picture f.
+function textScores(pageTexts, frameTexts) {
+  const P = pageTexts.length;
+  const F = frameTexts.length;
+  const pdf = new Map();
+  const pageBags = pageTexts.map((t) => {
+    const b = wordBag(slideWords(t));
+    for (const w of b.keys()) pdf.set(w, (pdf.get(w) || 0) + 1);
+    return b;
+  });
+  const idf = (w) => Math.log((P + 1) / (pdf.get(w) + 0.5));
+  // Inverted index of the pages' weighted words.
+  const post = new Map();
+  const pnorm = new Float64Array(P);
+  pageBags.forEach((b, p) => {
+    for (const [w, c] of b) {
+      const x = (1 + Math.log(c)) * idf(w);
+      if (x <= 0) continue;
+      pnorm[p] += x * x;
+      let l = post.get(w);
+      if (!l) post.set(w, (l = []));
+      l.push(p, x);
     }
-    back.push(bp);
-    score = next;
+  });
+  for (let p = 0; p < P; p++) pnorm[p] = Math.sqrt(pnorm[p]) || 1;
+  const raw = new Int32Array(F);
+  const allBags = frameTexts.map((t, f) => { const ws = slideWords(t); raw[f] = ws.length; return wordBag(ws); });
+  const frameBags = allBags.map((b) => new Map([...b].filter(([w]) => post.has(w))));
+  const fdf = new Map();
+  for (const b of allBags) for (const w of b.keys()) fdf.set(w, (fdf.get(w) || 0) + 1);
+  // Share of the information a word carries among the pictures: 1 for a word on one
+  // picture, near 0 for a word on all of them.
+  const lf = Math.log(F + 1);
+  const fw = (w) => (F > 1 ? Math.log((F + 1) / fdf.get(w)) / lf : 1);
+  const scores = new Float32Array(F * P);
+  const explained = new Float32Array(F * P);
+  const words = new Int32Array(F);
+  const acc = new Float64Array(P);
+  frameBags.forEach((b, f) => {
+    acc.fill(0);
+    let all = 0;
+    for (const w of allBags[f].keys()) all += fw(w) ** 2;
+    if (all > 0) {
+      for (const w of b.keys()) {
+        const x = fw(w) ** 2 / all;
+        const l = post.get(w);
+        for (let k = 0; k < l.length; k += 2) explained[f * P + l[k]] += x;
+      }
+    }
+    let n2 = 0;
+    for (const [w, c] of b) {
+      const x = (1 + Math.log(c)) * idf(w) * fw(w);
+      if (x <= 0) continue;
+      n2 += x * x;
+      const l = post.get(w);
+      for (let k = 0; k < l.length; k += 2) acc[l[k]] += x * l[k + 1];
+    }
+    words[f] = b.size;
+    const n = Math.sqrt(n2) || 1;
+    for (let p = 0; p < P; p++) scores[f * P + p] = acc[p] / (n * pnorm[p]);
+  });
+  return { scores, explained, words, raw, P, F, pageWords: Int32Array.from(pageBags, (b) => [...b.keys()].filter((w) => idf(w) > 0).length) };
+}
+
+// Cosine similarity between every two pages (P x P), from their text alone.
+function pageSimilarity(pageTexts) {
+  const r = textScores(pageTexts, pageTexts);
+  return r.scores;
+}
+
+// ---- evidence ----
+
+const EVIDENCE_GRID = 101;
+
+// Log-likelihood ratio "this page is on screen" vs "it is not", learnt from the lecture's
+// own scores (see the top of the file), from two measures of a picture and a page: the
+// cosine and the share of the picture's text explained by the page. Each has a normal
+// distribution under "wrong", fitted to every picture's second best page (always a wrong
+// page) together with the best pages it explains, and one under "right", fitted to the
+// best pages it explains; the share of "right" is fitted along (EM). Returns
+// { llr(score, explained), right, wrong } (means and spreads of both measures).
+function scoreModel(ts, pageSim) {
+  const { scores, explained, words, P, F } = ts;
+  const best = [];
+  const second = [];
+  for (let f = 0; f < F; f++) {
+    if (!words[f]) continue;
+    let b = -1;
+    let bi = -1;
+    for (let p = 0; p < P; p++) if (scores[f * P + p] > b) { b = scores[f * P + p]; bi = p; }
+    // Pages at least as close to the best page as the picture is cannot be told apart
+    // from it: they are not "wrong".
+    let si = -1;
+    for (let p = 0; p < P; p++) if (p !== bi && pageSim[bi * P + p] < b && (si < 0 || scores[f * P + p] > scores[f * P + si])) si = p;
+    best.push([b, explained[f * P + bi]]);
+    second.push(si >= 0 ? [scores[f * P + si], explained[f * P + si]] : [0, 0]);
+  }
+  const fit = (xs, ws, d) => {
+    let sw = 0;
+    let sx = 0;
+    let sxx = 0;
+    xs.forEach((x, i) => { const w = ws ? ws[i] : 1; sw += w; sx += w * x[d]; sxx += w * x[d] * x[d]; });
+    const mean = sw ? sx / sw : 0;
+    return { mean, sd: Math.max(Math.sqrt(Math.max(0, sxx / (sw || 1) - mean * mean)), 0.01), w: sw };
+  };
+  const pdf = (d, x) => Math.exp(-0.5 * ((x - d.mean) / d.sd) ** 2) / d.sd;
+  const fit2 = (xs, ws) => [fit(xs, ws, 0), fit(xs, ws, 1)];
+  const pdf2 = (m, x) => pdf(m[0], x[0]) * pdf(m[1], x[1]);
+  let wrong = fit2(second);
+  let right = [{ mean: Math.max(0, ...best.map((x) => x[0])), sd: 0.1 }, { mean: Math.max(0, ...best.map((x) => x[1])), sd: 0.1 }];
+  let share = 0.5;
+  const resp = new Float64Array(best.length);
+  const ones = second.map(() => 1);
+  for (let it = 0; it < 200 && best.length; it++) {
+    best.forEach((x, i) => {
+      const a = share * pdf2(right, x);
+      const b = (1 - share) * pdf2(wrong, x);
+      resp[i] = a + b > 0 ? a / (a + b) : (x[0] > wrong[0].mean ? 1 : 0);
+    });
+    const w = resp.reduce((t, x) => t + x, 0);
+    share = w / best.length;
+    if (w < 0.5) { share = 0; break; }
+    right = fit2(best, resp);
+    wrong = fit2(second.concat(best), ones.concat(Array.from(resp, (x) => 1 - x)));
+  }
+  // Per measure, on a grid, made non-decreasing: a higher value is never weaker evidence,
+  // and a value above the typical right one is no stronger than it.
+  const n = EVIDENCE_GRID;
+  const grid = (r, q) => {
+    const g = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      const x = Math.min(i / (n - 1), r.mean);
+      const v = share > 0 ? Math.log(pdf(r, x)) - Math.log(pdf(q, x)) : -25;
+      g[i] = Math.max(i ? g[i - 1] : -Infinity, isFinite(v) ? v : -25);
+    }
+    return g;
+  };
+  const g0 = grid(right[0], wrong[0]);
+  const g1 = grid(right[1], wrong[1]);
+  const at = (g, x) => g[Math.max(0, Math.min(n - 1, Math.round(x * (n - 1))))];
+  const llr = (s, e) => at(g0, s) + at(g1, e);
+  const sum = (m) => ({ score: [m[0].mean, m[0].sd], explained: [m[1].mean, m[1].sd] });
+  return { llr, right: Object.assign({ share }, sum(right)), wrong: sum(wrong) };
+}
+
+// Evidence for each picture and page: ev[f * P + p] (log-likelihood ratio against "not a
+// slide"). A page without any text gives no evidence: where it was shown follows from the
+// pages around it. A picture with nothing readable at all (a camera, a black screen) is
+// taken as not showing any page: a page on screen always comes with some text, if only a
+// title or the viewer around it.
+function slideEvidence(ts, model) {
+  const { scores, explained, P, F, pageWords, raw } = ts;
+  const ev = new Float32Array(F * P);
+  const none = model.llr(0, 0);
+  for (let f = 0; f < F; f++) {
+    for (let p = 0; p < P; p++) ev[f * P + p] = !raw[f] ? none : pageWords[p] ? model.llr(scores[f * P + p], explained[f * P + p]) : 0;
+  }
+  return ev;
+}
+
+// ---- sequence ----
+
+// Log-probabilities of moving between two pictures in a row (the second picture differs
+// from the first, so something changed on screen).
+const SLIDE_MOVES = {
+  stay: Math.log(0.45),      // same page (ink, pointer, a build step)
+  next: Math.log(0.30),      // next page
+  back: Math.log(0.05),      // previous page
+  jump: Math.log(0.04),      // any other page of the same file (spread over the file)
+  file: Math.log(0.01),      // a page of another file (spread over that file)
+  off: Math.log(0.15),       // something that is not a slide
+  offStay: Math.log(0.60),   // still not a slide
+  offBack: Math.log(0.20),   // back to the page shown before
+  offNext: Math.log(0.10),   // back to the slides, one page on
+  offJump: Math.log(0.07),   // back to the slides at another page of the same file
+  offFile: Math.log(0.03),   // back to the slides in another file
+};
+
+// ev: evidence per picture (F x P); fileOf[p]: file of page p; seq[t]: picture shown at
+// step t (time order, one step per distinct picture); force[t] (optional): the user's
+// correction for step t (a page, FORCE_OFF for "not a slide", -1 for none). Returns per
+// step a page index or -1 (not a slide).
+const FORCE_OFF = -2;
+
+function decodeSlides(ev, P, fileOf, seq, force) {
+  const S = 2 * P + 1;    // pages, "not a slide" after page p, "not a slide" before any page
+  const NONE = 2 * P;
+  const T = seq.length;
+  const files = [];
+  for (let p = 0; p < P; p++) (files[fileOf[p]] ||= []).push(p);
+  const nf = files.length;
+  const M = SLIDE_MOVES;
+  const back = new Int32Array(T * S);
+  const emit = (t, V) => {
+    const f = seq[t];
+    if (f >= 0) for (let p = 0; p < P; p++) V[p] += ev[f * P + p];
+    const k = force ? force[t] : -1;
+    if (k >= 0) { for (let s = 0; s < S; s++) if (s !== k) V[s] = -Infinity; } else if (k === FORCE_OFF) for (let p = 0; p < P; p++) V[p] = -Infinity;
+  };
+  let V = new Float64Array(S).fill(-Infinity);
+  for (let p = 0; p < P; p++) V[p] = -Math.log(2 * P);
+  V[NONE] = -Math.log(2);
+  if (T) emit(0, V);
+  const fileBest = new Float64Array(nf);
+  const fileArg = new Int32Array(nf);
+  const offBest = new Float64Array(nf);
+  const offArg = new Int32Array(nf);
+  // Best and second best file, for moves into another file.
+  const top = (arr) => {
+    let a = -1;
+    let b = -1;
+    for (let k = 0; k < nf; k++) if (a < 0 || arr[k] > arr[a]) { b = a; a = k; } else if (b < 0 || arr[k] > arr[b]) b = k;
+    return [a, b];
+  };
+  for (let t = 1; t < T; t++) {
+    const N = new Float64Array(S).fill(-Infinity);
+    const B = back.subarray(t * S, (t + 1) * S);
+    fileBest.fill(-Infinity);
+    offBest.fill(-Infinity);
+    for (let p = 0; p < P; p++) {
+      const k = fileOf[p];
+      if (V[p] > fileBest[k]) { fileBest[k] = V[p]; fileArg[k] = p; }
+      if (V[P + p] > offBest[k]) { offBest[k] = V[P + p]; offArg[k] = P + p; }
+    }
+    const [fa, fb] = top(fileBest);
+    const [oa, ob] = top(offBest);
+    for (let q = 0; q < P; q++) {
+      const k = fileOf[q];
+      const n = files[k].length;
+      const same = (r) => r >= 0 && r < P && fileOf[r] === k;
+      let best = V[q] + M.stay;
+      let arg = q;
+      const from = (s, v) => { if (v > best) { best = v; arg = s; } };
+      if (same(q - 1)) { from(q - 1, V[q - 1] + M.next); from(P + q - 1, V[P + q - 1] + M.offNext); }
+      if (same(q + 1)) from(q + 1, V[q + 1] + M.back);
+      from(P + q, V[P + q] + M.offBack);
+      from(fileArg[k], fileBest[k] + M.jump - Math.log(n));
+      from(offArg[k], offBest[k] + M.offJump - Math.log(n));
+      const of = fa !== k ? fa : fb;
+      if (of >= 0) from(fileArg[of], fileBest[of] + M.file - Math.log(n));
+      const oo = oa !== k ? oa : ob;
+      if (oo >= 0) from(offArg[oo], offBest[oo] + M.offFile - Math.log(n));
+      from(NONE, V[NONE] + M.offJump - Math.log(P));
+      N[q] = best;
+      B[q] = arg;
+      const a = V[q] + M.off;
+      const b = V[P + q] + M.offStay;
+      N[P + q] = a >= b ? a : b;
+      B[P + q] = a >= b ? q : P + q;
+    }
+    N[NONE] = V[NONE] + M.offStay;
+    B[NONE] = NONE;
+    emit(t, N);
+    V = N;
   }
   let s = 0;
-  for (let k = 1; k <= n; k++) if (score[k] > score[s]) s = k;
-  const path = new Array(C);
-  path[C - 1] = s;
-  for (let c = C - 1; c > 0; c--) { s = back[c - 1][s]; path[c - 1] = s; }
-  return path.map((v) => (v === NONE ? -1 : v));
+  for (let i = 1; i < S; i++) if (V[i] > V[s]) s = i;
+  const out = new Int32Array(T);
+  for (let t = T - 1; t >= 0; t--) {
+    out[t] = s < P ? s : -1;
+    if (t > 0) s = back[t * S + s];
+  }
+  return out;
 }
 
-// ---- 5. decision ----
+// ---- one lecture ----
 
-// Final page per chapter (-1 = not matched): { page, score, lead, by, guess }. by is
-// 'image' when the image alone is clear, or 'sequence' when the image is plausible (but
-// not clear), the sequence chose the same page, and a chapter within 3 on either side was
-// clearly matched to that page or a neighbouring one. guess is the best-looking page even
-// when unsure (only for turning pages while following, never shown as a match).
-function decidePages(img, path, sim) {
-  const tops = img.map((scores) => {
-    let top = 0;
-    for (let i = 1; i < scores.length; i++) if (scores[i] > scores[top]) top = i;
-    return { top, score: scores[top], lead: leadOf(scores, top, sim) };
-  });
-  const clear = tops.map((t) => t.score >= MATCH_SCORE && t.lead >= MATCH_LEAD);
-  return tops.map((t, c) => {
-    const guess = t.score > 0 ? t.top : -1;
-    if (clear[c]) return { page: t.top, score: t.score, lead: t.lead, by: 'image', guess };
-    const p = path[c];
-    const plausible = p >= 0 && (p === t.top || sim[p][t.top]) && img[c][p] >= MATCH_SCORE_SEQ && t.lead >= 0.05;
-    let near = false;
-    for (let d = -3; d <= 3 && plausible && !near; d++) {
-      const k = c + d;
-      if (d !== 0 && k >= 0 && k < tops.length && clear[k] && Math.abs(tops[k].top - p) <= 1) near = true;
-    }
-    if (plausible && near) return { page: p, score: img[c][p], lead: t.lead, by: 'sequence', guess };
-    return { page: -1, score: t.score, lead: t.lead, by: '', guess };
-  });
-}
-
-// Everything for one lecture. input: { frames: [RGBA at MATCH_W x MATCH_H or null],
-// pages: [{ rgba, h }] rendered MATCH_W wide, chapterTexts: [string], pageTexts: [string] }.
-// Returns { layout, chapters: [{ page, score, lead, by }] }.
-function matchLecture(input) {
-  const pages = input.pages.map((p) => pageFeatures(p.rgba, MATCH_W, p.h));
-  const sim = similarPages(pages);
-  const frames = input.frames.map((rgba) => (rgba ? frameFeatures(rgba, MATCH_W, MATCH_H) : null));
-  const tried = [];
-  const layouts = findLayouts(frames, pages, sim, tried);
-  if (!layouts.length) return { layouts, tried, chapters: frames.map(() => ({ page: -1, score: 0, lead: 0, by: '', guess: -1 })) };
-  const img = frames.map((f) => (f ? scoreAgainstLayouts(f, pages, layouts) : new Float32Array(pages.length).fill(-1)));
-  const txt = input.chapterTexts && input.pageTexts ? textScores(input.chapterTexts, input.pageTexts) : null;
-  const path = alignSequence(img, txt);
-  return { layouts, tried, chapters: decidePages(img, path, sim) };
+// input: { pageTexts: [string], fileOf: [file index per page], texts: [string] (each
+// distinct picture read), at: [per 10 s sample: index into texts, -1 = not read yet],
+// force: [per sample: page, FORCE_OFF or -1] (optional) }.
+// Returns { pages: Int32Array per sample (page index, -1 = not a slide, -2 = not read yet),
+// model }.
+function followLecture(input) {
+  const P = input.pageTexts.length;
+  const at = input.at;
+  const force = input.force || [];
+  const out = new Int32Array(at.length).fill(-2);
+  if (!P || !input.texts.length) return { pages: out, model: null };
+  const ts = textScores(input.pageTexts, input.texts);
+  const model = scoreModel(ts, pageSimilarity(input.pageTexts));
+  const ev = slideEvidence(ts, model);
+  // One step per run of samples showing the same picture (with the same correction).
+  const seq = [];
+  const fs = [];
+  const stepOf = new Int32Array(at.length).fill(-1);
+  for (let i = 0; i < at.length; i++) {
+    if (at[i] < 0) continue;
+    const k = force[i] == null ? -1 : force[i];
+    const last = seq.length - 1;
+    if (last >= 0 && seq[last] === at[i] && fs[last] === k && stepOf[i - 1] === last) { stepOf[i] = last; continue; }
+    seq.push(at[i]);
+    fs.push(k);
+    stepOf[i] = seq.length - 1;
+  }
+  const states = decodeSlides(ev, P, Int32Array.from(input.fileOf), seq, fs);
+  for (let i = 0; i < at.length; i++) if (stepOf[i] >= 0) out[i] = states[stepOf[i]];
+  return { pages: out, model: { right: model.right, wrong: model.wrong } };
 }
 
 // ---- the Worker ----
 
-// Source of a Worker running matchLecture, assembled from the functions above so the code
+// Source of a Worker running followLecture, assembled from the functions above so the code
 // that runs is exactly the code in this file.
-function slideMatchWorkerSource() {
-  const fns = [lumaOf, gradOf, integralOf, cellMeans, nccMasked, pageFeatures, frameFeatures, gridBuffers, pageScore,
-    similarPages, leadOf, meanPage, searchLayout, findLayouts, scoreAgainstLayouts, words, textScores, alignSequence, decidePages,
-    matchLecture];
-  const consts = { MATCH_W, MATCH_H, MATCH_SCORE, MATCH_LEAD, MATCH_SCORE_SEQ };
+function slideTextWorkerSource() {
+  const fns = [slideWords, wordBag, textScores, pageSimilarity, scoreModel, slideEvidence, decodeSlides, followLecture];
   return '"use strict";\n'
-    + Object.entries(consts).map(([k, v]) => 'const ' + k + ' = ' + JSON.stringify(v) + ';').join('\n') + '\n'
-    + 'const STOP_WORDS = new Set(' + JSON.stringify([...STOP_WORDS]) + ');\n'
+    + 'const SLIDE_STOP = new Set(' + JSON.stringify([...SLIDE_STOP]) + ');\n'
+    + 'const SLIDE_MOVES = ' + JSON.stringify(SLIDE_MOVES) + ';\n'
+    + 'const EVIDENCE_GRID = ' + EVIDENCE_GRID + ';\n'
+    + 'const FORCE_OFF = ' + FORCE_OFF + ';\n'
     + fns.map((f) => f.toString()).join('\n\n') + '\n'
     + 'self.onmessage = (e) => {\n'
     + '  const t0 = Date.now();\n'
-    + '  try { const r = matchLecture(e.data); r.ms = Date.now() - t0; self.postMessage({ ok: true, result: r }); }\n'
-    + '  catch (err) { self.postMessage({ ok: false, error: String((err && err.message) || err) }); }\n'
+    + '  try { const r = followLecture(e.data.input); r.ms = Date.now() - t0; self.postMessage({ id: e.data.id, ok: true, result: r }, [r.pages.buffer]); }\n'
+    + '  catch (err) { self.postMessage({ id: e.data.id, ok: false, error: String((err && err.message) || err) }); }\n'
     + '};\n';
 }
 
-// Runs matchLecture in a Worker; rejects when workers are unavailable, the job fails, or
-// the signal aborts.
-function runSlideMatch(input, signal) {
-  return new Promise((resolve, reject) => {
-    let worker;
-    try {
-      const url = URL.createObjectURL(new Blob([slideMatchWorkerSource()], { type: 'text/javascript' }));
-      worker = new Worker(url);
+// One Worker for a player's lifetime; run(input) resolves with followLecture's result.
+class SlideTextWorker {
+  constructor(disposer) {
+    this.worker = null;
+    this.seq = 0;
+    this.waiting = new Map();
+    disposer.add(() => this.close());
+  }
+
+  run(input) {
+    if (!this.worker) {
+      const url = URL.createObjectURL(new Blob([slideTextWorkerSource()], { type: 'text/javascript' }));
+      this.worker = new Worker(url);
       URL.revokeObjectURL(url);
-    } catch (e) { reject(e); return; }
-    const onAbort = () => { done(); reject(new Error('aborted')); };
-    const done = () => { worker.terminate(); if (signal) signal.removeEventListener('abort', onAbort); };
-    if (signal) signal.addEventListener('abort', onAbort, { once: true });
-    worker.onmessage = (e) => { done(); if (e.data.ok) resolve(e.data.result); else reject(new Error(e.data.error)); };
-    worker.onerror = (e) => { done(); reject(new Error(e.message || 'worker error')); };
-    const transfer = [];
-    for (const f of input.frames) if (f) transfer.push(f.buffer);
-    for (const p of input.pages) transfer.push(p.rgba.buffer);
-    worker.postMessage(input, transfer);
-  });
+      this.worker.onmessage = (e) => {
+        const w = this.waiting.get(e.data.id);
+        if (!w) return;
+        this.waiting.delete(e.data.id);
+        if (e.data.ok) w.resolve(e.data.result); else w.reject(new Error(e.data.error));
+      };
+      this.worker.onerror = (e) => {
+        for (const w of this.waiting.values()) w.reject(new Error(e.message || 'worker error'));
+        this.waiting.clear();
+      };
+    }
+    const id = ++this.seq;
+    return new Promise((resolve, reject) => {
+      this.waiting.set(id, { resolve, reject });
+      this.worker.postMessage({ id, input });
+    });
+  }
+
+  close() {
+    if (this.worker) this.worker.terminate();
+    this.worker = null;
+    for (const w of this.waiting.values()) w.reject(new Error('closed'));
+    this.waiting.clear();
+  }
 }
 
 // ---- 59-slide-deck.js ----
 // ===================================================================================
-// The lecturer's slide files (PDF) for a recording: loading, local storage, matching the
-// chapters to pages, following the lecture, and the user's corrections.
+// The lecturer's slide files (PDF) for a recording: loading, local storage, following the
+// lecture, and the user's corrections.
 //
 // The PDF is the user's: they can page through it freely and remove it at any time.
 // Following the lecture only turns the page for them until they take over.
+//
+// Which page is on screen comes from the text on the screen view, every 10 s across the
+// lecture: 58-slide-ocr.js reads it, 58-slide-text.js decides the pages (in a Worker).
 //
 // Files never leave the browser: they are kept in IndexedDB (by SHA-256), remembered per
 // recording. pdf.js is loaded from jsDelivr (pinned) only when a recording has slide files.
 //
 // Stored records:
-//   deck:<mediaId>        { files: [{ hash, name }], overrides: { <chapter key>: <page key> | 'none' } }
+//   deck:<mediaId>        { files: [{ hash, name }], fixes: [{ a, b, page: <page key> | 'none' }] }
 //   deckfile:<hash>       Blob of the PDF
 //   deckref:<hash>        [mediaId] recordings using the file (deleted with the last one)
-//   deckmatch:<mediaId>   { sig, chapters: [<page key> | null] } (matching result)
-// A chapter key is its start in tenths of a second; a page key is "<hash prefix>:<page>",
-// so both survive reordering files.
+// A correction covers a part of the lecture (a to b, in seconds); a page key is
+// "<hash prefix>:<page>", so it survives reordering files.
 //
 // For later features (slide text as vocabulary for transcription, chapter titles):
 // controller.pages[i] = { key, file, num, title, text }.
 // ===================================================================================
 
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.4.299/build/';
-const FOLLOW_MIN_SEC = 15;     // a chapter shorter than this does not turn the page
-const FOLLOW_GUESS_SPAN = 3;   // unsure pages are used only between known pages this close
-const FOLLOW_STALE_SEC = 120;  // after this long without a recognised page, say so
-const DECK_RENDER_CACHE = 6;   // rendered pages kept
+const FOLLOW_MIN_SEC = 15;       // a quick look at another page (shorter than this) does not turn the page
+const FOLLOW_STALE_SEC = 120;    // after this long without a recognised page, say so
+const FOLLOW_UPDATE_MS = 15000;  // while reading, pages are decided again at most this often
+const DECK_RENDER_CACHE = 6;      // rendered pages kept
 
 let pdfjsPromise = null;
 function loadPdfJs() {
@@ -6307,54 +6482,59 @@ function renderPdfPage(page, width) {
   return page.render({ canvas: c, canvasContext: c.getContext('2d'), viewport: vp }).promise.then(() => c);
 }
 
-// The page to show for each chapter while following the lecture. known[i] is the page of
-// chapter i (index, or -1 when unknown or not a slide); guesses[i] the best-looking page
-// even when unsure (or -1). An unknown chapter shows its guess only if the known pages
-// before and after it are at most FOLLOW_GUESS_SPAN apart and the guess lies between
-// them (so a wrong guess cannot be far off); otherwise it keeps the last page shown.
-// Chapters shorter than minSec do not turn the page (a quick look back). Before the first
-// known page, that page is shown. Returns page indexes (-1 only if nothing is known).
-function followPages(chapters, known, guesses, minSec) {
+// The page to show at each sample while following. pages[i]: from followLecture (a page,
+// -1 not a slide, -2 not read yet); times[i]: when sample i starts; end: when the last one
+// ends. Where no page is on screen the page shown before stays. A quick look at another
+// page (a stretch shorter than minSec between two stretches of the same page) does not
+// turn the page. Before the first page, that page is shown. Returns page indexes (-1 only
+// when no page is known at all).
+function followSamples(times, pages, minSec, end) {
   const min = minSec == null ? FOLLOW_MIN_SEC : minSec;
-  const n = chapters.length;
-  const prev = new Array(n);
-  const next = new Array(n);
-  let last = -1;
-  for (let i = 0; i < n; i++) { prev[i] = last; if (known[i] >= 0) last = known[i]; }
-  last = -1;
-  for (let i = n - 1; i >= 0; i--) { next[i] = last; if (known[i] >= 0) last = known[i]; }
-  const first = known.find((p) => p >= 0);
-  let cur = first === undefined ? -1 : first;
-  return chapters.map((c, i) => {
-    let p = known[i];
-    const g = guesses ? guesses[i] : -1;
-    const lo = Math.min(prev[i], next[i]);
-    const hi = Math.max(prev[i], next[i]);
-    if (p < 0 && g >= 0 && lo >= 0 && hi - lo <= FOLLOW_GUESS_SPAN && g >= lo && g <= hi) p = g;
-    if (p >= 0 && p !== cur && c.end - c.start >= min) cur = p;
-    return cur;
+  const n = pages.length;
+  const tEnd = end == null ? (n ? times[n - 1] + 10 : 0) : end;
+  // Stretches of one page: [{ p, a, b }] (samples a..b), ended by anything else.
+  const runs = [];
+  for (let i = 0; i < n; i++) {
+    const p = pages[i];
+    if (p < 0) continue;
+    const last = runs[runs.length - 1];
+    if (last && last.p === p && last.b === i - 1) last.b = i; else runs.push({ p, a: i, b: i });
+  }
+  const keep = runs.filter((r, k) => {
+    const len = (r.b + 1 < n ? times[r.b + 1] : tEnd) - times[r.a];
+    return !(len < min && k > 0 && k + 1 < runs.length && runs[k - 1].p === runs[k + 1].p && runs[k - 1].p !== r.p);
   });
+  const out = new Int32Array(n);
+  let k = 0;
+  let cur = keep.length ? keep[0].p : -1;
+  for (let i = 0; i < n; i++) {
+    while (k < keep.length && keep[k].a <= i) { cur = keep[k].p; k++; }
+    out[i] = cur;
+  }
+  return out;
 }
 
 class SlideDeckController {
-  // opts: { lesson, slides (SlideAnalyzer), cues: () => cues, disposer, onChange }
+  // opts: { lesson, video, slides (SlideAnalyzer: which view is the screen), disposer, onChange }
   constructor(opts) {
     this.lesson = opts.lesson;
+    this.video = opts.video;
     this.slides = opts.slides;
-    this.cues = opts.cues;
     this.onChange = opts.onChange || (() => {});
     this.d = opts.disposer;
     this.ac = new AbortController();
     this.d.add(() => this.ac.abort());
     this.files = [];          // [{ hash, name }]
     this.docs = [];           // pdf.js loading tasks of the open documents, per file
-    this.pages = [];          // [{ key, file, num, title, text, doc, h }]
-    this.overrides = {};
-    this.matched = null;      // [page key | null] per chapter, from matching
-    this.guesses = [];        // [page key | null] per chapter: best-looking page, even if unsure
-    this.shown = [];          // page index to show per chapter (following)
-    this.state = 'empty';     // empty | loading | matching | ready | error
-    this.progress = 0;
+    this.pages = [];          // [{ key, file, num, title, text, doc, ar }]
+    this.fixes = [];          // the user's corrections [{ a, b, page }]
+    this.ocr = null;          // SlideTextReader
+    this.worker = new SlideTextWorker(this.d);
+    this.decided = null;      // per sample: page, -1 not a slide, -2 not read (followLecture)
+    this.shown = null;        // per sample: page to show while following
+    this.decidedAt = 0;
+    this.deciding = null;
+    this.state = 'empty';     // empty | loading | reading | ready | error
     this.error = '';
     this.job = null;
     this.rendered = new Map(); // "index@width" -> canvas
@@ -6362,6 +6542,8 @@ class SlideDeckController {
   }
 
   get key() { return 'deck:' + this.lesson.mediaId; }
+
+  get progress() { return this.ocr ? this.ocr.progress() : 0; }
 
   // Closes the open documents (through their loading tasks, which own them in pdf.js).
   closeDocs() {
@@ -6375,12 +6557,12 @@ class SlideDeckController {
     const rec = await idbCache.get(this.key);
     if (!rec || !Array.isArray(rec.files) || !rec.files.length) return;
     this.files = rec.files;
-    this.overrides = rec.overrides || {};
+    this.fixes = Array.isArray(rec.fixes) ? rec.fixes : [];
     await this.reload();
   }
 
   saveRecord() {
-    if (this.lesson.mediaId) idbCache.put(this.key, { files: this.files, overrides: this.overrides });
+    if (this.lesson.mediaId) idbCache.put(this.key, { files: this.files, fixes: this.fixes });
   }
 
   // Adds PDF files (from a drop or a file picker). Returns how many were PDFs.
@@ -6404,7 +6586,7 @@ class SlideDeckController {
   async removeFile(hash) {
     this.files = this.files.filter((f) => f.hash !== hash);
     const prefix = hash.slice(0, 12) + ':';
-    for (const k of Object.keys(this.overrides)) if (String(this.overrides[k]).startsWith(prefix)) delete this.overrides[k];
+    this.fixes = this.fixes.filter((x) => !String(x.page).startsWith(prefix));
     this.saveRecord();
     // The file itself is deleted when no other recording uses it.
     const refs = ((await idbCache.get('deckref:' + hash)) || []).filter((m) => m !== this.lesson.mediaId);
@@ -6413,15 +6595,20 @@ class SlideDeckController {
     await this.reload();
   }
 
-  // Opens all files, reads the pages' titles and text, then matches the chapters.
+  // Opens all files and reads the pages' titles and text, then follows the lecture.
   async reload() {
     const job = {};
     this.job = job;
     this.closeDocs();
     this.pages = [];
-    this.matched = null;
-    this.shown = [];
-    if (!this.files.length) { this.state = 'empty'; this.onChange(); return; }
+    this.decided = null;
+    this.shown = null;
+    if (!this.files.length) {
+      if (this.ocr) { this.ocr.stop(); this.ocr = null; }
+      this.state = 'empty';
+      this.onChange();
+      return;
+    }
     this.state = 'loading';
     this.onChange();
     try {
@@ -6447,8 +6634,10 @@ class SlideDeckController {
       }
       if (this.job !== job) return;
       this.pages = pages;
-      this.recompute();
-      await this.match(job);
+      this.state = 'reading';
+      this.startReading();
+      this.decide(true);
+      this.onChange();
     } catch (e) {
       if (this.ac.signal.aborted || this.job !== job) return;
       console.warn(TAG, 'slide file:', e && e.message ? e.message : e);
@@ -6456,6 +6645,84 @@ class SlideDeckController {
       this.error = String((e && e.message) || e);
       this.onChange();
     }
+  }
+
+  // Starts reading the screen once it is known which view that is (from the slide
+  // analysis; a recording with one view uses that one).
+  startReading() {
+    if (this.ocr || !this.pages.length) return;
+    const sources = this.lesson.sources;
+    const idx = this.slides && this.slides.screenIndex != null ? this.slides.screenIndex : sources.length === 1 ? sources[0].index : null;
+    if (idx == null) return;
+    const source = sources.find((s) => s.index === idx);
+    if (!source) return;
+    this.ocr = new SlideTextReader({
+      lesson: this.lesson, video: this.video, source, disposer: this.d,
+      onChange: () => this.readingChanged(),
+    });
+    this.ocr.start();
+  }
+
+  // Called when the slide analysis changes (the screen view becomes known).
+  screenKnown() {
+    if (this.pages.length && !this.ocr) { this.startReading(); this.onChange(); }
+  }
+
+  readingChanged() {
+    const r = this.ocr;
+    if (!r) return;
+    if (r.state === 'unavailable') { this.state = 'error'; this.error = r.error; this.onChange(); return; }
+    const finished = r.state === 'done';
+    if (finished && this.state === 'reading') this.state = 'ready';
+    this.decide(finished);
+    this.onChange();
+  }
+
+  // Decides the pages again from everything read so far (at most every FOLLOW_UPDATE_MS
+  // while reading, unless `now`).
+  decide(now) {
+    const r = this.ocr;
+    if (!r || !r.at || !this.pages.length) return;
+    if (this.deciding) { this.again = this.again || now; return; }
+    if (!now && performance.now() - this.decidedAt < FOLLOW_UPDATE_MS) return;
+    this.decidedAt = performance.now();
+    const fileOf = this.pages.map((p) => this.files.findIndex((f) => p.key.startsWith(f.hash.slice(0, 12))));
+    const input = {
+      pageTexts: this.pages.map((p) => p.text),
+      fileOf,
+      texts: r.texts,
+      at: Array.from(r.at),
+      force: this.forces(r.times),
+    };
+    const job = this.job;
+    this.deciding = this.worker.run(input).then((res) => {
+      if (this.job !== job) return;
+      this.decided = res.pages;
+      this.recompute();
+      if (store.get('debug', false)) this.lastModel = res.model;
+      this.onChange();
+    }).catch((e) => {
+      if (!this.ac.signal.aborted) console.warn(TAG, 'slide following:', e && e.message ? e.message : e);
+    }).finally(() => {
+      this.deciding = null;
+      if (this.again) { this.again = false; this.decide(true); }
+    });
+  }
+
+  // The corrections as a value per sample (page index, FORCE_OFF or -1).
+  forces(times) {
+    const out = new Array(times.length).fill(-1);
+    for (const x of this.fixes) {
+      const v = x.page === 'none' ? FORCE_OFF : this.indexOfKey(x.page);
+      if (v === -1) continue;
+      for (let i = 0; i < times.length; i++) if (times[i] >= x.a - 0.5 && times[i] < x.b - 0.5) out[i] = v;
+    }
+    return out;
+  }
+
+  recompute() {
+    const r = this.ocr;
+    this.shown = r && this.decided ? followSamples(r.times, this.decided, FOLLOW_MIN_SEC, this.lesson.duration || undefined) : null;
   }
 
   // Page i rendered `width` pixels wide (cached).
@@ -6471,143 +6738,101 @@ class SlideDeckController {
     return c;
   }
 
-  // What a matching result depends on.
-  signature() {
-    const chs = this.slides.chapters;
-    return [this.files.map((f) => f.hash.slice(0, 12)).join(','), chs.length, chs.length ? Math.round(chs[chs.length - 1].start) : 0].join('|');
-  }
-
-  async match(job) {
-    const chs = this.slides.chapters;
-    if (!chs.length || this.slides.state !== 'done') { this.state = 'ready'; this.onChange(); return; }
-    const sig = this.signature();
-    const cached = await idbCache.get('deckmatch:' + this.lesson.mediaId);
-    if (cached && cached.sig === sig && Array.isArray(cached.chapters)) {
-      this.matched = cached.chapters;
-      this.guesses = cached.guesses || [];
-      this.state = 'ready';
-      this.recompute();
-      this.onChange();
-      return;
-    }
-    this.state = 'matching';
-    this.progress = 0;
-    this.onChange();
-    const frames = await this.slides.chapterFrames(MATCH_W, MATCH_H, this.ac.signal, (p) => { this.progress = p * 0.3; this.onChange(); });
-    if (this.job !== job) return;
-    const pages = [];
-    for (let i = 0; i < this.pages.length; i++) {
-      const c = await this.render(i, MATCH_W);
-      pages.push({ rgba: c.getContext('2d').getImageData(0, 0, c.width, c.height).data, h: c.height });
-    }
-    this.rendered.clear();
-    const cues = this.cues() || [];
-    const input = {
-      frames,
-      pages,
-      chapterTexts: chs.map((c) => cues.filter((q) => q.start < c.end && q.end > c.start).map((q) => q.text).join(' ')),
-      pageTexts: this.pages.map((p) => p.text),
-    };
-    this.progress = 0.35;
-    this.onChange();
-    const r = await runSlideMatch(input, this.ac.signal);
-    if (this.job !== job) return;
-    this.matched = r.chapters.map((c) => (c.page >= 0 ? this.pages[c.page].key : null));
-    this.guesses = r.chapters.map((c) => (c.guess >= 0 ? this.pages[c.guess].key : null));
-    idbCache.put('deckmatch:' + this.lesson.mediaId, { sig, chapters: this.matched, guesses: this.guesses, at: Date.now() });
-    console.info(TAG, 'slides matched: ' + this.matched.filter(Boolean).length + ' of ' + chs.length + ' chapters (' + r.ms + ' ms)');
-    this.state = 'ready';
-    this.progress = 1;
-    this.recompute();
-    this.onChange();
-  }
-
-  // Called when the chapter list changes (it arrives after the files on a first visit).
-  chaptersChanged() {
-    if (this.pages.length && this.state !== 'loading') this.match(this.job);
-  }
-
   indexOfKey(k) {
     return k ? this.pages.findIndex((p) => p.key === k) : -1;
   }
 
-  chapterKey(i) {
-    const c = this.slides.chapters[i];
-    return c ? String(Math.round(c.start * 10)) : '';
+  // Index of the sample playing at time t (-1 before reading has started).
+  sampleAt(t) {
+    const r = this.ocr;
+    if (!r || !r.times.length) return -1;
+    return r.reader.segmentAt(t);
   }
 
-  // Page index of chapter i from the user's correction or the match (-1: none / not a slide).
-  knownPage(i) {
-    const o = this.overrides[this.chapterKey(i)];
-    if (o === 'none') return -1;
-    if (o && this.indexOfKey(o) >= 0) return this.indexOfKey(o);
-    return this.matched ? this.indexOfKey(this.matched[i]) : -1;
-  }
-
-  recompute() {
-    const chs = this.slides.chapters;
-    const guesses = chs.map((c, i) => (this.overrides[this.chapterKey(i)] === 'none' ? -1 : this.indexOfKey((this.guesses || [])[i])));
-    this.shown = this.pages.length ? followPages(chs, chs.map((c, i) => this.knownPage(i)), guesses) : [];
-  }
-
-  // Page to show at time t while following (-1 when nothing is known yet).
+  // Page to show at time t while following (-1 when nothing is known yet). Samples are
+  // 10 s apart; when the page changes between two of them and the slide analysis found
+  // the change in between (to about a second), the page turns there.
   pageAt(t) {
-    const k = chapterIndexAt(this.slides.chapters, t);
-    if (k >= 0 && k < this.shown.length) return this.shown[k];
-    return this.shown.length ? this.shown[0] : -1;
+    const k = this.sampleAt(t);
+    if (!this.shown || k < 0) return -1;
+    const times = this.ocr.times;
+    if (k + 1 < this.shown.length && this.shown[k + 1] !== this.shown[k]) {
+      const chs = this.slides ? this.slides.chapters : [];
+      const c = chapterIndexAt(chs, times[k + 1] - 0.01);
+      if (c > 0 && chs[c].precise && chs[c].start > times[k] && t >= chs[c].start) return this.shown[k + 1];
+    }
+    return this.shown[k];
   }
 
-  // Whether the page at time t was recognised (or set by the user) for that very part,
-  // rather than carried over from an earlier part.
+  // Whether the page at time t was recognised for that very part, rather than carried
+  // over from an earlier part.
   knownAt(t) {
-    const k = chapterIndexAt(this.slides.chapters, t);
-    return k >= 0 && this.knownPage(k) >= 0;
+    const k = this.sampleAt(t);
+    return !!this.decided && k >= 0 && this.decided[k] >= 0;
   }
 
   // Seconds since a page was last recognised at time t (0 while recognised, Infinity if
   // never). Following stops claiming a page after FOLLOW_STALE_SEC.
   unrecognisedFor(t) {
-    const chs = this.slides.chapters;
-    const k = chapterIndexAt(chs, t);
-    if (k >= 0 && this.knownPage(k) >= 0) return 0;
-    for (let j = k - 1; j >= 0; j--) if (this.knownPage(j) >= 0) return Math.max(0, t - chs[j].end);
+    const k = this.sampleAt(t);
+    if (!this.decided || k < 0) return Infinity;
+    if (this.decided[k] >= 0) return 0;
+    const times = this.ocr.times;
+    for (let j = k - 1; j >= 0; j--) if (this.decided[j] >= 0) return Math.max(0, t - times[j + 1]);
     return Infinity;
   }
 
-  // When page i was on screen: [{ start, end }] from matched or corrected chapters, with
-  // neighbouring chapters joined.
+  // When page i was on screen: [{ start, end }].
   timesOf(i) {
     const out = [];
-    const chs = this.slides.chapters;
-    for (let c = 0; c < chs.length; c++) {
-      if (this.knownPage(c) !== i) continue;
+    if (!this.decided) return out;
+    const times = this.ocr.times;
+    const end = (j) => (j + 1 < times.length ? times[j + 1] : this.lesson.duration || times[j] + 10);
+    for (let j = 0; j < this.decided.length; j++) {
+      if (this.decided[j] !== i) continue;
       const last = out[out.length - 1];
-      if (last && last.endChapter === c - 1) { last.end = chs[c].end; last.endChapter = c; } else out.push({ start: chs[c].start, end: chs[c].end, endChapter: c });
+      if (last && last.endSample === j - 1) { last.end = end(j); last.endSample = j; } else out.push({ start: times[j], end: end(j), endSample: j });
     }
     return out;
   }
 
-  // The user's correction for the chapter playing at time t: a page index, 'none' (not a
+  // The part of the lecture around time t that shows one thing: the stretch of samples
+  // with the same decision. { a, b } in seconds, or null.
+  partAt(t) {
+    const k = this.sampleAt(t);
+    if (!this.decided || k < 0) return null;
+    const times = this.ocr.times;
+    const v = this.decided[k];
+    let a = k;
+    let b = k;
+    while (a > 0 && this.decided[a - 1] === v) a--;
+    while (b + 1 < this.decided.length && this.decided[b + 1] === v) b++;
+    return { a: times[a], b: b + 1 < times.length ? times[b + 1] : this.lesson.duration || times[b] + 10 };
+  }
+
+  // The user's correction for the part playing at time t: a page index, 'none' (not a
   // slide) or null (back to automatic).
   correct(t, value) {
-    const c = chapterIndexAt(this.slides.chapters, t);
-    const key = this.chapterKey(c);
-    if (!key) return;
-    if (value === null) delete this.overrides[key];
-    else this.overrides[key] = value === 'none' ? 'none' : this.pages[value].key;
+    if (value === null) {
+      this.fixes = this.fixes.filter((x) => !(x.a <= t && t < x.b));
+    } else {
+      const part = this.correctionPart(t) || this.partAt(t);
+      if (!part) return;
+      this.fixes = this.fixes.filter((x) => x.b <= part.a || x.a >= part.b);
+      this.fixes.push({ a: part.a, b: part.b, page: value === 'none' ? 'none' : this.pages[value].key });
+    }
     this.saveRecord();
-    this.recompute();
+    this.decide(true);
     this.onChange();
   }
 
-  correctionAt(t) {
-    return this.overrides[this.chapterKey(chapterIndexAt(this.slides.chapters, t))] || null;
+  correctionPart(t) {
+    return this.fixes.find((x) => x.a <= t && t < x.b) || null;
   }
 
-  matchedCount() {
-    let n = 0;
-    for (let i = 0; i < this.slides.chapters.length; i++) if (this.knownPage(i) >= 0) n++;
-    return n;
+  correctionAt(t) {
+    const x = this.correctionPart(t);
+    return x ? x.page : null;
   }
 }
 

@@ -1038,7 +1038,11 @@ class LitePlayer {
   onSlidesChange() {
     const a = this.slides;
     // The screen view is known now: the per-view quality settings may apply differently.
-    if (a.screenIndex !== this.knownScreen) { this.knownScreen = a.screenIndex; this.applyQuality(); }
+    if (a.screenIndex !== this.knownScreen) {
+      this.knownScreen = a.screenIndex;
+      this.applyQuality();
+      if (this.deck) this.deck.screenKnown();
+    }
     this.renderChapterMarks();
     if (!a.chapters.length) return;
     if (!this.slidesPane) {
@@ -1050,11 +1054,6 @@ class LitePlayer {
     const status = a.state === 'done' ? t('slidesFound', { n: a.chapters.length })
       : a.state === 'thumbnails' ? t('slidesRough', { pct }) : t('slidesFinding', { pct });
     this.slidesPane.setChapters(a.chapters, status);
-    // Final chapters: the slide files (if any) can be matched to them.
-    if (a.state === 'done' && this.deck && this.deckChapters !== a.chapters) {
-      this.deckChapters = a.chapters;
-      this.deck.chaptersChanged();
-    }
   }
 
   // ---- slide files ----
@@ -1065,8 +1064,8 @@ class LitePlayer {
     this.reader.onInfo(() => { if (!this.destroyed) this.renderPdfBar(); });
     this.deck = new SlideDeckController({
       lesson: this.lesson,
+      video: this.video,
       slides: this.slides,
-      cues: () => this.cues,
       disposer: this.d,
       onChange: () => {
         if (this.destroyed) return;

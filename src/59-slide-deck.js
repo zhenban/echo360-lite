@@ -1,30 +1,32 @@
 // ===================================================================================
-// The lecturer's slide files (PDF) for a recording: loading, local storage, matching the
-// chapters to pages, following the lecture, and the user's corrections.
+// The lecturer's slide files (PDF) for a recording: loading, local storage, following the
+// lecture, and the user's corrections.
 //
 // The PDF is the user's: they can page through it freely and remove it at any time.
 // Following the lecture only turns the page for them until they take over.
+//
+// Which page is on screen comes from the text on the screen view, every 10 s across the
+// lecture: 58-slide-ocr.js reads it, 58-slide-text.js decides the pages (in a Worker).
 //
 // Files never leave the browser: they are kept in IndexedDB (by SHA-256), remembered per
 // recording. pdf.js is loaded from jsDelivr (pinned) only when a recording has slide files.
 //
 // Stored records:
-//   deck:<mediaId>        { files: [{ hash, name }], overrides: { <chapter key>: <page key> | 'none' } }
+//   deck:<mediaId>        { files: [{ hash, name }], fixes: [{ a, b, page: <page key> | 'none' }] }
 //   deckfile:<hash>       Blob of the PDF
 //   deckref:<hash>        [mediaId] recordings using the file (deleted with the last one)
-//   deckmatch:<mediaId>   { sig, chapters: [<page key> | null] } (matching result)
-// A chapter key is its start in tenths of a second; a page key is "<hash prefix>:<page>",
-// so both survive reordering files.
+// A correction covers a part of the lecture (a to b, in seconds); a page key is
+// "<hash prefix>:<page>", so it survives reordering files.
 //
 // For later features (slide text as vocabulary for transcription, chapter titles):
 // controller.pages[i] = { key, file, num, title, text }.
 // ===================================================================================
 
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.4.299/build/';
-const FOLLOW_MIN_SEC = 15;     // a chapter shorter than this does not turn the page
-const FOLLOW_GUESS_SPAN = 3;   // unsure pages are used only between known pages this close
-const FOLLOW_STALE_SEC = 120;  // after this long without a recognised page, say so
-const DECK_RENDER_CACHE = 6;   // rendered pages kept
+const FOLLOW_MIN_SEC = 15;       // a quick look at another page (shorter than this) does not turn the page
+const FOLLOW_STALE_SEC = 120;    // after this long without a recognised page, say so
+const FOLLOW_UPDATE_MS = 15000;  // while reading, pages are decided again at most this often
+const DECK_RENDER_CACHE = 6;      // rendered pages kept
 
 let pdfjsPromise = null;
 function loadPdfJs() {
@@ -63,54 +65,59 @@ function renderPdfPage(page, width) {
   return page.render({ canvas: c, canvasContext: c.getContext('2d'), viewport: vp }).promise.then(() => c);
 }
 
-// The page to show for each chapter while following the lecture. known[i] is the page of
-// chapter i (index, or -1 when unknown or not a slide); guesses[i] the best-looking page
-// even when unsure (or -1). An unknown chapter shows its guess only if the known pages
-// before and after it are at most FOLLOW_GUESS_SPAN apart and the guess lies between
-// them (so a wrong guess cannot be far off); otherwise it keeps the last page shown.
-// Chapters shorter than minSec do not turn the page (a quick look back). Before the first
-// known page, that page is shown. Returns page indexes (-1 only if nothing is known).
-function followPages(chapters, known, guesses, minSec) {
+// The page to show at each sample while following. pages[i]: from followLecture (a page,
+// -1 not a slide, -2 not read yet); times[i]: when sample i starts; end: when the last one
+// ends. Where no page is on screen the page shown before stays. A quick look at another
+// page (a stretch shorter than minSec between two stretches of the same page) does not
+// turn the page. Before the first page, that page is shown. Returns page indexes (-1 only
+// when no page is known at all).
+function followSamples(times, pages, minSec, end) {
   const min = minSec == null ? FOLLOW_MIN_SEC : minSec;
-  const n = chapters.length;
-  const prev = new Array(n);
-  const next = new Array(n);
-  let last = -1;
-  for (let i = 0; i < n; i++) { prev[i] = last; if (known[i] >= 0) last = known[i]; }
-  last = -1;
-  for (let i = n - 1; i >= 0; i--) { next[i] = last; if (known[i] >= 0) last = known[i]; }
-  const first = known.find((p) => p >= 0);
-  let cur = first === undefined ? -1 : first;
-  return chapters.map((c, i) => {
-    let p = known[i];
-    const g = guesses ? guesses[i] : -1;
-    const lo = Math.min(prev[i], next[i]);
-    const hi = Math.max(prev[i], next[i]);
-    if (p < 0 && g >= 0 && lo >= 0 && hi - lo <= FOLLOW_GUESS_SPAN && g >= lo && g <= hi) p = g;
-    if (p >= 0 && p !== cur && c.end - c.start >= min) cur = p;
-    return cur;
+  const n = pages.length;
+  const tEnd = end == null ? (n ? times[n - 1] + 10 : 0) : end;
+  // Stretches of one page: [{ p, a, b }] (samples a..b), ended by anything else.
+  const runs = [];
+  for (let i = 0; i < n; i++) {
+    const p = pages[i];
+    if (p < 0) continue;
+    const last = runs[runs.length - 1];
+    if (last && last.p === p && last.b === i - 1) last.b = i; else runs.push({ p, a: i, b: i });
+  }
+  const keep = runs.filter((r, k) => {
+    const len = (r.b + 1 < n ? times[r.b + 1] : tEnd) - times[r.a];
+    return !(len < min && k > 0 && k + 1 < runs.length && runs[k - 1].p === runs[k + 1].p && runs[k - 1].p !== r.p);
   });
+  const out = new Int32Array(n);
+  let k = 0;
+  let cur = keep.length ? keep[0].p : -1;
+  for (let i = 0; i < n; i++) {
+    while (k < keep.length && keep[k].a <= i) { cur = keep[k].p; k++; }
+    out[i] = cur;
+  }
+  return out;
 }
 
 class SlideDeckController {
-  // opts: { lesson, slides (SlideAnalyzer), cues: () => cues, disposer, onChange }
+  // opts: { lesson, video, slides (SlideAnalyzer: which view is the screen), disposer, onChange }
   constructor(opts) {
     this.lesson = opts.lesson;
+    this.video = opts.video;
     this.slides = opts.slides;
-    this.cues = opts.cues;
     this.onChange = opts.onChange || (() => {});
     this.d = opts.disposer;
     this.ac = new AbortController();
     this.d.add(() => this.ac.abort());
     this.files = [];          // [{ hash, name }]
     this.docs = [];           // pdf.js loading tasks of the open documents, per file
-    this.pages = [];          // [{ key, file, num, title, text, doc, h }]
-    this.overrides = {};
-    this.matched = null;      // [page key | null] per chapter, from matching
-    this.guesses = [];        // [page key | null] per chapter: best-looking page, even if unsure
-    this.shown = [];          // page index to show per chapter (following)
-    this.state = 'empty';     // empty | loading | matching | ready | error
-    this.progress = 0;
+    this.pages = [];          // [{ key, file, num, title, text, doc, ar }]
+    this.fixes = [];          // the user's corrections [{ a, b, page }]
+    this.ocr = null;          // SlideTextReader
+    this.worker = new SlideTextWorker(this.d);
+    this.decided = null;      // per sample: page, -1 not a slide, -2 not read (followLecture)
+    this.shown = null;        // per sample: page to show while following
+    this.decidedAt = 0;
+    this.deciding = null;
+    this.state = 'empty';     // empty | loading | reading | ready | error
     this.error = '';
     this.job = null;
     this.rendered = new Map(); // "index@width" -> canvas
@@ -118,6 +125,8 @@ class SlideDeckController {
   }
 
   get key() { return 'deck:' + this.lesson.mediaId; }
+
+  get progress() { return this.ocr ? this.ocr.progress() : 0; }
 
   // Closes the open documents (through their loading tasks, which own them in pdf.js).
   closeDocs() {
@@ -131,12 +140,12 @@ class SlideDeckController {
     const rec = await idbCache.get(this.key);
     if (!rec || !Array.isArray(rec.files) || !rec.files.length) return;
     this.files = rec.files;
-    this.overrides = rec.overrides || {};
+    this.fixes = Array.isArray(rec.fixes) ? rec.fixes : [];
     await this.reload();
   }
 
   saveRecord() {
-    if (this.lesson.mediaId) idbCache.put(this.key, { files: this.files, overrides: this.overrides });
+    if (this.lesson.mediaId) idbCache.put(this.key, { files: this.files, fixes: this.fixes });
   }
 
   // Adds PDF files (from a drop or a file picker). Returns how many were PDFs.
@@ -160,7 +169,7 @@ class SlideDeckController {
   async removeFile(hash) {
     this.files = this.files.filter((f) => f.hash !== hash);
     const prefix = hash.slice(0, 12) + ':';
-    for (const k of Object.keys(this.overrides)) if (String(this.overrides[k]).startsWith(prefix)) delete this.overrides[k];
+    this.fixes = this.fixes.filter((x) => !String(x.page).startsWith(prefix));
     this.saveRecord();
     // The file itself is deleted when no other recording uses it.
     const refs = ((await idbCache.get('deckref:' + hash)) || []).filter((m) => m !== this.lesson.mediaId);
@@ -169,15 +178,20 @@ class SlideDeckController {
     await this.reload();
   }
 
-  // Opens all files, reads the pages' titles and text, then matches the chapters.
+  // Opens all files and reads the pages' titles and text, then follows the lecture.
   async reload() {
     const job = {};
     this.job = job;
     this.closeDocs();
     this.pages = [];
-    this.matched = null;
-    this.shown = [];
-    if (!this.files.length) { this.state = 'empty'; this.onChange(); return; }
+    this.decided = null;
+    this.shown = null;
+    if (!this.files.length) {
+      if (this.ocr) { this.ocr.stop(); this.ocr = null; }
+      this.state = 'empty';
+      this.onChange();
+      return;
+    }
     this.state = 'loading';
     this.onChange();
     try {
@@ -203,8 +217,10 @@ class SlideDeckController {
       }
       if (this.job !== job) return;
       this.pages = pages;
-      this.recompute();
-      await this.match(job);
+      this.state = 'reading';
+      this.startReading();
+      this.decide(true);
+      this.onChange();
     } catch (e) {
       if (this.ac.signal.aborted || this.job !== job) return;
       console.warn(TAG, 'slide file:', e && e.message ? e.message : e);
@@ -212,6 +228,84 @@ class SlideDeckController {
       this.error = String((e && e.message) || e);
       this.onChange();
     }
+  }
+
+  // Starts reading the screen once it is known which view that is (from the slide
+  // analysis; a recording with one view uses that one).
+  startReading() {
+    if (this.ocr || !this.pages.length) return;
+    const sources = this.lesson.sources;
+    const idx = this.slides && this.slides.screenIndex != null ? this.slides.screenIndex : sources.length === 1 ? sources[0].index : null;
+    if (idx == null) return;
+    const source = sources.find((s) => s.index === idx);
+    if (!source) return;
+    this.ocr = new SlideTextReader({
+      lesson: this.lesson, video: this.video, source, disposer: this.d,
+      onChange: () => this.readingChanged(),
+    });
+    this.ocr.start();
+  }
+
+  // Called when the slide analysis changes (the screen view becomes known).
+  screenKnown() {
+    if (this.pages.length && !this.ocr) { this.startReading(); this.onChange(); }
+  }
+
+  readingChanged() {
+    const r = this.ocr;
+    if (!r) return;
+    if (r.state === 'unavailable') { this.state = 'error'; this.error = r.error; this.onChange(); return; }
+    const finished = r.state === 'done';
+    if (finished && this.state === 'reading') this.state = 'ready';
+    this.decide(finished);
+    this.onChange();
+  }
+
+  // Decides the pages again from everything read so far (at most every FOLLOW_UPDATE_MS
+  // while reading, unless `now`).
+  decide(now) {
+    const r = this.ocr;
+    if (!r || !r.at || !this.pages.length) return;
+    if (this.deciding) { this.again = this.again || now; return; }
+    if (!now && performance.now() - this.decidedAt < FOLLOW_UPDATE_MS) return;
+    this.decidedAt = performance.now();
+    const fileOf = this.pages.map((p) => this.files.findIndex((f) => p.key.startsWith(f.hash.slice(0, 12))));
+    const input = {
+      pageTexts: this.pages.map((p) => p.text),
+      fileOf,
+      texts: r.texts,
+      at: Array.from(r.at),
+      force: this.forces(r.times),
+    };
+    const job = this.job;
+    this.deciding = this.worker.run(input).then((res) => {
+      if (this.job !== job) return;
+      this.decided = res.pages;
+      this.recompute();
+      if (store.get('debug', false)) this.lastModel = res.model;
+      this.onChange();
+    }).catch((e) => {
+      if (!this.ac.signal.aborted) console.warn(TAG, 'slide following:', e && e.message ? e.message : e);
+    }).finally(() => {
+      this.deciding = null;
+      if (this.again) { this.again = false; this.decide(true); }
+    });
+  }
+
+  // The corrections as a value per sample (page index, FORCE_OFF or -1).
+  forces(times) {
+    const out = new Array(times.length).fill(-1);
+    for (const x of this.fixes) {
+      const v = x.page === 'none' ? FORCE_OFF : this.indexOfKey(x.page);
+      if (v === -1) continue;
+      for (let i = 0; i < times.length; i++) if (times[i] >= x.a - 0.5 && times[i] < x.b - 0.5) out[i] = v;
+    }
+    return out;
+  }
+
+  recompute() {
+    const r = this.ocr;
+    this.shown = r && this.decided ? followSamples(r.times, this.decided, FOLLOW_MIN_SEC, this.lesson.duration || undefined) : null;
   }
 
   // Page i rendered `width` pixels wide (cached).
@@ -227,142 +321,100 @@ class SlideDeckController {
     return c;
   }
 
-  // What a matching result depends on.
-  signature() {
-    const chs = this.slides.chapters;
-    return [this.files.map((f) => f.hash.slice(0, 12)).join(','), chs.length, chs.length ? Math.round(chs[chs.length - 1].start) : 0].join('|');
-  }
-
-  async match(job) {
-    const chs = this.slides.chapters;
-    if (!chs.length || this.slides.state !== 'done') { this.state = 'ready'; this.onChange(); return; }
-    const sig = this.signature();
-    const cached = await idbCache.get('deckmatch:' + this.lesson.mediaId);
-    if (cached && cached.sig === sig && Array.isArray(cached.chapters)) {
-      this.matched = cached.chapters;
-      this.guesses = cached.guesses || [];
-      this.state = 'ready';
-      this.recompute();
-      this.onChange();
-      return;
-    }
-    this.state = 'matching';
-    this.progress = 0;
-    this.onChange();
-    const frames = await this.slides.chapterFrames(MATCH_W, MATCH_H, this.ac.signal, (p) => { this.progress = p * 0.3; this.onChange(); });
-    if (this.job !== job) return;
-    const pages = [];
-    for (let i = 0; i < this.pages.length; i++) {
-      const c = await this.render(i, MATCH_W);
-      pages.push({ rgba: c.getContext('2d').getImageData(0, 0, c.width, c.height).data, h: c.height });
-    }
-    this.rendered.clear();
-    const cues = this.cues() || [];
-    const input = {
-      frames,
-      pages,
-      chapterTexts: chs.map((c) => cues.filter((q) => q.start < c.end && q.end > c.start).map((q) => q.text).join(' ')),
-      pageTexts: this.pages.map((p) => p.text),
-    };
-    this.progress = 0.35;
-    this.onChange();
-    const r = await runSlideMatch(input, this.ac.signal);
-    if (this.job !== job) return;
-    this.matched = r.chapters.map((c) => (c.page >= 0 ? this.pages[c.page].key : null));
-    this.guesses = r.chapters.map((c) => (c.guess >= 0 ? this.pages[c.guess].key : null));
-    idbCache.put('deckmatch:' + this.lesson.mediaId, { sig, chapters: this.matched, guesses: this.guesses, at: Date.now() });
-    console.info(TAG, 'slides matched: ' + this.matched.filter(Boolean).length + ' of ' + chs.length + ' chapters (' + r.ms + ' ms)');
-    this.state = 'ready';
-    this.progress = 1;
-    this.recompute();
-    this.onChange();
-  }
-
-  // Called when the chapter list changes (it arrives after the files on a first visit).
-  chaptersChanged() {
-    if (this.pages.length && this.state !== 'loading') this.match(this.job);
-  }
-
   indexOfKey(k) {
     return k ? this.pages.findIndex((p) => p.key === k) : -1;
   }
 
-  chapterKey(i) {
-    const c = this.slides.chapters[i];
-    return c ? String(Math.round(c.start * 10)) : '';
+  // Index of the sample playing at time t (-1 before reading has started).
+  sampleAt(t) {
+    const r = this.ocr;
+    if (!r || !r.times.length) return -1;
+    return r.reader.segmentAt(t);
   }
 
-  // Page index of chapter i from the user's correction or the match (-1: none / not a slide).
-  knownPage(i) {
-    const o = this.overrides[this.chapterKey(i)];
-    if (o === 'none') return -1;
-    if (o && this.indexOfKey(o) >= 0) return this.indexOfKey(o);
-    return this.matched ? this.indexOfKey(this.matched[i]) : -1;
-  }
-
-  recompute() {
-    const chs = this.slides.chapters;
-    const guesses = chs.map((c, i) => (this.overrides[this.chapterKey(i)] === 'none' ? -1 : this.indexOfKey((this.guesses || [])[i])));
-    this.shown = this.pages.length ? followPages(chs, chs.map((c, i) => this.knownPage(i)), guesses) : [];
-  }
-
-  // Page to show at time t while following (-1 when nothing is known yet).
+  // Page to show at time t while following (-1 when nothing is known yet). Samples are
+  // 10 s apart; when the page changes between two of them and the slide analysis found
+  // the change in between (to about a second), the page turns there.
   pageAt(t) {
-    const k = chapterIndexAt(this.slides.chapters, t);
-    if (k >= 0 && k < this.shown.length) return this.shown[k];
-    return this.shown.length ? this.shown[0] : -1;
+    const k = this.sampleAt(t);
+    if (!this.shown || k < 0) return -1;
+    const times = this.ocr.times;
+    if (k + 1 < this.shown.length && this.shown[k + 1] !== this.shown[k]) {
+      const chs = this.slides ? this.slides.chapters : [];
+      const c = chapterIndexAt(chs, times[k + 1] - 0.01);
+      if (c > 0 && chs[c].precise && chs[c].start > times[k] && t >= chs[c].start) return this.shown[k + 1];
+    }
+    return this.shown[k];
   }
 
-  // Whether the page at time t was recognised (or set by the user) for that very part,
-  // rather than carried over from an earlier part.
+  // Whether the page at time t was recognised for that very part, rather than carried
+  // over from an earlier part.
   knownAt(t) {
-    const k = chapterIndexAt(this.slides.chapters, t);
-    return k >= 0 && this.knownPage(k) >= 0;
+    const k = this.sampleAt(t);
+    return !!this.decided && k >= 0 && this.decided[k] >= 0;
   }
 
   // Seconds since a page was last recognised at time t (0 while recognised, Infinity if
   // never). Following stops claiming a page after FOLLOW_STALE_SEC.
   unrecognisedFor(t) {
-    const chs = this.slides.chapters;
-    const k = chapterIndexAt(chs, t);
-    if (k >= 0 && this.knownPage(k) >= 0) return 0;
-    for (let j = k - 1; j >= 0; j--) if (this.knownPage(j) >= 0) return Math.max(0, t - chs[j].end);
+    const k = this.sampleAt(t);
+    if (!this.decided || k < 0) return Infinity;
+    if (this.decided[k] >= 0) return 0;
+    const times = this.ocr.times;
+    for (let j = k - 1; j >= 0; j--) if (this.decided[j] >= 0) return Math.max(0, t - times[j + 1]);
     return Infinity;
   }
 
-  // When page i was on screen: [{ start, end }] from matched or corrected chapters, with
-  // neighbouring chapters joined.
+  // When page i was on screen: [{ start, end }].
   timesOf(i) {
     const out = [];
-    const chs = this.slides.chapters;
-    for (let c = 0; c < chs.length; c++) {
-      if (this.knownPage(c) !== i) continue;
+    if (!this.decided) return out;
+    const times = this.ocr.times;
+    const end = (j) => (j + 1 < times.length ? times[j + 1] : this.lesson.duration || times[j] + 10);
+    for (let j = 0; j < this.decided.length; j++) {
+      if (this.decided[j] !== i) continue;
       const last = out[out.length - 1];
-      if (last && last.endChapter === c - 1) { last.end = chs[c].end; last.endChapter = c; } else out.push({ start: chs[c].start, end: chs[c].end, endChapter: c });
+      if (last && last.endSample === j - 1) { last.end = end(j); last.endSample = j; } else out.push({ start: times[j], end: end(j), endSample: j });
     }
     return out;
   }
 
-  // The user's correction for the chapter playing at time t: a page index, 'none' (not a
+  // The part of the lecture around time t that shows one thing: the stretch of samples
+  // with the same decision. { a, b } in seconds, or null.
+  partAt(t) {
+    const k = this.sampleAt(t);
+    if (!this.decided || k < 0) return null;
+    const times = this.ocr.times;
+    const v = this.decided[k];
+    let a = k;
+    let b = k;
+    while (a > 0 && this.decided[a - 1] === v) a--;
+    while (b + 1 < this.decided.length && this.decided[b + 1] === v) b++;
+    return { a: times[a], b: b + 1 < times.length ? times[b + 1] : this.lesson.duration || times[b] + 10 };
+  }
+
+  // The user's correction for the part playing at time t: a page index, 'none' (not a
   // slide) or null (back to automatic).
   correct(t, value) {
-    const c = chapterIndexAt(this.slides.chapters, t);
-    const key = this.chapterKey(c);
-    if (!key) return;
-    if (value === null) delete this.overrides[key];
-    else this.overrides[key] = value === 'none' ? 'none' : this.pages[value].key;
+    if (value === null) {
+      this.fixes = this.fixes.filter((x) => !(x.a <= t && t < x.b));
+    } else {
+      const part = this.correctionPart(t) || this.partAt(t);
+      if (!part) return;
+      this.fixes = this.fixes.filter((x) => x.b <= part.a || x.a >= part.b);
+      this.fixes.push({ a: part.a, b: part.b, page: value === 'none' ? 'none' : this.pages[value].key });
+    }
     this.saveRecord();
-    this.recompute();
+    this.decide(true);
     this.onChange();
   }
 
-  correctionAt(t) {
-    return this.overrides[this.chapterKey(chapterIndexAt(this.slides.chapters, t))] || null;
+  correctionPart(t) {
+    return this.fixes.find((x) => x.a <= t && t < x.b) || null;
   }
 
-  matchedCount() {
-    let n = 0;
-    for (let i = 0; i < this.slides.chapters.length; i++) if (this.knownPage(i) >= 0) n++;
-    return n;
+  correctionAt(t) {
+    const x = this.correctionPart(t);
+    return x ? x.page : null;
   }
 }

@@ -29,7 +29,7 @@ function loadSources(names) {
   const files = readdirSync(join(root, 'src')).filter((f) => names.some((n) => f.includes(n))).sort();
   const code = files.map((f) => readFileSync(join(root, 'src', f), 'utf8')).join('\n')
     + '\n;globalThis.__exports = {};'
-    + ['clamp', 'fmtTime', 'parseIsoDuration', 'Disposer', 'PlayedRanges', 'FollowerSync', 'CueIndex', 'parseVtt', 'AudioChain', 'seg', 'thumbnailFor', 'pickAudioRendition', 'parseMediaPlaylist', 'Envelope', 'findSilences', 'silencesFromCues', 'speechSpans', 'silenceIndexAt', 'mp4Boxes', 'parseFragment', 'videoVariants', 'frameDistance', 'sameView', 'buildScenes', 'chapterIndexAt', 'followPages', 'decidePages', 'alignSequence', 'captionExcerpt']
+    + ['clamp', 'fmtTime', 'parseIsoDuration', 'Disposer', 'PlayedRanges', 'FollowerSync', 'CueIndex', 'parseVtt', 'AudioChain', 'seg', 'thumbnailFor', 'pickAudioRendition', 'parseMediaPlaylist', 'Envelope', 'findSilences', 'silencesFromCues', 'speechSpans', 'silenceIndexAt', 'mp4Boxes', 'parseFragment', 'videoVariants', 'frameDistance', 'sameView', 'buildScenes', 'chapterIndexAt', 'followSamples', 'followLecture', 'textScores', 'FORCE_OFF', 'captionExcerpt']
       .map((n) => `if (typeof ${n} !== 'undefined') globalThis.__exports.${n} = ${n};`).join('\n');
   vm.runInContext(code, ctx);
   return { ...ctx.__exports, timers, window: ctx.window };
@@ -495,45 +495,61 @@ test('scenes: revisits continue a chapter, short runs merge, lookup', () => {
 // ---- slide following ----
 
 function deckMod() {
-  return loadSources(['00-util', '53-media-io', '56-slides', '58-slide-match', '59-slide-deck']);
+  return loadSources(['00-util', '53-media-io', '56-slides', '58-slide-text', '59-slide-deck']);
 }
 
-test('following: unknown parts keep the page, short visits do not turn it, guesses only between close known pages', () => {
+test('following: not-a-slide and unread parts keep the page, a quick look back does not turn it', () => {
   const m = deckMod();
-  const ch = (starts, end) => starts.map((s, i) => ({ start: s, end: i + 1 < starts.length ? starts[i + 1] : end }));
-  // known pages: 2, ?, 3, (10 s look at 0), 4; unknown before the first known shows the first.
-  const chapters = ch([0, 30, 60, 90, 130, 140], 200);
-  const known = [-1, 2, -1, 3, 0, 4];
-  assert.equal(JSON.stringify(Array.from(m.followPages(chapters, known, null))), '[2,2,2,3,3,4]');
-  // A guess between known pages 2 and 4 is used; one outside, or between far-apart pages, is not.
-  const c2 = ch([0, 30, 60], 90);
-  assert.equal(JSON.stringify(Array.from(m.followPages(c2, [2, -1, 4], [-1, 3, -1]))), '[2,3,4]');
-  assert.equal(JSON.stringify(Array.from(m.followPages(c2, [2, -1, 4], [-1, 9, -1]))), '[2,2,4]');
-  assert.equal(JSON.stringify(Array.from(m.followPages(c2, [2, -1, 12], [-1, 5, -1]))), '[2,2,12]');
+  const times = [0, 10, 20, 30, 40, 50, 60, 70, 80];
+  // -1 not a slide, -2 not read; page 0 for 10 s between stretches of page 3 is a look back.
+  const pages = [-1, 2, 2, -1, 3, 0, 3, -2, 4];
+  assert.equal(JSON.stringify(Array.from(m.followSamples(times, pages, 15, 90))), '[2,2,2,2,3,3,3,3,4]');
+  // Moving on through pages quickly does turn them.
+  assert.equal(JSON.stringify(Array.from(m.followSamples(times.slice(0, 4), [1, 2, 3, 4], 15, 40))), '[1,2,3,4]');
   // Nothing known: nothing shown.
-  assert.equal(JSON.stringify(Array.from(m.followPages(c2, [-1, -1, -1], null))), '[-1,-1,-1]');
+  assert.equal(JSON.stringify(Array.from(m.followSamples([0, 10], [-1, -2], 15, 20))), '[-1,-1]');
 });
 
-test('page decision: clear matches stand alone, unsure ones need the sequence and a clear neighbour', () => {
-  const m = deckMod();
-  const sim = [new Uint8Array(4), new Uint8Array(4), new Uint8Array(4), new Uint8Array(4)];
-  const img = [
-    Float32Array.from([0.8, 0.3, 0.2, 0.1]),  // clear: page 0
-    Float32Array.from([0.3, 0.5, 0.42, 0.1]), // unsure, sequence says 1, neighbour 0 is clear
-    Float32Array.from([0.2, 0.3, 0.5, 0.42]), // unsure, but no clear neighbour within reach of page 2
-    Float32Array.from([0.1, 0.2, 0.3, 0.32]), // nothing
+// A small made-up lecture: six pages with their own words (page 3 has no text), a viewer
+// whose words are on every picture, OCR noise, a code editor and a camera picture.
+function fakeLecture() {
+  const topics = ['exceptions checked unchecked throw catch finally', 'generics type parameter bounded wildcard erasure',
+    'collections list arraylist linkedlist iterator', '', 'hashmap hashing buckets collisions resize', 'comparator comparable sorting ordering stable'];
+  const pageTexts = topics.map((w, i) => (w ? 'COMP2511 Week ' + (i + 1) + ' ' + w + ' ' + w.split(' ').reverse().join(' ') : ''));
+  const viewer = 'Preview File Edit View Go Tools Window Help lecture.pdf zoom ';
+  const shown = (p, noise) => viewer + pageTexts[p] + ' ' + noise;
+  const texts = [
+    shown(0, 'qx zzv'), shown(0, 'pointer'), shown(1, 'kkq'), shown(2, 'vvx'),
+    viewer + 'Week', // the text-less page 3: only the viewer
+    shown(4, 'abq'), 'Code File Edit Selection View Terminal public static void main String args System out println',
+    shown(4, 'xx'), '', shown(5, 'ok'),
   ];
-  const d = m.decidePages(img, [0, 1, 2, 3], sim);
-  assert.equal(d[0].page, 0);
-  assert.equal(d[0].by, 'image');
-  assert.equal(d[1].page, 1);
-  assert.equal(d[1].by, 'sequence');
-  assert.equal(d[2].page, -1);
-  assert.equal(d[3].page, -1);
-  assert.equal(d[3].guess, 3);
-  // The sequence prefers staying or moving on to jumping around.
-  const path = m.alignSequence([Float32Array.from([0.9, 0.1]), Float32Array.from([0.5, 0.52]), Float32Array.from([0.9, 0.1])], null);
-  assert.equal(JSON.stringify(path), '[0,0,0]');
+  const at = [0, 0, 1, 2, 2, 3, 4, 5, 5, 6, 6, 6, 7, 8, 8, 9];
+  return { pageTexts, fileOf: pageTexts.map(() => 0), texts, at };
+}
+
+test('text following: pages from the words on screen, order fills in a page without text', () => {
+  const m = deckMod();
+  const input = fakeLecture();
+  const r = m.followLecture(input);
+  // samples:            0  0  1  2  2  3  4  5  5  6  6  6  7  8  8  9   (picture shown)
+  assert.equal(JSON.stringify(Array.from(r.pages)), '[0,0,0,1,1,2,3,4,4,-1,-1,-1,4,-1,-1,5]');
+  // Unread samples stay unread.
+  const part = Object.assign({}, input, { at: input.at.map((x, i) => (i < 3 ? x : -1)) });
+  assert.equal(JSON.stringify(Array.from(m.followLecture(part).pages).slice(0, 5)), '[0,0,0,-2,-2]');
+});
+
+test('text following: the user\'s corrections win', () => {
+  const m = deckMod();
+  const input = fakeLecture();
+  const force = input.at.map(() => -1);
+  force[3] = 2;              // "this part is page 3" (index 2)
+  force[4] = 2;
+  force[15] = m.FORCE_OFF;  // "this part is not a slide"
+  const r = m.followLecture(Object.assign({}, input, { force }));
+  assert.equal(r.pages[3], 2);
+  assert.equal(r.pages[4], 2);
+  assert.equal(r.pages[15], -1);
 });
 
 test('caption excerpt: last span in whole sentences', () => {

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.0
+- Following the slide PDF now reads the text on screen instead of comparing pictures. Every 10 s of the screen view is read at 720p with Tesseract.js (loaded from jsDelivr, pinned, only for recordings with a slide PDF) and compared with the text of every page; one pass over the whole lecture decides all pages at once, so slides shown in a browser, a PDF viewer, zoomed in or with a code editor in between are followed.
+- What counts as a match is learnt from each lecture itself, not from fixed thresholds. Pages without text are placed from the pages around them; other windows (code, browser, video call) keep the last page.
+- Pictures that did not change are not read again (compared at 160 x 90 on the small rendition; the 720p picture is only downloaded where something changed). Reading starts at the playback position, uses about half of one core while playing and goes full speed while paused; results are cached, and an unfinished reading continues on the next visit.
+- The page turns at the slide change found by the chapter analysis (to about a second) instead of up to 10 s late.
+- "Wrong page?" corrections now cover the part of the lecture shown on one page and steer the decision around them.
+- Removed: the picture-based page matching of 0.8.0.
+
 ## 0.9.0
 - The slide PDF can go into the picture area as a view of its own: side by side with the video (drag the divider) or as the main picture with the video in a small window, or the other way round. Open it from the Slides tab; swap or close it from its toolbar. The small reader in the side panel stays.
 - New Copy button (`P` / `A`): copy the current picture at full resolution (the screen view if it is playing), or copy what was just said: the last 60 seconds of the transcript in whole sentences, with the lecture name and times, ready to paste into an AI chat. The length can be changed in the menu (30 s to 5 min).

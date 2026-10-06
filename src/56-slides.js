@@ -154,11 +154,16 @@ function videoVariants(master, base) {
 
 class HlsVideoReader {
   // maxHeight: the tallest rendition to use (the smallest one if none is small enough).
-  constructor(masterUrl, maxHeight) {
+  // minHeight (optional): use the smallest rendition at least this tall instead (the
+  // tallest one if none is).
+  constructor(masterUrl, maxHeight, minHeight) {
     this.masterUrl = masterUrl;
     this.maxHeight = maxHeight || 360;
+    this.minHeight = minHeight || 0;
     this.segments = [];
     this.info = null;
+    this.bytes = 0;          // downloaded so far
+    this.lastNeed = 0;       // bytes the last keyframe needed
   }
 
   static supported() {
@@ -170,8 +175,13 @@ class HlsVideoReader {
     let url = this.masterUrl;
     if (/#EXT-X-STREAM-INF/.test(master)) {
       const vs = videoVariants(master, this.masterUrl);
-      const fit = vs.filter((v) => v.height && v.height <= this.maxHeight);
-      const pick = fit.length ? fit[fit.length - 1] : vs[0];
+      let pick;
+      if (this.minHeight) {
+        pick = vs.find((v) => v.height >= this.minHeight) || vs[vs.length - 1];
+      } else {
+        const fit = vs.filter((v) => v.height && v.height <= this.maxHeight);
+        pick = fit.length ? fit[fit.length - 1] : vs[0];
+      }
       if (!pick) throw new Error('no video variant');
       url = pick.uri;
     }
@@ -219,13 +229,24 @@ class HlsVideoReader {
   // First frame of segment i, as a signature-ready callback: fn(frame) is called once.
   async keyframe(i, signal, fn) {
     const s = this.segments[i];
-    let buf = await fetchRange(s.url, s.offset, Math.min(s.length, KEYFRAME_PROBE_BYTES), signal);
-    let frag = parseFragment(buf, s.offset);
+    // A keyframe grows with the picture (about 20 KB at 360p) and its content; asking for a
+    // little more than the last one needed usually saves a second request.
+    const base = Math.round(KEYFRAME_PROBE_BYTES * Math.max(1, ((this.info && this.info.height) || 360) / 360) ** 2);
+    const probe = Math.max(base, Math.round((this.lastNeed || 0) * 1.2));
+    let buf = await fetchRange(s.url, s.offset, Math.min(s.length, probe), signal);
+    this.bytes += buf.byteLength;
+    const frag = parseFragment(buf, s.offset);
     const k = frag.samples[0];
     if (!k || !k.key) throw new Error('segment does not start with a keyframe');
+    this.lastNeed = k.offset + k.size;
     if (k.offset + k.size > buf.byteLength) {
-      buf = await fetchRange(s.url, s.offset, Math.min(s.length, k.offset + k.size), signal);
-      frag = parseFragment(buf, s.offset);
+      // Only the rest of it.
+      const more = await fetchRange(s.url, s.offset + buf.byteLength, Math.min(s.length, k.offset + k.size) - buf.byteLength, signal);
+      this.bytes += more.byteLength;
+      const all = new Uint8Array(buf.byteLength + more.byteLength);
+      all.set(new Uint8Array(buf), 0);
+      all.set(new Uint8Array(more), buf.byteLength);
+      buf = all.buffer;
     }
     const ts = this.info.timescale;
     const chunk = new EncodedVideoChunk({ type: 'key', timestamp: Math.round((k.time / ts) * 1e6), data: new Uint8Array(buf, k.offset, k.size) });
@@ -630,32 +651,6 @@ class SlideAnalyzer {
       at: Date.now(),
       chapters: this.chapters.map((c) => ({ start: c.start, end: c.end, precise: c.precise, repTime: c.repTime, blob: c.blob || null, thumb: c.blob ? '' : c.thumb })),
     });
-  }
-
-  // The keyframe that best shows each chapter (its repTime), scaled to w x h, as RGBA
-  // arrays (null where it could not be read). Used to match chapters to slide pages.
-  // Reads about 20 KB per chapter at 360p.
-  async chapterFrames(w, h, signal, onProgress) {
-    const src = this.lesson.sources.find((s) => s.index === this.screenIndex);
-    if (!src || !HlsVideoReader.supported()) return this.chapters.map(() => null);
-    if (!this.reader) this.reader = await new HlsVideoReader(src.v || src.av, 360).open(signal);
-    const canvas = new OffscreenCanvas(w, h);
-    const g = canvas.getContext('2d', { willReadFrequently: true });
-    const out = [];
-    for (let i = 0; i < this.chapters.length; i++) {
-      let rgba = null;
-      try {
-        await this.reader.keyframe(this.reader.segmentAt(this.chapters[i].repTime), signal, (f) => {
-          g.drawImage(f, 0, 0, w, h);
-          rgba = g.getImageData(0, 0, w, h).data;
-        });
-      } catch (e) {
-        if (signal && signal.aborted) throw e;
-      }
-      out.push(rgba);
-      if (onProgress) onProgress((i + 1) / this.chapters.length);
-    }
-    return out;
   }
 }
 

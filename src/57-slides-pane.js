@@ -19,7 +19,7 @@ class SlideReader {
     this.view = -1;
     this.follow = true;
     this.stale = false;
-    this.chapter = -1;
+    this.sample = -1;
     this.targets = new Map();   // name -> { stage, active, token }
     this.infoListeners = new Set();
   }
@@ -58,7 +58,7 @@ class SlideReader {
   update(t, force) {
     const deck = this.deck;
     if (!deck || !this.active) return;
-    const chapter = chapterIndexAt(this.player.slides.chapters, t);
+    const sample = deck.sampleAt(t);
     // Long without a recognised page: do not keep presenting an old page as current.
     const stale = this.follow && deck.unrecognisedFor(t) > FOLLOW_STALE_SEC;
     const staleChanged = stale !== this.stale;
@@ -67,9 +67,9 @@ class SlideReader {
     if (this.follow) {
       const p = deck.pageAt(t);
       if (p !== this.view || force) this.showPage(p >= 0 ? p : Math.max(0, this.view), force);
-      else if (chapter !== this.chapter || staleChanged) this.info();
+      else if (sample !== this.sample || staleChanged) this.info();
     } else if (force) this.showPage(this.view, true);
-    this.chapter = chapter;
+    this.sample = sample;
   }
 
   // Manual paging pauses following.
@@ -215,7 +215,7 @@ class SlidesPane {
     files.append(h('button.sfadd', { text: deck.files.length ? t('addMoreSlides') : t('addSlides'), onclick: () => input.click() }), input);
     let msg = '';
     if (deck.state === 'loading') msg = t('deckLoading');
-    else if (deck.state === 'matching') msg = t('deckMatching', { pct: Math.floor(deck.progress * 100) });
+    else if (deck.state === 'reading') msg = deck.ocr ? t('deckReading', { pct: Math.floor(deck.progress * 100) }) : t('deckWaiting');
     else if (deck.state === 'error') msg = t('deckError', { msg: deck.error });
     else if (!deck.files.length) msg = t('slidesLocal');
     box.append(files);
