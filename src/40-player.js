@@ -20,6 +20,7 @@ const KEY_HELP = [
   [['M'], 'keyMute'], [['F'], 'keyFullscreen'], [['S'], 'keySwap'], [['[', ']'], 'keySpeed'],
   [['C'], 'keyCaptions'], [['T'], 'keyTranscript'], [['B'], 'keyBookmark'], [['G'], 'keyTag'], [['U'], 'keyFlag'],
   [['Shift+←', 'Shift+→'], 'keySlide'], [['P'], 'keyCopyFrame'], [['A'], 'keyCopyCaptions'],
+  [['+', '-'], 'keyZoom'], [['0'], 'keyZoomReset'],
   [['?'], 'keyHelp'], [['Esc'], 'keyEscape'],
 ];
 
@@ -228,6 +229,8 @@ class LitePlayer {
   }
 
   applyLayout() {
+    // A new arrangement starts with whole pictures.
+    if (this.zoom) this.zoom.resetAll();
     const layout = this.layout;
     const st = this.stage;
     const pdf = this.pdfMode;
@@ -670,7 +673,7 @@ class LitePlayer {
     const $ = (s) => this.$(s);
     const v = this.video;
     const d = this.d;
-    d.add(() => { clearTimeout(this.idleTimer); clearTimeout(this.toastTimer); clearTimeout(this.prefsTimer); store.set('prefs', this.prefs); });
+    d.add(() => { clearTimeout(this.idleTimer); clearTimeout(this.toastTimer); clearTimeout(this.sharpTimer); clearTimeout(this.prefsTimer); store.set('prefs', this.prefs); });
     d.listen($('.play'), 'click', () => this.togglePlay());
     d.listen($('.rew'), 'click', () => this.seek(v.currentTime - 10));
     d.listen($('.fwd'), 'click', () => this.seek(v.currentTime + 10));
@@ -758,13 +761,32 @@ class LitePlayer {
       this.wake();
     }, true);
     const views = $('.views');
+    this.zoom = new Zoomer(views, d, {
+      // The PDF is drawn again at the zoom level once zooming pauses (in steps, so that
+      // small changes do not render it again).
+      onChange: () => {
+        clearTimeout(this.sharpTimer);
+        this.sharpTimer = setTimeout(guard(() => {
+          const tg = this.reader && this.reader.targets.get('main');
+          if (!tg || this.destroyed) return;
+          const sharp = Math.min(4, Math.max(1, Math.round(this.zoom.get(tg.pages).s * 2) / 2));
+          if (sharp !== (tg.sharp || 1)) { tg.sharp = sharp; this.redrawPdf(); }
+        }), 250);
+      },
+      // Not the small picture-in-picture window.
+      canZoom: (el) => !(this.layout === 'pip' && (el.closest('[data-slot]') || el).dataset.slot === 'secondary'),
+    });
     d.listen(views, 'click', (e) => {
       if (e.target.tagName !== 'VIDEO') return;
+      if (this.zoom.dragged) return;
       if (wokeByPress) { wokeByPress = false; return; }
       clearTimeout(clickTimer);
       clickTimer = setTimeout(guard(() => this.togglePlay()), 200);
     });
     d.listen(views, 'dblclick', (e) => {
+      // Zoomed in: back to the whole picture; otherwise full screen.
+      const z = this.zoom.targetOf(e.target);
+      if (z && this.zoom.zoomed(z)) { clearTimeout(clickTimer); this.zoom.reset(z); return; }
       if (e.target.tagName !== 'VIDEO') return;
       clearTimeout(clickTimer);
       this.toggleFullscreen();
@@ -964,6 +986,9 @@ class LitePlayer {
           else if (this.menusOpen()) { for (const m of this.root.querySelectorAll('.menu')) m.hidden = true; } else handled = false;
           break;
         case '?': this.showKeys(this.$('.keyhelp').hidden); break;
+        case '+': case '=': this.zoomMain(1.25); break;
+        case '-': case '_': this.zoomMain(0.8); break;
+        case '0': this.zoomMain(0); break;
         case ']': this.setRate(nextSpeed(v.playbackRate, 1)); break;
         case '[': this.setRate(nextSpeed(v.playbackRate, -1)); break;
         default: handled = false;
@@ -1408,6 +1433,15 @@ class LitePlayer {
     const end = () => { if (appRect) { appRect = null; this.savePrefs(); } };
     this.d.listen(handle, 'pointerup', end);
     this.d.listen(handle, 'pointercancel', end);
+  }
+
+  // Keyboard zoom on the main picture (the primary slot), around its centre; 0 resets.
+  zoomMain(factor) {
+    const slot = this.root.querySelector('.views [data-slot=primary]');
+    const el = slot && (slot.tagName === 'VIDEO' ? slot : slot.querySelector('.rpages'));
+    if (!el) return;
+    if (!factor) { this.zoom.reset(el); return; }
+    this.zoom.zoomAt(el, factor, 0.5, 0.5);
   }
 
   showKeys(on) {

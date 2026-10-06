@@ -226,6 +226,8 @@ const STRINGS = {
     keySlide: 'Previous / next slide',
     keyCopyFrame: 'Copy the current picture',
     keyCopyCaptions: 'Copy what was just said',
+    keyZoom: 'Zoom in / out (main picture; or the mouse wheel over any picture, drag to move)',
+    keyZoomReset: 'Whole picture again (or double-click)',
     keyHelp: 'This list',
     keyEscape: 'Close menus',
     reload: 'Reload',

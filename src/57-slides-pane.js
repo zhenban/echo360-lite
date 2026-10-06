@@ -31,8 +31,11 @@ class SlideReader {
 
   // A place to draw pages into: `stage` gets the canvases (and a "not recognised" layer).
   addTarget(name, stage) {
-    stage.append(h('div.rstale', { text: t('pageNotRecognised') }));
-    this.targets.set(name, { stage, active: false, token: 0 });
+    // The pages go in their own box (which the picture-area view can zoom), the
+    // "not recognised" note stays over it at its own size.
+    const pages = h('div.rpages');
+    stage.append(pages, h('div.rstale', { text: t('pageNotRecognised') }));
+    this.targets.set(name, { stage, pages, active: false, token: 0 });
   }
 
   setActive(name, on) {
@@ -104,7 +107,8 @@ class SlideReader {
     const ar = p.ar || 0.5625;
     const w = stage.clientWidth || 320;
     const hgt = stage.clientHeight || w * ar;
-    const width = Math.max(200, Math.min(w, hgt / ar)) * dpr;
+    // Zoomed in (picture-area view): sharper, up to a canvas the browser handles easily.
+    const width = Math.min(4096, Math.max(200, Math.min(w, hgt / ar)) * dpr * (tg.sharp || 1));
     deck.render(i, width).then((src) => {
       if (token !== tg.token) return;
       const c = document.createElement('canvas');
@@ -112,9 +116,9 @@ class SlideReader {
       c.height = src.height;
       c.getContext('2d').drawImage(src, 0, 0);
       c.className = 'rpage';
-      stage.append(c);
+      tg.pages.append(c);
       requestAnimationFrame(() => c.classList.add('in'));
-      const old = [...stage.querySelectorAll('canvas')].filter((x) => x !== c);
+      const old = [...tg.pages.querySelectorAll('canvas')].filter((x) => x !== c);
       setTimeout(() => { for (const x of old) x.remove(); }, 220);
     }).catch((e) => console.warn(TAG, 'render page:', e && e.message ? e.message : e));
   }

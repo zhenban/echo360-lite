@@ -258,6 +258,7 @@ video, .pdfview { position: absolute; left: 0; top: 0; width: 100%; height: 100%
 /* The lecturer's PDF as a picture of its own (see SlideReader). */
 .pdfview { background: #1a1a1d; overflow: hidden; }
 .pstage { position: absolute; inset: 0; }
+.rpages { position: absolute; inset: 0; }
 .pstage .rpage { position: absolute; left: 50%; top: 50%; width: auto; height: auto; max-width: 100%; max-height: 100%; transform: translate(-50%, -50%); }
 .pbar { position: absolute; left: 50%; top: 58px; z-index: 3; display: flex; align-items: center; gap: 4px; padding: 3px 6px; border-radius: 16px;
   max-width: calc(100% - 16px); overflow: hidden; transform: translateX(-50%); background: rgba(18,18,22,.82); font-size: 12px; white-space: nowrap;
@@ -377,6 +378,13 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border: 0; bord
 .error .card h2 { margin: 0 0 8px; font-size: 16px; }
 .error .card p { margin: 0 0 16px; opacity: .8; }
 .error .card .actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+/* Zoom: overview of the visible part, and the hand while dragging. */
+.zmap { position: absolute; z-index: 3; border: 1px solid rgba(255,255,255,.75); border-radius: 4px; background: rgba(0,0,0,.4);
+  pointer-events: none; box-shadow: 0 2px 10px rgba(0,0,0,.5); }
+.zmap[hidden] { display: none; }
+.zmap i { position: absolute; border: 1.5px solid #fff; background: rgba(255,255,255,.2); border-radius: 2px; }
+.views .zoomed { cursor: grab; }
+.views .panning { cursor: grabbing; }
 .keyhelp { position: absolute; inset: 0; z-index: 8; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.6); }
 .keyhelp[hidden] { display: none; }
 .khcard { max-width: min(640px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto; padding: 18px 22px; border-radius: 14px;
