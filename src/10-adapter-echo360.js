@@ -117,6 +117,7 @@ const echo360ClassroomAdapter = {
         ? '/api/ui/echoplayer/lessons/' + encodeURIComponent(lessonId) + '/medias/' + encodeURIComponent(video.mediaId) + '/transcript'
         : null,
       title: cfg.title || (cfg.lesson && cfg.lesson.name) || document.title,
+      courseName: (cfg.sectionInfo && cfg.sectionInfo.course && (cfg.sectionInfo.course.courseName || cfg.sectionInfo.course.courseIdentifier)) || '',
       // How often the page renews the video access cookies (see 36-session.js).
       sessionRenewMs: typeof cfg.cookieRenewalIntervalMillis === 'number' ? cfg.cookieRenewalIntervalMillis : null,
       backUrl: sectionId ? '/section/' + encodeURIComponent(sectionId) + '/home' : null,

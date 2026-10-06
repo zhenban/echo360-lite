@@ -66,14 +66,15 @@ class NotesPane {
     this.d.listen(this.select, 'change', () => { this.filter = this.select.value; this.render(); });
     this.tagSelect = h('select.input.small', { 'aria-label': t('filterTags') });
     this.d.listen(this.tagSelect, 'change', () => { this.tagFilter = this.tagSelect.value; this.render(); });
-    this.manageBtn = h('button.link', { text: t('manageTags'), onclick: () => { this.managing = !this.managing; this.render(); } });
+    this.manageBtn = h('button.link', { text: t('manageTags'), onclick: () => { this.managing = !this.managing; this.exporting = false; this.render(); } });
+    this.exportBtn = h('button.link', { text: t('exportMenu'), onclick: () => { this.exporting = !this.exporting; this.managing = false; this.render(); } });
     this.manageBox = h('div');
     this.errorEl = h('div.perror', { hidden: true });
     this.list = h('div.plist');
     this.pane.append(
       h('div.pinfo', { text: t('notesPrivate') }),
       h('div.composer', null, this.textarea, h('div.crow', null, timeLabel, h('span.grow'), this.addBtn)),
-      h('div.ptools', null, this.select, this.tagSelect, h('span.grow'), this.manageBtn),
+      h('div.ptools', null, this.select, this.tagSelect, h('span.grow'), this.manageBtn, this.exportBtn),
       this.manageBox,
       this.errorEl,
       this.list,
@@ -125,6 +126,7 @@ class NotesPane {
     this.renderTagFilter();
     this.manageBox.textContent = '';
     if (this.managing) this.manageBox.append(tagManager(this.tags, () => { this.managing = false; this.render(); }));
+    if (this.exporting) this.manageBox.append(this.exportPanel());
     const shown = this.items.filter((x) => (this.filter === 'all' || x.type === this.filter) && this.tagMatch(x));
     const frag = document.createDocumentFragment();
     if (!shown.length) frag.append(h('div.pempty', { text: t('noNotes') }));
@@ -273,6 +275,62 @@ class NotesPane {
         label: tags.length ? base + ' [' + tags.map((g) => g.name).join(', ') + ']' : base,
       };
     });
+  }
+
+  openExport() {
+    this.exporting = true;
+    this.managing = false;
+    this.p.sidebar.open('notes');
+    this.render();
+  }
+
+  // Export (Markdown, zip) and backup / restore of what only lives in this browser.
+  exportPanel() {
+    const ex = new Exporter(this.p);
+    const hasPdf = !!(this.p.deck && this.p.deck.pages.length);
+    const pics = h('input', { type: 'checkbox', checked: hasPdf, disabled: !hasPdf });
+    const pdfs = h('input', { type: 'checkbox' });
+    const busy = async (btn, fn) => {
+      btn.disabled = true;
+      try { await fn(); } catch (e) { this.p.toast(t('exportFailed', { msg: (e && e.message) || e })); } finally { btn.disabled = false; }
+    };
+    const one = h('button.pbtn.primary', { text: t('exportLecture') });
+    one.addEventListener('click', guard(() => busy(one, async () => {
+      const r = await ex.lecture(pics.checked);
+      this.p.toast(t('exportedLecture', { n: r.notes, p: r.pictures }));
+    })));
+    const all = h('button.pbtn', { text: t('exportCourse') });
+    all.addEventListener('click', guard(() => busy(all, async () => {
+      const n = await ex.course((k, total) => { all.textContent = t('exportCourseProgress', { k: k + 1, n: total }); });
+      all.textContent = t('exportCourse');
+      this.p.toast(n ? t('exportedCourse', { n }) : t('exportedNothing'));
+    })));
+    const backup = h('button.pbtn', { text: t('backupMake') });
+    backup.addEventListener('click', guard(() => busy(backup, async () => {
+      const data = await makeBackup(pdfs.checked);
+      const name = 'echo360-lite-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+      downloadBlob(new Blob([JSON.stringify(data)], { type: 'application/json' }), name);
+      this.p.toast(t('backupMade', { n: Object.keys(data.db).length }));
+    })));
+    const file = h('input', { type: 'file', accept: '.json,application/json', hidden: true });
+    file.addEventListener('change', guard(async () => {
+      const f = file.files[0];
+      if (!f) return;
+      try {
+        const n = await restoreBackup(JSON.parse(await f.text()));
+        this.p.toast(t('backupRestored', { n }), t('reload'), () => location.reload());
+      } catch (e) { this.p.toast(t('exportFailed', { msg: (e && e.message) || e })); }
+      file.value = '';
+    }));
+    const restore = h('button.pbtn', { text: t('backupRestore'), onclick: () => file.click() });
+    return h('div.tagman', null,
+      h('div.pinfo', { text: t('exportInfo') }),
+      h('label.crow', null, pics, h('span', { text: hasPdf ? t('exportPictures') : t('exportPicturesNoPdf') })),
+      h('div.crow', null, one, all),
+      h('div.pinfo', { text: t('backupInfo') }),
+      h('label.crow', null, pdfs, h('span', { text: t('backupPdfs') })),
+      h('div.crow', null, backup, restore, file),
+      h('div.crow', null, h('span.grow'), h('button.link', { text: t('done'), onclick: () => { this.exporting = false; this.render(); } })));
   }
 
   // `G`: tags the note or bookmark at the current time (within the last 30 s, or just

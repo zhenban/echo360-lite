@@ -90,6 +90,7 @@ const idbCache = {
   get(key) { return this.tx('readonly', (s) => s.get(key)).catch(() => undefined); },
   put(key, value) { return this.tx('readwrite', (s) => s.put(value, key)).catch(() => undefined); },
   del(key) { return this.tx('readwrite', (s) => s.delete(key)).catch(() => undefined); },
+  keys() { return this.tx('readonly', (s) => s.getAllKeys()).catch(() => []); },
 };
 
 // Background downloads must never compete with playback: turn() resolves only when the

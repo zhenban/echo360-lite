@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.11.0
+- Video access is renewed in the background: Echo360's access cookies (about two hours) are refreshed ahead of time and at once when a request is refused, so playback, captions, the slide reader and background work carry on without a reload. Only an expired school sign-in still asks to reload.
+- Private tags on notes and bookmarks (local only, shared by all recordings of a course): coloured chips, a tag filter, rename / recolour / delete, tag colours on the progress bar. `G` tags the note or bookmark at the current moment.
+- Zoom into the screen, camera or PDF view: wheel or pinch to zoom, drag to move, double-click (or `0`) for the whole picture, `+` / `-` on the main picture; a small overview shows the visible part. The PDF is redrawn sharp at the zoom level.
+- A-B loop: `I` / `O` (or right-click the progress bar), drag the ends, `X` to end; a jump outside offers to end it.
+- Watch progress: what you watched on this device is shown faintly on the progress bar, and the course page shows a small "watched" percentage per recording (Echo360's last position where this device has no record).
+- Floating window (`W`): the whole player moves into a Document Picture-in-Picture window and back, without interrupting playback. Hidden where not supported.
+- Export (`E`): notes and bookmarks with times, links back to the moment (`#t=`) and tags as Markdown; with the slide PDF, the page on screen at each note as a picture (zip). Whole-course export. Backup and restore of everything that only lives in this browser (optionally with the PDFs).
+- Keyboard shortcut list (`?`).
+- Fix: the error dialog's styles leaked onto note cards.
+
 ## 0.10.0
 - Following the slide PDF now reads the text on screen instead of comparing pictures. Every 10 s of the screen view is read at 720p with Tesseract.js (loaded from jsDelivr, pinned, only for recordings with a slide PDF) and compared with the text of every page; one pass over the whole lecture decides all pages at once, so slides shown in a browser, a PDF viewer, zoomed in or with a code editor in between are followed.
 - What counts as a match is learnt from each lecture itself, not from fixed thresholds. Pages without text are placed from the pages around them; other windows (code, browser, video call) keep the last page.

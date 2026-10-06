@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Echo360 Lite Player
 // @namespace    echo360-lite
-// @version      0.10.0
+// @version      0.11.0
 // @description  Replaces the Echo360 lecture player with a lightweight native player (far lower CPU use). Falls back to the original player automatically if anything is not recognised.
 // @license      MIT
 // @match        https://echo360.net.au/lesson/*
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.10.0';
+  const VERSION = '0.11.0';
 
 // ---- 00-util.js ----
 // ===================================================================================
@@ -394,6 +394,30 @@ const STRINGS = {
     keyLoop: 'Loop: set start / end (A-B), or right-click the progress bar',
     keyLoopClear: 'End the loop',
     keyHelp: 'This list',
+    keyExport: 'Export notes and bookmarks, backup',
+    exportMenu: 'Export…',
+    exportInfo: 'Notes and bookmarks with their times and tags, as Markdown (for Obsidian and other notes apps). Each time links back to that moment. The video and its address are never included.',
+    exportPictures: 'With the slide page shown at each note (as pictures in a zip)',
+    exportPicturesNoPdf: 'Slide pictures need the slide PDF (Slides tab)',
+    exportLecture: 'Export this recording',
+    exportCourse: 'Export the whole course',
+    exportCourseProgress: 'Reading {k} of {n}…',
+    exportedLecture: 'Exported {n} notes and bookmarks ({p} slide pictures)',
+    exportedCourse: 'Exported {n} recordings with notes',
+    exportedNothing: 'No notes or bookmarks in this course yet',
+    exportFailed: 'Export failed ({msg})',
+    backupInfo: 'Tags, slide files and corrections, what you watched and your settings only exist in this browser. A backup file brings them to another browser (or back after clearing browser data).',
+    backupPdfs: 'Include the PDF files (bigger file)',
+    backupMake: 'Download backup',
+    backupRestore: 'Restore from a backup…',
+    backupMade: 'Backup saved ({n} items)',
+    backupRestored: 'Restored {n} items. Reload to use them everywhere.',
+    backupInvalid: 'This is not an Echo360 Lite backup file',
+    mdRecorded: 'Recorded {date}',
+    mdOpen: 'Open in Echo360',
+    mdNothing: 'No notes or bookmarks.',
+    mdNoTime: '(no time)',
+    mdFooter: 'Exported from Echo360 Lite on {date}. Tags are your private local tags.',
     keyPopout: 'Floating window (keeps playing on top of other windows)',
     popout: 'Floating window',
     popoutHere: 'Playing in a floating window.',
@@ -552,6 +576,7 @@ const echo360ClassroomAdapter = {
         ? '/api/ui/echoplayer/lessons/' + encodeURIComponent(lessonId) + '/medias/' + encodeURIComponent(video.mediaId) + '/transcript'
         : null,
       title: cfg.title || (cfg.lesson && cfg.lesson.name) || document.title,
+      courseName: (cfg.sectionInfo && cfg.sectionInfo.course && (cfg.sectionInfo.course.courseName || cfg.sectionInfo.course.courseIdentifier)) || '',
       // How often the page renews the video access cookies (see 36-session.js).
       sessionRenewMs: typeof cfg.cookieRenewalIntervalMillis === 'number' ? cfg.cookieRenewalIntervalMillis : null,
       backUrl: sectionId ? '/section/' + encodeURIComponent(sectionId) + '/home' : null,
@@ -1982,7 +2007,7 @@ const KEY_HELP = [
   [['M'], 'keyMute'], [['F'], 'keyFullscreen'], [['S'], 'keySwap'], [['[', ']'], 'keySpeed'],
   [['C'], 'keyCaptions'], [['T'], 'keyTranscript'], [['B'], 'keyBookmark'], [['G'], 'keyTag'], [['U'], 'keyFlag'],
   [['Shift+←', 'Shift+→'], 'keySlide'], [['P'], 'keyCopyFrame'], [['A'], 'keyCopyCaptions'],
-  [['W'], 'keyPopout'], [['+', '-'], 'keyZoom'], [['0'], 'keyZoomReset'], [['I', 'O'], 'keyLoop'], [['X'], 'keyLoopClear'],
+  [['W'], 'keyPopout'], [['E'], 'keyExport'], [['+', '-'], 'keyZoom'], [['0'], 'keyZoomReset'], [['I', 'O'], 'keyLoop'], [['X'], 'keyLoopClear'],
   [['?'], 'keyHelp'], [['Esc'], 'keyEscape'],
 ];
 
@@ -2139,7 +2164,15 @@ class LitePlayer {
     });
   }
 
+  // A link to a moment (#t=<seconds>, as in exported notes) wins over the resume position.
+  linkTime() {
+    const m = /(?:^#|&)t=(\d+(?:\.\d+)?)/.exec(location.hash);
+    return m ? +m[1] : null;
+  }
+
   pickStart() {
+    const link = this.linkTime();
+    if (link != null) return link;
     const dur = this.lesson.duration;
     let t0 = this.lesson.resumeAt;
     if (t0 == null) {
@@ -2503,6 +2536,7 @@ class LitePlayer {
     });
     on('ended', () => this.savePosition(0));
     d.listen(document, 'visibilitychange', () => { if (!document.hidden) this.render(true); });
+    d.listen(window, 'hashchange', () => { const tm = this.linkTime(); if (tm != null) this.seek(tm); });
 
     // Every 2 s: stall watchdog (playing, not seeking, time has not moved for 12 s) and,
     // every fifth tick, the local resume position as a fallback for the server-side one.
@@ -3019,6 +3053,7 @@ class LitePlayer {
         case 'o': case 'O': this.loop.setB(v.currentTime); break;
         case 'x': case 'X': if (this.loop.a != null) this.loop.clear(); else handled = false; break;
         case 'w': case 'W': if (this.canPopout()) this.togglePopout(); else handled = false; break;
+        case 'e': case 'E': if (this.notes && this.notesReady) this.notes.openExport(); else handled = false; break;
         case ']': this.setRate(nextSpeed(v.playbackRate, 1)); break;
         case '[': this.setRate(nextSpeed(v.playbackRate, -1)); break;
         default: handled = false;
@@ -4409,14 +4444,15 @@ class NotesPane {
     this.d.listen(this.select, 'change', () => { this.filter = this.select.value; this.render(); });
     this.tagSelect = h('select.input.small', { 'aria-label': t('filterTags') });
     this.d.listen(this.tagSelect, 'change', () => { this.tagFilter = this.tagSelect.value; this.render(); });
-    this.manageBtn = h('button.link', { text: t('manageTags'), onclick: () => { this.managing = !this.managing; this.render(); } });
+    this.manageBtn = h('button.link', { text: t('manageTags'), onclick: () => { this.managing = !this.managing; this.exporting = false; this.render(); } });
+    this.exportBtn = h('button.link', { text: t('exportMenu'), onclick: () => { this.exporting = !this.exporting; this.managing = false; this.render(); } });
     this.manageBox = h('div');
     this.errorEl = h('div.perror', { hidden: true });
     this.list = h('div.plist');
     this.pane.append(
       h('div.pinfo', { text: t('notesPrivate') }),
       h('div.composer', null, this.textarea, h('div.crow', null, timeLabel, h('span.grow'), this.addBtn)),
-      h('div.ptools', null, this.select, this.tagSelect, h('span.grow'), this.manageBtn),
+      h('div.ptools', null, this.select, this.tagSelect, h('span.grow'), this.manageBtn, this.exportBtn),
       this.manageBox,
       this.errorEl,
       this.list,
@@ -4468,6 +4504,7 @@ class NotesPane {
     this.renderTagFilter();
     this.manageBox.textContent = '';
     if (this.managing) this.manageBox.append(tagManager(this.tags, () => { this.managing = false; this.render(); }));
+    if (this.exporting) this.manageBox.append(this.exportPanel());
     const shown = this.items.filter((x) => (this.filter === 'all' || x.type === this.filter) && this.tagMatch(x));
     const frag = document.createDocumentFragment();
     if (!shown.length) frag.append(h('div.pempty', { text: t('noNotes') }));
@@ -4616,6 +4653,62 @@ class NotesPane {
         label: tags.length ? base + ' [' + tags.map((g) => g.name).join(', ') + ']' : base,
       };
     });
+  }
+
+  openExport() {
+    this.exporting = true;
+    this.managing = false;
+    this.p.sidebar.open('notes');
+    this.render();
+  }
+
+  // Export (Markdown, zip) and backup / restore of what only lives in this browser.
+  exportPanel() {
+    const ex = new Exporter(this.p);
+    const hasPdf = !!(this.p.deck && this.p.deck.pages.length);
+    const pics = h('input', { type: 'checkbox', checked: hasPdf, disabled: !hasPdf });
+    const pdfs = h('input', { type: 'checkbox' });
+    const busy = async (btn, fn) => {
+      btn.disabled = true;
+      try { await fn(); } catch (e) { this.p.toast(t('exportFailed', { msg: (e && e.message) || e })); } finally { btn.disabled = false; }
+    };
+    const one = h('button.pbtn.primary', { text: t('exportLecture') });
+    one.addEventListener('click', guard(() => busy(one, async () => {
+      const r = await ex.lecture(pics.checked);
+      this.p.toast(t('exportedLecture', { n: r.notes, p: r.pictures }));
+    })));
+    const all = h('button.pbtn', { text: t('exportCourse') });
+    all.addEventListener('click', guard(() => busy(all, async () => {
+      const n = await ex.course((k, total) => { all.textContent = t('exportCourseProgress', { k: k + 1, n: total }); });
+      all.textContent = t('exportCourse');
+      this.p.toast(n ? t('exportedCourse', { n }) : t('exportedNothing'));
+    })));
+    const backup = h('button.pbtn', { text: t('backupMake') });
+    backup.addEventListener('click', guard(() => busy(backup, async () => {
+      const data = await makeBackup(pdfs.checked);
+      const name = 'echo360-lite-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+      downloadBlob(new Blob([JSON.stringify(data)], { type: 'application/json' }), name);
+      this.p.toast(t('backupMade', { n: Object.keys(data.db).length }));
+    })));
+    const file = h('input', { type: 'file', accept: '.json,application/json', hidden: true });
+    file.addEventListener('change', guard(async () => {
+      const f = file.files[0];
+      if (!f) return;
+      try {
+        const n = await restoreBackup(JSON.parse(await f.text()));
+        this.p.toast(t('backupRestored', { n }), t('reload'), () => location.reload());
+      } catch (e) { this.p.toast(t('exportFailed', { msg: (e && e.message) || e })); }
+      file.value = '';
+    }));
+    const restore = h('button.pbtn', { text: t('backupRestore'), onclick: () => file.click() });
+    return h('div.tagman', null,
+      h('div.pinfo', { text: t('exportInfo') }),
+      h('label.crow', null, pics, h('span', { text: hasPdf ? t('exportPictures') : t('exportPicturesNoPdf') })),
+      h('div.crow', null, one, all),
+      h('div.pinfo', { text: t('backupInfo') }),
+      h('label.crow', null, pdfs, h('span', { text: t('backupPdfs') })),
+      h('div.crow', null, backup, restore, file),
+      h('div.crow', null, h('span.grow'), h('button.link', { text: t('done'), onclick: () => { this.exporting = false; this.render(); } })));
   }
 
   // `G`: tags the note or bookmark at the current time (within the last 30 s, or just
@@ -5420,6 +5513,7 @@ const idbCache = {
   get(key) { return this.tx('readonly', (s) => s.get(key)).catch(() => undefined); },
   put(key, value) { return this.tx('readwrite', (s) => s.put(value, key)).catch(() => undefined); },
   del(key) { return this.tx('readwrite', (s) => s.delete(key)).catch(() => undefined); },
+  keys() { return this.tx('readonly', (s) => s.getAllKeys()).catch(() => []); },
 };
 
 // Background downloads must never compete with playback: turn() resolves only when the
@@ -8249,6 +8343,272 @@ const courseList = {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', observe, { once: true }); else observe();
   },
 };
+
+// ---- 85-export.js ----
+// ===================================================================================
+// Export and backup.
+//
+// Export: a recording's notes and bookmarks (with their local tags) as Markdown, each with
+// a link back to that moment (the lesson page with #t=<seconds>, which this player
+// honours). With a slide PDF, the page on screen at each note can go along as a picture;
+// the Markdown and the pictures are packed in a zip (for Obsidian and similar). A whole
+// course exports one Markdown file per recording (without pictures). Exports never contain
+// the video or its address.
+//
+// Backup: everything that only exists in this browser (tags and which items carry them,
+// slide files and their corrections, what was watched, settings and positions), optionally
+// with the PDF files, in one JSON file that can be restored in another browser. Analysis
+// caches (slides, silence, text on screen) are left out: they are rebuilt.
+// ===================================================================================
+
+// ---- zip (stored, no compression: the pictures are PNG already) ----
+
+let crcTable = null;
+function crc32(bytes) {
+  if (!crcTable) {
+    crcTable = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      crcTable[n] = c >>> 0;
+    }
+  }
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) c = crcTable[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+// files: [{ name, data: Uint8Array }] -> Blob (application/zip). Names are UTF-8.
+function makeZip(files) {
+  const enc = new TextEncoder();
+  const parts = [];
+  const central = [];
+  let offset = 0;
+  const now = new Date();
+  const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+  const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+  for (const f of files) {
+    const name = enc.encode(f.name);
+    const crc = crc32(f.data);
+    const head = new DataView(new ArrayBuffer(30));
+    head.setUint32(0, 0x04034b50, true);
+    head.setUint16(4, 20, true);
+    head.setUint16(6, 0x0800, true);          // UTF-8 names
+    head.setUint16(8, 0, true);               // stored
+    head.setUint16(10, dosTime, true);
+    head.setUint16(12, dosDate, true);
+    head.setUint32(14, crc, true);
+    head.setUint32(18, f.data.length, true);
+    head.setUint32(22, f.data.length, true);
+    head.setUint16(26, name.length, true);
+    parts.push(head.buffer, name, f.data);
+    const cen = new DataView(new ArrayBuffer(46));
+    cen.setUint32(0, 0x02014b50, true);
+    cen.setUint16(4, 20, true);
+    cen.setUint16(6, 20, true);
+    cen.setUint16(8, 0x0800, true);
+    cen.setUint16(12, dosTime, true);
+    cen.setUint16(14, dosDate, true);
+    cen.setUint32(16, crc, true);
+    cen.setUint32(20, f.data.length, true);
+    cen.setUint32(24, f.data.length, true);
+    cen.setUint16(28, name.length, true);
+    cen.setUint32(42, offset, true);
+    central.push(cen.buffer, name);
+    offset += 30 + name.length + f.data.length;
+  }
+  const size = central.reduce((s, x) => s + x.byteLength, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true);
+  end.setUint16(8, files.length, true);
+  end.setUint16(10, files.length, true);
+  end.setUint32(12, size, true);
+  end.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, end.buffer], { type: 'application/zip' });
+}
+
+// ---- Markdown ----
+
+function safeName(s) {
+  return String(s || 'lecture').replace(/[\\/:*?"<>|#^[\]]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 90) || 'lecture';
+}
+
+// A tag as a Markdown / Obsidian tag: no spaces or punctuation.
+function mdTag(name) {
+  const s = String(name).trim().replace(/[\s,.;:!?'"()[\]{}#]+/g, '-').replace(/^-+|-+$/g, '');
+  return s ? '#' + s : '';
+}
+
+function mdEscape(s) {
+  return String(s || '').replace(/\r/g, '').replace(/\n/g, '  \n  ');
+}
+
+// lec: { title, date (YYYY-MM-DD or ''), url (lesson page), items: [note/bookmark],
+// tagsOf(id) -> [{ name }], picture(item) -> relative path or null }
+function lectureMarkdown(lec) {
+  const long = lec.items.some((x) => x.time >= 3600);
+  const lines = ['# ' + lec.title, ''];
+  const meta = [lec.date ? t('mdRecorded', { date: lec.date }) : null, lec.url ? '[' + t('mdOpen') + '](' + lec.url + ')' : null].filter(Boolean);
+  if (meta.length) lines.push(meta.join(' · '), '');
+  const items = lec.items.filter((x) => x.type === 'note' || x.type === 'bookmark');
+  if (!items.length) lines.push('_' + t('mdNothing') + '_');
+  for (const x of items) {
+    const when = x.time != null ? '[' + fmtTime(x.time, long) + '](' + lec.url + '#t=' + Math.floor(x.time) + ')' : t('mdNoTime');
+    const tags = lec.tagsOf(x.id).map((g) => mdTag(g.name)).filter(Boolean).join(' ');
+    const body = x.type === 'note' ? mdEscape(x.text) : '🔖 ' + t('markerBookmark');
+    lines.push('- **' + when + '** ' + body + (tags ? ' ' + tags : ''));
+    const pic = lec.picture ? lec.picture(x) : null;
+    if (pic) lines.push('  ', '  ![](' + encodeURI(pic).replace(/\(/g, '%28').replace(/\)/g, '%29') + ')');
+  }
+  lines.push('', '_' + t('mdFooter', { date: new Date().toISOString().slice(0, 10) }) + '_', '');
+  return lines.join('\n');
+}
+
+function downloadBlob(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+}
+
+// Date of a lesson from its id (G_..._2026-09-15T16:05:00.000_...), '' if none.
+function lessonDate(lessonId) {
+  const m = /_(\d{4}-\d{2}-\d{2})T/.exec(String(lessonId || ''));
+  return m ? m[1] : '';
+}
+
+function lessonPageUrl(lessonId) {
+  return location.origin + '/lesson/' + seg(lessonId) + '/classroom';
+}
+
+class Exporter {
+  constructor(player) {
+    this.p = player;
+  }
+
+  // This recording; with `pictures`, the slide page at each note (needs a slide PDF).
+  async lecture(pictures) {
+    const p = this.p;
+    const l = p.lesson;
+    const items = p.notes ? p.notes.items.filter((x) => x.type !== 'flag') : [];
+    const base = (lessonDate(l.lessonId) ? lessonDate(l.lessonId) + ' ' : '') + safeName(l.title);
+    const files = [];
+    const pics = new Map();   // page index -> file name
+    let picture = null;
+    const deck = p.deck;
+    if (pictures && deck && deck.pages.length) {
+      for (const x of items) {
+        if (x.time == null) continue;
+        const i = deck.pageAt(x.time);
+        if (i < 0 || pics.has(i)) continue;
+        const pg = deck.pages[i];
+        const name = base + '/' + safeName(pg.file.replace(/\.pdf$/i, '')) + ' p' + pg.num + '.png';
+        const c = await deck.render(i, 1600);
+        const blob = await new Promise((res) => c.toBlob(res, 'image/png'));
+        files.push({ name, data: new Uint8Array(await blob.arrayBuffer()) });
+        pics.set(i, name);
+      }
+      picture = (x) => (x.time == null ? null : pics.get(deck.pageAt(x.time)) || null);
+    }
+    const md = lectureMarkdown({
+      title: l.title, date: lessonDate(l.lessonId), url: lessonPageUrl(l.lessonId), items,
+      tagsOf: (id) => (p.tags ? p.tags.of(id) : []), picture,
+    });
+    const mdBytes = new TextEncoder().encode(md);
+    if (!files.length) { downloadBlob(new Blob([mdBytes], { type: 'text/markdown' }), base + '.md'); return { notes: items.length, pictures: 0 }; }
+    files.unshift({ name: base + '.md', data: mdBytes });
+    downloadBlob(makeZip(files), base + '.zip');
+    return { notes: items.length, pictures: files.length - 1 };
+  }
+
+  // Every recording of the course with notes or bookmarks, one Markdown file each.
+  async course(onProgress) {
+    const p = this.p;
+    const section = p.lesson.sectionId;
+    if (!section) throw new Error('no course');
+    const r = await fetch('/section/' + encodeURIComponent(section) + '/syllabus', { credentials: 'include', headers: { Accept: 'application/json' } });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const list = ((await r.json()).data || []).map((x) => x.lesson).filter((x) => x && x.lesson && x.hasVideo);
+    const files = [];
+    const tagStore = new TagStore({ sectionId: section, mediaId: null });
+    await tagStore.load();
+    for (let k = 0; k < list.length; k++) {
+      const x = list[k];
+      if (onProgress) onProgress(k, list.length);
+      const lid = x.lesson.id;
+      const mid = x.medias && x.medias[0] && x.medias[0].id;
+      let items = [];
+      try { items = await new Echo360Api({ lessonId: lid, mediaId: mid }).notes(); } catch (e) { continue; }
+      if (!items.length) continue;
+      const map = mid ? (await idbCache.get('tagmap:' + mid)) || {} : {};
+      const tagsOf = (id) => tagStore.tags.filter((g) => (map[id] || []).includes(g.id));
+      items.sort((a, b) => (a.time == null ? -1 : a.time) - (b.time == null ? -1 : b.time));
+      const title = x.lesson.name || x.medias[0].title || lid;
+      const md = lectureMarkdown({ title, date: lessonDate(lid), url: lessonPageUrl(lid), items, tagsOf });
+      files.push({ name: (lessonDate(lid) ? lessonDate(lid) + ' ' : '') + safeName(title) + '.md', data: new TextEncoder().encode(md) });
+    }
+    if (!files.length) return 0;
+    // Same names (two recordings on one day with one title): number them.
+    const seen = new Map();
+    for (const f of files) { const n = seen.get(f.name) || 0; seen.set(f.name, n + 1); if (n) f.name = f.name.replace(/\.md$/, ' (' + (n + 1) + ').md'); }
+    downloadBlob(makeZip(files), safeName(p.lesson.courseName || 'course') + ' notes.zip');
+    return files.length;
+  }
+}
+
+// ---- backup ----
+
+const BACKUP_KEYS = /^(tags|tagmap|deck|deckref|watched):/;
+
+async function blobToBase64(blob) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+async function makeBackup(withPdfs) {
+  const out = { app: 'echo360-lite', v: 1, created: new Date().toISOString(), local: {}, db: {} };
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith(NS) && !/^(debug|dryRun)$/.test(k.slice(NS.length))) out.local[k.slice(NS.length)] = localStorage.getItem(k);
+  }
+  for (const k of await idbCache.keys()) {
+    const key = String(k);
+    const pdf = key.startsWith('deckfile:');
+    if (!BACKUP_KEYS.test(key) && !(pdf && withPdfs)) continue;
+    const v = await idbCache.get(key);
+    out.db[key] = v instanceof Blob ? { $blob: await blobToBase64(v), type: v.type } : v;
+  }
+  return out;
+}
+
+// Restores a backup: its entries replace the ones with the same keys. Returns the number
+// of entries written.
+async function restoreBackup(data) {
+  if (!data || data.app !== 'echo360-lite' || data.v !== 1 || typeof data.db !== 'object') throw new Error(t('backupInvalid'));
+  let n = 0;
+  for (const [k, v] of Object.entries(data.local || {})) {
+    if (/^(debug|dryRun)$/.test(k)) continue;
+    try { localStorage.setItem(NS + k, v); n++; } catch (e) { /* full */ }
+  }
+  for (const [k, v] of Object.entries(data.db)) {
+    if (!BACKUP_KEYS.test(k) && !k.startsWith('deckfile:')) continue;
+    let val = v;
+    if (v && typeof v === 'object' && typeof v.$blob === 'string') {
+      const bin = atob(v.$blob);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      val = new Blob([bytes], { type: v.type || 'application/octet-stream' });
+    }
+    await idbCache.put(k, val);
+    n++;
+  }
+  return n;
+}
 
 // ---- 90-main.js ----
 // ===================================================================================

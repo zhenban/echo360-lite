@@ -20,6 +20,7 @@ function loadSources(names) {
     document: { hidden: false, addEventListener() {}, removeEventListener() {} },
     localStorage: { getItem: () => null, setItem() {} },
     fetch: (...a) => ctx.__fetch(...a),
+    Blob, TextEncoder, location: { origin: 'https://echo360.example', hash: '' },
     setInterval: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     clearInterval: (id) => { if (timers[id - 1]) timers[id - 1].fn = null; },
     setTimeout, clearTimeout,
@@ -30,7 +31,7 @@ function loadSources(names) {
   const files = readdirSync(join(root, 'src')).filter((f) => names.some((n) => f.includes(n))).sort();
   const code = files.map((f) => readFileSync(join(root, 'src', f), 'utf8')).join('\n')
     + '\n;globalThis.__exports = {};'
-    + ['clamp', 'fmtTime', 'parseIsoDuration', 'Disposer', 'PlayedRanges', 'FollowerSync', 'CueIndex', 'parseVtt', 'AudioChain', 'seg', 'thumbnailFor', 'pickAudioRendition', 'parseMediaPlaylist', 'Envelope', 'findSilences', 'silencesFromCues', 'speechSpans', 'silenceIndexAt', 'mp4Boxes', 'parseFragment', 'videoVariants', 'frameDistance', 'sameView', 'buildScenes', 'chapterIndexAt', 'SessionKeeper', 'mediaSession', 'TagStore', 'watchedShare', 'followSamples', 'followLecture', 'textScores', 'FORCE_OFF', 'captionExcerpt']
+    + ['clamp', 'fmtTime', 'parseIsoDuration', 'Disposer', 'PlayedRanges', 'FollowerSync', 'CueIndex', 'parseVtt', 'AudioChain', 'seg', 'thumbnailFor', 'pickAudioRendition', 'parseMediaPlaylist', 'Envelope', 'findSilences', 'silencesFromCues', 'speechSpans', 'silenceIndexAt', 'mp4Boxes', 'parseFragment', 'videoVariants', 'frameDistance', 'sameView', 'buildScenes', 'chapterIndexAt', 'SessionKeeper', 'mediaSession', 'TagStore', 'watchedShare', 'makeZip', 'crc32', 'lectureMarkdown', 'mdTag', 'followSamples', 'followLecture', 'textScores', 'FORCE_OFF', 'captionExcerpt']
       .map((n) => `if (typeof ${n} !== 'undefined') globalThis.__exports.${n} = ${n};`).join('\n');
   vm.runInContext(code, ctx);
   return { ...ctx.__exports, timers, window: ctx.window, setFetch: (fn) => { ctx.__fetch = fn; } };
@@ -613,6 +614,25 @@ test('watched share: overlapping-free ranges, clipped to the duration', () => {
   assert.equal(m.watchedShare({ d: 100, r: [[0, 10], [50, 70]] }), 0.3);
   assert.equal(m.watchedShare({ d: 100, r: [[90, 130]] }), 0.1);
   assert.equal(m.watchedShare(null), 0);
+});
+
+test('export: zip that standard tools open, Markdown with times, links and tags', async () => {
+  const m = loadSources(['00-util', '01-i18n', '10-adapter', '11-echo360-api', '85-export']);
+  assert.equal(m.crc32(new TextEncoder().encode('hello')), 0x3610a686);
+  const zip = m.makeZip([{ name: 'a/ü.md', data: new TextEncoder().encode('# x\n') }, { name: 'a/p1.png', data: new Uint8Array([1, 2, 3]) }]);
+  const bytes = Buffer.from(await zip.arrayBuffer());
+  const { execFileSync } = await import('node:child_process');
+  const out = execFileSync('python3', ['-c', 'import sys,zipfile,io; z=zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read())); print(z.testzip(), [(i.filename, i.file_size) for i in z.infolist()], z.read("a/\u00fc.md"))'], { input: bytes }).toString();
+  assert.match(out, /^None \[\('a\/ü\.md', 4\), \('a\/p1\.png', 3\)\] b'# x\\n'/);
+  assert.equal(m.mdTag('Week 1 formula'), '#Week-1-formula');
+  const md = m.lectureMarkdown({
+    title: 'Lecture', date: '2026-09-15', url: 'https://e/lesson/L/classroom',
+    items: [{ id: 'n1', type: 'note', time: 3725.4, text: 'line one\nline two' }, { id: 'b1', type: 'bookmark', time: 60 }],
+    tagsOf: (id) => (id === 'n1' ? [{ name: 'Exam' }] : []), picture: (x) => (x.id === 'n1' ? 'Lecture/Slides p3.png' : null),
+  });
+  assert.match(md, /^# Lecture\n\nRecorded 2026-09-15 · \[Open in Echo360\]\(https:\/\/e\/lesson\/L\/classroom\)/);
+  assert.match(md, /- \*\*\[1:02:05\]\(https:\/\/e\/lesson\/L\/classroom#t=3725\)\*\* line one {2}\n {2}line two #Exam\n {2}\n {2}!\[\]\(Lecture\/Slides%20p3\.png\)/);
+  assert.match(md, /- \*\*\[0:01:00\]\(https:\/\/e\/lesson\/L\/classroom#t=60\)\*\* 🔖 Bookmark\n/);
 });
 
 test('caption excerpt: last span in whole sentences', () => {

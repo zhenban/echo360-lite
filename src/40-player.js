@@ -20,7 +20,7 @@ const KEY_HELP = [
   [['M'], 'keyMute'], [['F'], 'keyFullscreen'], [['S'], 'keySwap'], [['[', ']'], 'keySpeed'],
   [['C'], 'keyCaptions'], [['T'], 'keyTranscript'], [['B'], 'keyBookmark'], [['G'], 'keyTag'], [['U'], 'keyFlag'],
   [['Shift+←', 'Shift+→'], 'keySlide'], [['P'], 'keyCopyFrame'], [['A'], 'keyCopyCaptions'],
-  [['W'], 'keyPopout'], [['+', '-'], 'keyZoom'], [['0'], 'keyZoomReset'], [['I', 'O'], 'keyLoop'], [['X'], 'keyLoopClear'],
+  [['W'], 'keyPopout'], [['E'], 'keyExport'], [['+', '-'], 'keyZoom'], [['0'], 'keyZoomReset'], [['I', 'O'], 'keyLoop'], [['X'], 'keyLoopClear'],
   [['?'], 'keyHelp'], [['Esc'], 'keyEscape'],
 ];
 
@@ -177,7 +177,15 @@ class LitePlayer {
     });
   }
 
+  // A link to a moment (#t=<seconds>, as in exported notes) wins over the resume position.
+  linkTime() {
+    const m = /(?:^#|&)t=(\d+(?:\.\d+)?)/.exec(location.hash);
+    return m ? +m[1] : null;
+  }
+
   pickStart() {
+    const link = this.linkTime();
+    if (link != null) return link;
     const dur = this.lesson.duration;
     let t0 = this.lesson.resumeAt;
     if (t0 == null) {
@@ -541,6 +549,7 @@ class LitePlayer {
     });
     on('ended', () => this.savePosition(0));
     d.listen(document, 'visibilitychange', () => { if (!document.hidden) this.render(true); });
+    d.listen(window, 'hashchange', () => { const tm = this.linkTime(); if (tm != null) this.seek(tm); });
 
     // Every 2 s: stall watchdog (playing, not seeking, time has not moved for 12 s) and,
     // every fifth tick, the local resume position as a fallback for the server-side one.
@@ -1057,6 +1066,7 @@ class LitePlayer {
         case 'o': case 'O': this.loop.setB(v.currentTime); break;
         case 'x': case 'X': if (this.loop.a != null) this.loop.clear(); else handled = false; break;
         case 'w': case 'W': if (this.canPopout()) this.togglePopout(); else handled = false; break;
+        case 'e': case 'E': if (this.notes && this.notesReady) this.notes.openExport(); else handled = false; break;
         case ']': this.setRate(nextSpeed(v.playbackRate, 1)); break;
         case '[': this.setRate(nextSpeed(v.playbackRate, -1)); break;
         default: handled = false;
