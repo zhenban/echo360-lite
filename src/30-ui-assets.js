@@ -378,6 +378,18 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border: 0; bord
 .error .card h2 { margin: 0 0 8px; font-size: 16px; }
 .error .card p { margin: 0 0 16px; opacity: .8; }
 .error .card .actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+/* A-B loop band on the progress bar */
+.loopband { position: absolute; top: 2px; height: 14px; z-index: 2; border-radius: 4px; pointer-events: none;
+  background: rgba(246,195,67,.22); box-shadow: inset 0 0 0 1.5px rgba(246,195,67,.9); min-width: 2px; }
+.loopband[hidden] { display: none; }
+.loopband.open { background: none; }
+.loopband .lh { position: absolute; top: -3px; width: 8px; height: 20px; margin-left: -4px; border-radius: 3px; background: #f6c343;
+  pointer-events: auto; cursor: ew-resize; touch-action: none; }
+.loopband .la { left: 0; } .loopband .lb { left: 100%; }
+.loopband.open .lb { display: none; }
+.loopband .lx { position: absolute; right: -6px; top: -22px; width: 18px; height: 18px; padding: 0; border-radius: 50%; font-size: 11px; line-height: 18px;
+  text-align: center; background: #f6c343; color: #111; pointer-events: auto; }
+.loopmenu { right: auto; min-width: 180px; }
 /* Zoom: overview of the visible part, and the hand while dragging. */
 .zmap { position: absolute; z-index: 3; border: 1px solid rgba(255,255,255,.75); border-radius: 4px; background: rgba(0,0,0,.4);
   pointer-events: none; box-shadow: 0 2px 10px rgba(0,0,0,.5); }

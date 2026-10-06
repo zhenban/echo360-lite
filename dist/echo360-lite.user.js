@@ -390,7 +390,18 @@ const STRINGS = {
     keyCopyCaptions: 'Copy what was just said',
     keyZoom: 'Zoom in / out (main picture; or the mouse wheel over any picture, drag to move)',
     keyZoomReset: 'Whole picture again (or double-click)',
+    keyLoop: 'Loop: set start / end (A-B), or right-click the progress bar',
+    keyLoopClear: 'End the loop',
     keyHelp: 'This list',
+    loopStart: 'Loop start (drag)',
+    loopEnd: 'Loop end (drag)',
+    loopClear: 'End loop',
+    loopFromHere: 'Loop from here',
+    loopToHere: 'Loop to here',
+    loopStartSet: 'Loop starts at {time}; press O at the end',
+    loopSet: 'Looping {from}–{to}',
+    loopCleared: 'Loop ended',
+    loopOutside: 'Outside the loop {from}–{to}',
     keyEscape: 'Close menus',
     reload: 'Reload',
     useOriginal: 'Use the original player',
@@ -1377,6 +1388,18 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border: 0; bord
 .error .card h2 { margin: 0 0 8px; font-size: 16px; }
 .error .card p { margin: 0 0 16px; opacity: .8; }
 .error .card .actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+/* A-B loop band on the progress bar */
+.loopband { position: absolute; top: 2px; height: 14px; z-index: 2; border-radius: 4px; pointer-events: none;
+  background: rgba(246,195,67,.22); box-shadow: inset 0 0 0 1.5px rgba(246,195,67,.9); min-width: 2px; }
+.loopband[hidden] { display: none; }
+.loopband.open { background: none; }
+.loopband .lh { position: absolute; top: -3px; width: 8px; height: 20px; margin-left: -4px; border-radius: 3px; background: #f6c343;
+  pointer-events: auto; cursor: ew-resize; touch-action: none; }
+.loopband .la { left: 0; } .loopband .lb { left: 100%; }
+.loopband.open .lb { display: none; }
+.loopband .lx { position: absolute; right: -6px; top: -22px; width: 18px; height: 18px; padding: 0; border-radius: 50%; font-size: 11px; line-height: 18px;
+  text-align: center; background: #f6c343; color: #111; pointer-events: auto; }
+.loopmenu { right: auto; min-width: 180px; }
 /* Zoom: overview of the visible part, and the hand while dragging. */
 .zmap { position: absolute; z-index: 3; border: 1px solid rgba(255,255,255,.75); border-radius: 4px; background: rgba(0,0,0,.4);
   pointer-events: none; box-shadow: 0 2px 10px rgba(0,0,0,.5); }
@@ -1944,7 +1967,7 @@ const KEY_HELP = [
   [['M'], 'keyMute'], [['F'], 'keyFullscreen'], [['S'], 'keySwap'], [['[', ']'], 'keySpeed'],
   [['C'], 'keyCaptions'], [['T'], 'keyTranscript'], [['B'], 'keyBookmark'], [['G'], 'keyTag'], [['U'], 'keyFlag'],
   [['Shift+←', 'Shift+→'], 'keySlide'], [['P'], 'keyCopyFrame'], [['A'], 'keyCopyCaptions'],
-  [['+', '-'], 'keyZoom'], [['0'], 'keyZoomReset'],
+  [['+', '-'], 'keyZoom'], [['0'], 'keyZoomReset'], [['I', 'O'], 'keyLoop'], [['X'], 'keyLoopClear'],
   [['?'], 'keyHelp'], [['Esc'], 'keyEscape'],
 ];
 
@@ -2437,6 +2460,7 @@ class LitePlayer {
     const invalidate = () => this.frame.request();
     const onTime = () => {
       const ct = v.currentTime;
+      if (this.loop) this.loop.tick(ct);
       this.cc.update(ct);
       this.transcript.update(ct);
       const scene = Math.floor(ct / FLAG_SCENE_SECONDS);
@@ -2448,7 +2472,7 @@ class LitePlayer {
     on('timeupdate', () => { invalidate(); onTime(); });
     on('seeked', onTime);
     on('progress', invalidate);
-    on('durationchange', () => { this.render(true); this.updateMarkers(); this.renderSilences(); this.renderChapterMarks(); });
+    on('durationchange', () => { this.render(true); if (this.loop) this.loop.render(); this.updateMarkers(); this.renderSilences(); this.renderChapterMarks(); });
     on('ratechange', () => {
       this.$('.speed').textContent = v.playbackRate + 'x';
       for (const b of this.root.querySelectorAll('.speedmenu button')) b.setAttribute('aria-checked', String(+b.dataset.rate === v.playbackRate));
@@ -2549,8 +2573,10 @@ class LitePlayer {
 
   seek(target) {
     const dur = this.duration();
-    this.video.currentTime = clamp(target, 0, dur ? dur - 0.1 : target);
+    const to = clamp(target, 0, dur ? dur - 0.1 : target);
+    this.video.currentTime = to;
     this.render(true);
+    if (this.loop) this.loop.seeked(to);
   }
 
   togglePlay() {
@@ -2673,7 +2699,9 @@ class LitePlayer {
     d.listen(this.root, 'click', (e) => {
       if (e.target.closest('.menu, .speed, .layout, .ccbtn, .audiobtn, .qbtn, .copybtn')) return;
       for (const [, m] of menus) m.hidden = true;
+      if (this.loop) this.loop.menu.hidden = true;
     });
+    this.loop = new ABLoop(this);
 
     // Click on a picture: play/pause; double click: fullscreen. While the controls are
     // hidden, the first click only brings them back (it may be aimed at a hidden button).
@@ -2913,6 +2941,9 @@ class LitePlayer {
         case '+': case '=': this.zoomMain(1.25); break;
         case '-': case '_': this.zoomMain(0.8); break;
         case '0': this.zoomMain(0); break;
+        case 'i': case 'I': this.loop.setA(v.currentTime); break;
+        case 'o': case 'O': this.loop.setB(v.currentTime); break;
+        case 'x': case 'X': if (this.loop.a != null) this.loop.clear(); else handled = false; break;
         case ']': this.setRate(nextSpeed(v.playbackRate, 1)); break;
         case '[': this.setRate(nextSpeed(v.playbackRate, -1)); break;
         default: handled = false;
@@ -3596,6 +3627,168 @@ class Zoomer {
     };
     d.listen(window, 'pointerup', end);
     d.listen(window, 'pointercancel', end);
+  }
+}
+
+// ---- 42-loop.js ----
+// ===================================================================================
+// A-B loop: play a stretch of the lecture again and again (a derivation, a sentence).
+//
+// Set the ends with I and O (or right-click the progress bar: "Loop from here" / "Loop to
+// here"); X or the band's ✕ ends it. The band on the progress bar shows the stretch and
+// its ends can be dragged. Playback jumps back to A when it reaches B from inside the
+// stretch; after a jump outside, a notice offers to end the loop (otherwise it loops again
+// once playback is back inside).
+// ===================================================================================
+
+const LOOP_MIN_SEC = 1;
+
+class ABLoop {
+  constructor(player) {
+    this.p = player;
+    this.a = null;
+    this.b = null;
+    this.last = -1;          // time at the previous check
+    this.timer = 0;
+    this.d = player.d;
+    this.build();
+  }
+
+  get active() { return this.a != null && this.b != null; }
+
+  build() {
+    const seek = this.p.$('.seek');
+    this.band = h('div.loopband', { hidden: true },
+      h('i.lh.la', { title: t('loopStart') }), h('i.lh.lb', { title: t('loopEnd') }),
+      h('button.lx', { title: t('loopClear') + ' (X)', 'aria-label': t('loopClear'), text: '✕' }));
+    seek.append(this.band);
+    this.menu = h('div.menu.loopmenu', { hidden: true, role: 'menu' },
+      h('button', { 'data-loop': 'a', text: t('loopFromHere') }),
+      h('button', { 'data-loop': 'b', text: t('loopToHere') }),
+      h('button', { 'data-loop': 'x', text: t('loopClear') }));
+    const host = this.p.$('.speedmenu').parentElement;  // where the other menus live
+    host.append(this.menu);
+    const d = this.d;
+    d.listen(this.band.querySelector('.lx'), 'pointerdown', (e) => e.stopPropagation());
+    d.listen(this.band.querySelector('.lx'), 'click', (e) => { e.stopPropagation(); this.clear(); });
+    for (const hd of this.band.querySelectorAll('.lh')) this.bindHandle(hd);
+    let at = 0;
+    d.listen(seek, 'contextmenu', (e) => {
+      e.preventDefault();
+      const r = seek.getBoundingClientRect();
+      at = clamp((e.clientX - r.left) / r.width, 0, 1) * this.p.duration();
+      const cr = host.getBoundingClientRect();
+      this.menu.style.left = clamp(e.clientX - cr.left - 60, 8, cr.width - 200) + 'px';
+      this.menu.style.right = 'auto';
+      this.menu.querySelector('[data-loop=x]').hidden = !this.active && this.a == null;
+      this.menu.hidden = false;
+    });
+    d.listen(this.menu, 'click', (e) => {
+      const b = e.target.closest('[data-loop]');
+      if (!b) return;
+      e.stopPropagation();
+      this.menu.hidden = true;
+      if (b.dataset.loop === 'a') this.setA(at);
+      else if (b.dataset.loop === 'b') this.setB(at);
+      else this.clear();
+    });
+  }
+
+  // Dragging an end of the band.
+  bindHandle(hd) {
+    const seek = this.p.$('.seek');
+    const isA = hd.classList.contains('la');
+    let drag = false;
+    this.d.listen(hd, 'pointerdown', (e) => {
+      if (e.button !== 0) return;
+      e.stopPropagation();
+      hd.setPointerCapture(e.pointerId);
+      drag = true;
+    });
+    this.d.listen(hd, 'pointermove', (e) => {
+      if (!drag) return;
+      const r = seek.getBoundingClientRect();
+      const tm = clamp((e.clientX - r.left) / r.width, 0, 1) * this.p.duration();
+      if (isA) this.a = Math.min(tm, this.b - LOOP_MIN_SEC); else this.b = Math.max(tm, this.a + LOOP_MIN_SEC);
+      this.render();
+    });
+    const end = (e) => {
+      if (!drag) return;
+      drag = false;
+      e.stopPropagation();
+      this.announce();
+    };
+    this.d.listen(hd, 'pointerup', end);
+    this.d.listen(hd, 'pointercancel', end);
+  }
+
+  setA(tm) {
+    this.a = clamp(tm, 0, this.p.duration());
+    if (this.b != null && this.b - this.a < LOOP_MIN_SEC) this.b = null;
+    this.render();
+    if (this.active) this.announce(); else this.p.toast(t('loopStartSet', { time: fmtTime(this.a) }));
+  }
+
+  setB(tm) {
+    const b = clamp(tm, 0, this.p.duration());
+    // Without a start, loop from a little before.
+    if (this.a == null || b - this.a < LOOP_MIN_SEC) this.a = Math.max(0, b - 10);
+    this.b = b;
+    this.render();
+    this.announce();
+    const v = this.p.video;
+    if (v.currentTime < this.a || v.currentTime >= this.b) this.p.seek(this.a);
+  }
+
+  clear() {
+    if (this.a == null && this.b == null) return;
+    this.a = null;
+    this.b = null;
+    clearTimeout(this.timer);
+    this.render();
+    this.p.toast(t('loopCleared'));
+  }
+
+  announce() {
+    this.p.toast(t('loopSet', { from: fmtTime(this.a), to: fmtTime(this.b) }), t('loopClear'), () => this.clear());
+  }
+
+  render() {
+    const dur = this.p.duration();
+    const band = this.band;
+    if (this.a == null || !dur) { band.hidden = true; return; }
+    const b = this.b == null ? this.a : this.b;
+    band.hidden = false;
+    band.classList.toggle('open', this.b == null);
+    band.style.left = ((this.a / dur) * 100).toFixed(3) + '%';
+    band.style.width = (((b - this.a) / dur) * 100).toFixed(3) + '%';
+  }
+
+  // Called on every time update: back to A when playback reaches B from inside.
+  tick(tm) {
+    const last = this.last;
+    this.last = tm;
+    if (!this.active) return;
+    const v = this.p.video;
+    if (v.seeking || v.paused) return;
+    if (last >= this.a - 0.5 && last < this.b && tm >= this.b - 0.05) {
+      this.p.seek(this.a);
+      this.last = this.a;
+      return;
+    }
+    // Time updates come about four times a second: aim the jump closer to B.
+    const left = (this.b - tm) / (v.playbackRate || 1);
+    clearTimeout(this.timer);
+    if (tm >= this.a && left > 0 && left < 0.4) {
+      this.timer = setTimeout(guard(() => { if (this.active && !v.paused && !v.seeking) this.tick(v.currentTime); }), left * 1000);
+    }
+  }
+
+  // A seek by the user: outside the loop, offer to end it.
+  seeked(target) {
+    if (!this.active || (target >= this.a - 0.5 && target < this.b)) return;
+    this.last = target;
+    this.p.toast(t('loopOutside', { from: fmtTime(this.a), to: fmtTime(this.b) }), t('loopClear'), () => this.clear());
   }
 }
 

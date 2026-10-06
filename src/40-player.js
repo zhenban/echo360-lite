@@ -20,7 +20,7 @@ const KEY_HELP = [
   [['M'], 'keyMute'], [['F'], 'keyFullscreen'], [['S'], 'keySwap'], [['[', ']'], 'keySpeed'],
   [['C'], 'keyCaptions'], [['T'], 'keyTranscript'], [['B'], 'keyBookmark'], [['G'], 'keyTag'], [['U'], 'keyFlag'],
   [['Shift+←', 'Shift+→'], 'keySlide'], [['P'], 'keyCopyFrame'], [['A'], 'keyCopyCaptions'],
-  [['+', '-'], 'keyZoom'], [['0'], 'keyZoomReset'],
+  [['+', '-'], 'keyZoom'], [['0'], 'keyZoomReset'], [['I', 'O'], 'keyLoop'], [['X'], 'keyLoopClear'],
   [['?'], 'keyHelp'], [['Esc'], 'keyEscape'],
 ];
 
@@ -513,6 +513,7 @@ class LitePlayer {
     const invalidate = () => this.frame.request();
     const onTime = () => {
       const ct = v.currentTime;
+      if (this.loop) this.loop.tick(ct);
       this.cc.update(ct);
       this.transcript.update(ct);
       const scene = Math.floor(ct / FLAG_SCENE_SECONDS);
@@ -524,7 +525,7 @@ class LitePlayer {
     on('timeupdate', () => { invalidate(); onTime(); });
     on('seeked', onTime);
     on('progress', invalidate);
-    on('durationchange', () => { this.render(true); this.updateMarkers(); this.renderSilences(); this.renderChapterMarks(); });
+    on('durationchange', () => { this.render(true); if (this.loop) this.loop.render(); this.updateMarkers(); this.renderSilences(); this.renderChapterMarks(); });
     on('ratechange', () => {
       this.$('.speed').textContent = v.playbackRate + 'x';
       for (const b of this.root.querySelectorAll('.speedmenu button')) b.setAttribute('aria-checked', String(+b.dataset.rate === v.playbackRate));
@@ -625,8 +626,10 @@ class LitePlayer {
 
   seek(target) {
     const dur = this.duration();
-    this.video.currentTime = clamp(target, 0, dur ? dur - 0.1 : target);
+    const to = clamp(target, 0, dur ? dur - 0.1 : target);
+    this.video.currentTime = to;
     this.render(true);
+    if (this.loop) this.loop.seeked(to);
   }
 
   togglePlay() {
@@ -749,7 +752,9 @@ class LitePlayer {
     d.listen(this.root, 'click', (e) => {
       if (e.target.closest('.menu, .speed, .layout, .ccbtn, .audiobtn, .qbtn, .copybtn')) return;
       for (const [, m] of menus) m.hidden = true;
+      if (this.loop) this.loop.menu.hidden = true;
     });
+    this.loop = new ABLoop(this);
 
     // Click on a picture: play/pause; double click: fullscreen. While the controls are
     // hidden, the first click only brings them back (it may be aimed at a hidden button).
@@ -989,6 +994,9 @@ class LitePlayer {
         case '+': case '=': this.zoomMain(1.25); break;
         case '-': case '_': this.zoomMain(0.8); break;
         case '0': this.zoomMain(0); break;
+        case 'i': case 'I': this.loop.setA(v.currentTime); break;
+        case 'o': case 'O': this.loop.setB(v.currentTime); break;
+        case 'x': case 'X': if (this.loop.a != null) this.loop.clear(); else handled = false; break;
         case ']': this.setRate(nextSpeed(v.playbackRate, 1)); break;
         case '[': this.setRate(nextSpeed(v.playbackRate, -1)); break;
         default: handled = false;
