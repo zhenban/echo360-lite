@@ -366,6 +366,8 @@ class SlideTextWorker {
   }
 
   run(input) {
+    // Closed with the player: never start a new Worker afterwards.
+    if (this.closed) return Promise.reject(new Error('closed'));
     if (!this.worker) {
       const url = URL.createObjectURL(new Blob([slideTextWorkerSource()], { type: 'text/javascript' }));
       this.worker = new Worker(url);
@@ -389,6 +391,7 @@ class SlideTextWorker {
   }
 
   close() {
+    this.closed = true;
     if (this.worker) this.worker.terminate();
     this.worker = null;
     for (const w of this.waiting.values()) w.reject(new Error('closed'));

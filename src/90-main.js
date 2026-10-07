@@ -25,6 +25,8 @@
     }
     try {
       const lesson = adapter.parse(arg);
+      // Checked before anything is built: without a way to play HLS, the original player.
+      if (!canPlayHls()) throw new Error('this browser cannot play HLS here (hls.js missing and no native HLS)');
       player = new LitePlayer(lesson, {
         fetchCues: adapter.fetchCues ? (l) => adapter.fetchCues(l) : null,
         api: adapter.api ? (l) => adapter.api(l) : null,

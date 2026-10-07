@@ -217,12 +217,19 @@ class SlideTextReader {
   }
 
   async recognize(blob) {
+    // Never start the engine (a Worker with tens of MB of WASM and language data) once
+    // reading has been stopped; one that finishes starting after a stop is ended at once.
+    if (this.ac.signal.aborted) throw new Error('aborted');
     if (!this.engine) {
+      const signal = this.ac.signal;
       this.engine = loadTesseract().then((T) => T.createWorker('eng', 1, {
         workerPath: TESS_BASE + TESS_FILES.worker,
         corePath: TESS_BASE + TESS_FILES.core,
         langPath: TESS_BASE + TESS_FILES.lang,
-      }));
+      })).then((w) => {
+        if (signal.aborted) { w.terminate(); throw new Error('aborted'); }
+        return w;
+      });
       this.engine.catch(() => { this.engine = null; });
     }
     const w = await this.engine;

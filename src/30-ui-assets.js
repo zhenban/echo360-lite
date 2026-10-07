@@ -299,6 +299,10 @@ video, .pdfview { position: absolute; left: 0; top: 0; width: 100%; height: 100%
 .top, .bottom { position: absolute; left: 0; right: 0; transition: opacity .2s ease; }
 .top { top: 0; z-index: 4; display: flex; align-items: center; gap: 8px; padding: 10px 14px 28px;
   background: linear-gradient(rgba(0,0,0,.72), rgba(0,0,0,0)); }
+/* The bar's background (a gradient over the picture) lets clicks through: only its buttons
+   and title take them, so toolbars and windows near the top stay usable. */
+.top { pointer-events: none; }
+.top > * { pointer-events: auto; }
 .bottom { bottom: 0; z-index: 4; padding: 28px 14px 8px; background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.78)); }
 .idle .top, .idle .bottom { opacity: 0; pointer-events: none; }
 .idle { cursor: none; }
@@ -437,7 +441,7 @@ function playerTemplate() {
         <button class="pnav pnext" title="${t('nextPage')}" aria-label="${t('nextPage')}">›</button>
         <span class="pfollow"></span>
         <button class="pnav pswap" title="${t('pdfSwap')}" aria-label="${t('pdfSwap')}">⇄</button>
-        <button class="pnav pclose" title="${t('pdfMainClose')}" aria-label="${t('pdfMainClose')}">✕</button>
+        <button class="pnav pdfclose" title="${t('pdfMainClose')}" aria-label="${t('pdfMainClose')}">✕</button>
       </div>
     </div>
     <div class="divider" role="separator" aria-orientation="vertical" aria-label="${t('resizeViews')}" tabindex="0"></div>
@@ -539,7 +543,7 @@ function playerTemplate() {
       <button role="tab" data-tab="notes" hidden>${t('notes')}</button>
       <button role="tab" data-tab="discussion" hidden>${t('discussion')}</button>
     </div>
-    <button class="btn pclose" title="${t('closePanel')}" aria-label="${t('closePanel')}">${svg('close')}</button>
+    <button class="btn panelclose" title="${t('closePanel')}" aria-label="${t('closePanel')}">${svg('close')}</button>
   </div>
   <div class="pextras" hidden><div class="msg"></div><button class="link">${t('openInOriginal')}</button></div>
   <section class="pane" data-pane="transcript" hidden>

@@ -1,5 +1,5 @@
 // Unit tests for the pure logic in src/ (no browser needed).
-//   node --test test/
+//   node --test test/unit.test.mjs
 // The sources are plain scripts meant to be concatenated, so they are evaluated in a small
 // sandbox with just enough browser globals stubbed out.
 import { test } from 'node:test';
@@ -11,7 +11,7 @@ import vm from 'node:vm';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-function loadSources(names) {
+function loadSources(names, overrides) {
   const timers = [];
   const ctx = {
     console, URL,
@@ -20,18 +20,20 @@ function loadSources(names) {
     document: { hidden: false, addEventListener() {}, removeEventListener() {} },
     localStorage: { getItem: () => null, setItem() {} },
     fetch: (...a) => ctx.__fetch(...a),
-    Blob, TextEncoder, location: { origin: 'https://echo360.example', hash: '' },
+    Blob, TextEncoder, AbortController, location: { origin: 'https://echo360.example', hash: '' },
     setInterval: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     clearInterval: (id) => { if (timers[id - 1]) timers[id - 1].fn = null; },
     setTimeout, clearTimeout,
     requestAnimationFrame: () => 1, cancelAnimationFrame() {},
     __timers: timers,
   };
+  Object.assign(ctx, overrides || {});
   vm.createContext(ctx);
   const files = readdirSync(join(root, 'src')).filter((f) => names.some((n) => f.includes(n))).sort();
   const code = files.map((f) => readFileSync(join(root, 'src', f), 'utf8')).join('\n')
     + '\n;globalThis.__exports = {};'
-    + ['clamp', 'fmtTime', 'parseIsoDuration', 'Disposer', 'PlayedRanges', 'FollowerSync', 'CueIndex', 'parseVtt', 'AudioChain', 'seg', 'thumbnailFor', 'pickAudioRendition', 'parseMediaPlaylist', 'Envelope', 'findSilences', 'silencesFromCues', 'speechSpans', 'silenceIndexAt', 'mp4Boxes', 'parseFragment', 'videoVariants', 'frameDistance', 'sameView', 'buildScenes', 'chapterIndexAt', 'SessionKeeper', 'mediaSession', 'TagStore', 'watchedShare', 'makeZip', 'crc32', 'lectureMarkdown', 'mdTag', 'followSamples', 'followLecture', 'textScores', 'FORCE_OFF', 'captionExcerpt']
+    + ['clamp', 'fmtTime', 'parseIsoDuration', 'Disposer', 'PlayedRanges', 'FollowerSync', 'CueIndex', 'parseVtt', 'AudioChain', 'seg', 'thumbnailFor', 'pickAudioRendition', 'parseMediaPlaylist', 'Envelope', 'findSilences', 'silencesFromCues', 'speechSpans', 'silenceIndexAt', 'mp4Boxes', 'parseFragment', 'videoVariants', 'frameDistance', 'sameView', 'buildScenes', 'chapterIndexAt', 'SessionKeeper', 'mediaSession', 'TagStore', 'watchedShare', 'makeZip', 'crc32', 'lectureMarkdown', 'mdTag', 'followSamples', 'followLecture', 'textScores', 'FORCE_OFF', 'captionExcerpt',
+      'sanitizePrefs', 'sanitizePos', 'prefDefaults', 'restoreBackup', 'LitePlayer', 'NotesPane', 'DiscussionPane', 'SlideTextReader', 'SlideTextWorker', 'playerTemplate', 'NS']
       .map((n) => `if (typeof ${n} !== 'undefined') globalThis.__exports.${n} = ${n};`).join('\n');
   vm.runInContext(code, ctx);
   return { ...ctx.__exports, timers, window: ctx.window, setFetch: (fn) => { ctx.__fetch = fn; } };
@@ -633,6 +635,147 @@ test('export: zip that standard tools open, Markdown with times, links and tags'
   assert.match(md, /^# Lecture\n\nRecorded 2026-09-15 · \[Open in Echo360\]\(https:\/\/e\/lesson\/L\/classroom\)/);
   assert.match(md, /- \*\*\[1:02:05\]\(https:\/\/e\/lesson\/L\/classroom#t=3725\)\*\* line one {2}\n {2}line two #Exam\n {2}\n {2}!\[\]\(Lecture\/Slides%20p3\.png\)/);
   assert.match(md, /- \*\*\[0:01:00\]\(https:\/\/e\/lesson\/L\/classroom#t=60\)\*\* 🔖 Bookmark\n/);
+});
+
+// ---- M8.9 A: regression tests for the urgent fixes ----
+
+test('E1: a player that fails half-way through construction releases what it made', () => {
+  const m = loadSources(['00-util', '01-i18n', '39-prefs', '40-player']);
+  const released = [];
+  m.LitePlayer.prototype.init = function () {
+    this.d.add(() => released.push('host'));
+    this.d.add(() => released.push('timer'));
+    throw new Error('boom');
+  };
+  assert.throws(() => new m.LitePlayer({}, {}), /boom/);
+  assert.equal(released.sort().join(','), 'host,timer');
+});
+
+test('E2: settings are validated field by field; damaged values fall back to defaults', () => {
+  const m = loadSources(['00-util', '01-i18n', '39-prefs', '40-player', '45-captions', '46-sidebar', '54-silence']);
+  const d = m.prefDefaults();
+  assert.equal(JSON.stringify(m.sanitizePrefs(null)), JSON.stringify(d));
+  assert.equal(JSON.stringify(m.sanitizePrefs('garbage')), JSON.stringify(d));
+  const p = m.sanitizePrefs({ rate: 'x', volume: NaN, ratio: 5, layout: 'weird', capSize: 'xl', muted: 'yes', audio: { level: true, voice: 1 },
+    silence: { min: 60, sens: 'loud' }, quality: { screen: 720, camera: -3 }, copySpan: 120, evil: 1, primary: 1.5 });
+  assert.equal(p.rate, 1);
+  assert.equal(p.volume, 1);
+  assert.equal(p.ratio, 0.5);
+  assert.equal(p.layout, 'side');
+  assert.equal(p.capSize, 'xl');
+  assert.equal(p.muted, false);
+  assert.equal(JSON.stringify(p.audio), '{"level":true,"voice":false,"mono":false}');
+  assert.equal(JSON.stringify(p.silence), '{"auto":false,"min":60,"sens":"normal"}');
+  assert.equal(JSON.stringify(p.quality), '{"screen":720,"camera":"auto"}');
+  assert.equal(p.copySpan, 120);
+  assert.equal(p.primary, null);
+  assert.equal('evil' in p, false);
+  assert.equal(m.sanitizePos({ t: 12.5, at: 1 }).t, 12.5);
+  assert.equal(m.sanitizePos({ t: 'x' }), null);
+});
+
+test('E2: a backup restore takes only known keys, validated, and skips damaged entries', async () => {
+  const local = new Map();
+  const db = new Map();
+  const m = loadSources(['00-util', '01-i18n', '39-prefs', '40-player', '45-captions', '46-sidebar', '53-media-io', '54-silence', '11-echo360-api', '10-adapter', '85-export'], {
+    localStorage: { getItem: (k) => (local.has(k) ? local.get(k) : null), setItem: (k, v) => local.set(k, v), key: () => null, length: 0 },
+  });
+  // In-memory IndexedDB stand-in.
+  const ctxIdb = { get: async (k) => db.get(k), put: async (k, v) => { db.set(k, v); }, del: async (k) => { db.delete(k); }, keys: async () => [...db.keys()] };
+  const n = await m.restoreBackup({
+    app: 'echo360-lite', v: 1,
+    local: { prefs: JSON.stringify({ rate: 'x', layout: 'pip' }), 'pos:abc': JSON.stringify({ t: 30 }), debug: 'true', 'evil:key': '1', 'pos:bad': '{"t":"no"}' },
+    db: { 'tags:s': { tags: [{ id: 'a', name: 'A', color: '#fff' }] }, 'tags:bad': { tags: 'nope' }, 'watched:l': { d: 100, r: [[0, 10]] }, 'other:x': 1 },
+  }, ctxIdb);
+  assert.equal(n, 4);
+  assert.equal(JSON.parse(local.get('echo360lite:prefs')).rate, 1);
+  assert.equal(JSON.parse(local.get('echo360lite:prefs')).layout, 'pip');
+  assert.equal(local.has('echo360lite:debug'), false);
+  assert.equal(local.has('echo360lite:evil:key'), false);
+  assert.equal(local.has('echo360lite:pos:bad'), false);
+  assert.equal(db.has('tags:bad'), false);
+  assert.equal(db.has('other:x'), false);
+  assert.equal(db.has('watched:l'), true);
+});
+
+test('S1: every element the player looks up by a single class exists exactly once in its markup', () => {
+  const m = loadSources(['00-util', '01-i18n', '30-ui-assets', '45-captions', '54-silence']);
+  const html = m.playerTemplate();
+  const count = new Map();
+  for (const [, cls] of html.matchAll(/class="([^"]+)"/g)) for (const c of cls.split(/\s+/)) count.set(c, (count.get(c) || 0) + 1);
+  const src = readdirSync(join(root, 'src')).filter((f) => f.endsWith('.js')).map((f) => readFileSync(join(root, 'src', f), 'utf8')).join('\n');
+  const single = new Set([...src.matchAll(/\$\('\.([\w-]+)'\)/g)].map((x) => x[1]));
+  assert.ok(single.size > 40);
+  const bad = [...single].filter((c) => count.get(c) !== 1).map((c) => c + ':' + (count.get(c) || 0));
+  assert.deepEqual(bad, []);
+});
+
+test('C1: a second write while one is on its way does nothing (discussion and notes)', async () => {
+  const m = loadSources(['00-util', '01-i18n', '46-sidebar', '47-notes', '48-discussion']);
+  let calls = 0;
+  let release;
+  const slow = () => { calls++; return new Promise((r) => { release = r; }); };
+  const pane = { showError() {}, fail() {}, load: async () => {} };
+  const a = m.DiscussionPane.prototype.write.call(pane, {}, slow);
+  const b = await m.DiscussionPane.prototype.write.call(pane, {}, slow);
+  assert.equal(b, false);
+  release();
+  assert.equal(await a, true);
+  assert.equal(calls, 1);
+  const notes = {};
+  let n = 0;
+  let rel2;
+  const x = m.NotesPane.prototype.once.call(notes, () => { n++; return new Promise((r) => { rel2 = r; }); });
+  await m.NotesPane.prototype.once.call(notes, () => { n++; });
+  rel2();
+  await x;
+  assert.equal(n, 1);
+});
+
+test('C3: when adding the bookmark fails, "tag here" tags nothing', async () => {
+  const m = loadSources(['00-util', '01-i18n', '46-sidebar', '47-notes']);
+  const far = { id: 'old', type: 'bookmark', time: 100 };
+  const pane = {
+    items: [far], p: { video: { currentTime: 3000 }, sidebar: { open() {} } },
+    addBookmark: async () => null, render() { throw new Error('should not render'); },
+  };
+  await m.NotesPane.prototype.tagHere.call(pane, {});
+  assert.equal(pane.picking, undefined);
+});
+
+test('L1: a renewal on its way when the player is disposed does not schedule another', async () => {
+  const timers = [];
+  const m = loadSources(['00-util', '36-session'], {
+    setTimeout: (fn, ms) => { timers.push({ fn, ms, live: true }); return timers.length; },
+    clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].live = false; },
+  });
+  let answer;
+  m.setFetch(() => new Promise((r) => { answer = r; }));
+  const d = new m.Disposer();
+  const k = new m.SessionKeeper({ url: '/lesson/x', renewMs: 3600000, disposer: d, retryMs: [1, 1] });
+  const p = k.renew(true);
+  d.dispose();
+  answer({ ok: true, status: 200, type: 'basic', body: null });
+  await assert.rejects(p);
+  assert.equal(timers.filter((x) => x.live && x.ms >= 60000).length, 0);
+  assert.equal(m.mediaSession.renew, null);
+  await assert.rejects(k.renew(true));
+});
+
+test('L2: a stopped text reader never starts the recognition engine', async () => {
+  const m = loadSources(['00-util', '53-media-io', '56-slides', '58-slide-ocr']);
+  const ac = new AbortController();
+  ac.abort();
+  const reader = { ac, engine: null };
+  await assert.rejects(m.SlideTextReader.prototype.recognize.call(reader, null), /aborted/);
+  assert.equal(reader.engine, null);
+});
+
+test('worker wrapper: closed means closed (no new Worker afterwards)', async () => {
+  const m = loadSources(['00-util', '58-slide-text']);
+  const w = new m.SlideTextWorker(new m.Disposer());
+  w.close();
+  await assert.rejects(w.run({}), /closed/);
 });
 
 test('caption excerpt: last span in whole sentences', () => {

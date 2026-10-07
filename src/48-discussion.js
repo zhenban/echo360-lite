@@ -201,7 +201,7 @@ class DiscussionPane {
     const send = h('button.pbtn.primary', { text: t('replyPublic') });
     const submit = (e) => {
       const body = area.value.trim();
-      if (!body || body.length > MAX_POST_LENGTH) return;
+      if (this.busy || !body || body.length > MAX_POST_LENGTH) return;
       send.disabled = true;
       this.write(e, () => this.api.reply(e, q.id, { body, anonymous: anon.checked }), () => { this.replyOpen = null; });
     };
@@ -219,7 +219,7 @@ class DiscussionPane {
 
   async post(e) {
     const body = this.textarea.value.trim();
-    if (!body || body.length > MAX_POST_LENGTH) return;
+    if (this.busy || !body || body.length > MAX_POST_LENGTH) return;
     this.postBtn.disabled = true;
     const time = this.linkTime.checked ? this.p.video.currentTime : null;
     await this.write(e, () => this.api.postComment(e, { body, anonymous: this.anon.checked, time }), () => {
@@ -229,16 +229,26 @@ class DiscussionPane {
     this.updateCounter(this.textarea, this.counter, this.postBtn);
   }
 
-  // Runs one write, then reloads the list so it shows what the server stored.
+  // Runs one write, then reloads the list so it shows what the server stored. One write
+  // at a time for the whole tab: a second Ctrl+Enter (or a click while the first request
+  // is on its way) does nothing, whatever state the buttons are in, so a post can never
+  // be published twice.
   async write(e, fn, onSuccess) {
+    if (this.busy) return false;
+    this.busy = true;
+    let ok = false;
     try {
       await fn();
+      ok = true;
       if (onSuccess) onSuccess();
       this.showError('');
     } catch (err) {
       this.fail(err);
+    } finally {
+      this.busy = false;
     }
     await this.load();
+    return ok;
   }
 
   markers() {

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Echo360 Lite Player
 // @namespace    echo360-lite
-// @version      0.11.1
+// @version      0.11.2
 // @description  Replaces the Echo360 lecture player with a lightweight native player (far lower CPU use). Falls back to the original player automatically if anything is not recognised.
 // @license      MIT
 // @match        https://echo360.net.au/lesson/*
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.11.1';
+  const VERSION = '0.11.2';
 
 // ---- 00-util.js ----
 // ===================================================================================
@@ -1345,6 +1345,10 @@ video, .pdfview { position: absolute; left: 0; top: 0; width: 100%; height: 100%
 .top, .bottom { position: absolute; left: 0; right: 0; transition: opacity .2s ease; }
 .top { top: 0; z-index: 4; display: flex; align-items: center; gap: 8px; padding: 10px 14px 28px;
   background: linear-gradient(rgba(0,0,0,.72), rgba(0,0,0,0)); }
+/* The bar's background (a gradient over the picture) lets clicks through: only its buttons
+   and title take them, so toolbars and windows near the top stay usable. */
+.top { pointer-events: none; }
+.top > * { pointer-events: auto; }
 .bottom { bottom: 0; z-index: 4; padding: 28px 14px 8px; background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.78)); }
 .idle .top, .idle .bottom { opacity: 0; pointer-events: none; }
 .idle { cursor: none; }
@@ -1483,7 +1487,7 @@ function playerTemplate() {
         <button class="pnav pnext" title="${t('nextPage')}" aria-label="${t('nextPage')}">›</button>
         <span class="pfollow"></span>
         <button class="pnav pswap" title="${t('pdfSwap')}" aria-label="${t('pdfSwap')}">⇄</button>
-        <button class="pnav pclose" title="${t('pdfMainClose')}" aria-label="${t('pdfMainClose')}">✕</button>
+        <button class="pnav pdfclose" title="${t('pdfMainClose')}" aria-label="${t('pdfMainClose')}">✕</button>
       </div>
     </div>
     <div class="divider" role="separator" aria-orientation="vertical" aria-label="${t('resizeViews')}" tabindex="0"></div>
@@ -1585,7 +1589,7 @@ function playerTemplate() {
       <button role="tab" data-tab="notes" hidden>${t('notes')}</button>
       <button role="tab" data-tab="discussion" hidden>${t('discussion')}</button>
     </div>
-    <button class="btn pclose" title="${t('closePanel')}" aria-label="${t('closePanel')}">${svg('close')}</button>
+    <button class="btn panelclose" title="${t('closePanel')}" aria-label="${t('closePanel')}">${svg('close')}</button>
   </div>
   <div class="pextras" hidden><div class="msg"></div><button class="link">${t('openInOriginal')}</button></div>
   <section class="pane" data-pane="transcript" hidden>
@@ -1616,6 +1620,12 @@ function playerTemplate() {
 // rendition. A cap (used for the camera in a small picture-in-picture window) limits auto
 // without affecting a fixed choice.
 // ===================================================================================
+
+// Whether streams can be played at all: hls.js with Media Source Extensions, or native HLS.
+function canPlayHls() {
+  if (typeof HlsLib !== 'undefined' && HlsLib && HlsLib.isSupported()) return true;
+  try { return !!document.createElement('video').canPlayType('application/vnd.apple.mpegurl'); } catch (e) { return false; }
+}
 
 class Stream {
   constructor(video, onFatal) {
@@ -1841,16 +1851,22 @@ class SessionKeeper {
     this.renewals = 0;
     this.d = opts.disposer;
     this.timer = 0;
+    // Once the player is gone (falling back to the original player), nothing may start
+    // again: a renewal still on its way must not schedule the next one.
+    this.disposed = false;
+    this.ac = new AbortController();
+    this.d.add(() => { this.disposed = true; this.ac.abort(); clearTimeout(this.timer); });
     this.schedule();
-    this.d.add(() => clearTimeout(this.timer));
     const wake = () => { if (!document.hidden && Date.now() - this.last > this.renewMs) this.renew(false).catch(() => {}); };
     this.d.listen(document, 'visibilitychange', wake);
     this.wake = wake;
-    mediaSession.renew = () => this.renew(true);
-    this.d.add(() => { if (mediaSession.renew) mediaSession.renew = null; });
+    const hook = () => this.renew(true);
+    mediaSession.renew = hook;
+    this.d.add(() => { if (mediaSession.renew === hook) mediaSession.renew = null; });
   }
 
   schedule() {
+    if (this.disposed) return;
     clearTimeout(this.timer);
     this.timer = setTimeout(() => this.renew(false).catch(() => {}), Math.max(60000, this.renewMs - (Date.now() - this.last)));
   }
@@ -1858,14 +1874,17 @@ class SessionKeeper {
   // Renews the cookies. `afterFailure`: something was refused, so the user may notice a
   // pause and is told what is going on. Concurrent calls share one renewal.
   renew(afterFailure) {
+    if (this.disposed) return Promise.reject(new Error('stopped'));
     if (this.failed) return Promise.reject(new Error('session expired'));
     if (this.pending) return this.pending;
     if (afterFailure) this.onState('renewing');
     this.pending = this.attempt(0).then(() => {
+      if (this.disposed) throw new Error('stopped');
       this.last = Date.now();
       this.renewals++;
       this.onState('ok');
     }, (e) => {
+      if (this.disposed) throw e;
       // A routine renewal that could not reach the server is tried again later; the
       // cookies are still valid for a while.
       if ((e && e.login) || afterFailure) {
@@ -1881,10 +1900,12 @@ class SessionKeeper {
   }
 
   async attempt(k) {
+    if (this.disposed) throw new Error('stopped');
     let r = null;
     try {
-      r = await fetch(this.url, { credentials: 'include', cache: 'no-store', redirect: 'manual' });
+      r = await fetch(this.url, { credentials: 'include', cache: 'no-store', redirect: 'manual', signal: this.ac.signal });
     } catch (e) {
+      if (this.disposed) throw new Error('stopped');
       r = null;
     }
     if (r && r.body) r.body.cancel().catch(() => {});
@@ -1896,7 +1917,10 @@ class SessionKeeper {
     }
     if (r && r.ok) return;
     if (k >= this.retryMs.length) throw new Error('renewal failed' + (r ? ' (HTTP ' + r.status + ')' : ''));
-    await new Promise((res) => setTimeout(res, this.retryMs[k]));
+    await new Promise((res) => {
+      const id = setTimeout(res, this.retryMs[k]);
+      this.ac.signal.addEventListener('abort', () => { clearTimeout(id); res(); }, { once: true });
+    });
     return this.attempt(k + 1);
   }
 }
@@ -1985,6 +2009,81 @@ class FollowerSync {
   }
 }
 
+// ---- 39-prefs.js ----
+// ===================================================================================
+// Settings: the defaults and one validation for everything that reads them back (the
+// player at start, a backup restore). Each field is checked for type and range; anything
+// else falls back to its default and unknown fields are dropped, so a damaged or foreign
+// value can never stop the player from starting.
+// ===================================================================================
+
+const COPY_SPANS = [30, 60, 120, 300];
+
+function prefDefaults() {
+  return {
+    primary: null, layout: 'side', ratio: 0.5, pipw: 0.26, corner: 'br', rate: 1, volume: 1, muted: false,
+    captions: false, capSize: 'm', capHidePaused: true, panel: false, tab: 'transcript', panelw: 360,
+    audio: { level: false, voice: false, mono: false },
+    silence: { auto: false, min: 30, sens: 'normal' },
+    copySpan: 60,
+    pdfMain: false, pdfFirst: false,
+    quality: { screen: 'auto', camera: 'auto' },
+  };
+}
+
+function sanitizePrefs(raw) {
+  const d = prefDefaults();
+  const r = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const num = (v, lo, hi, def) => (typeof v === 'number' && isFinite(v) && v >= lo && v <= hi ? v : def);
+  const bool = (v, def) => (typeof v === 'boolean' ? v : def);
+  const oneOf = (v, list, def) => (list.includes(v) ? v : def);
+  const obj = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
+  const audio = obj(r.audio);
+  const silence = obj(r.silence);
+  const quality = obj(r.quality);
+  const height = (v) => (v === 'auto' || (Number.isInteger(v) && v > 0 && v <= 4320) ? v : 'auto');
+  return {
+    primary: Number.isInteger(r.primary) && r.primary >= 0 ? r.primary : d.primary,
+    layout: oneOf(r.layout, LAYOUTS, d.layout),
+    ratio: num(r.ratio, 0.2, 0.8, d.ratio),
+    pipw: num(r.pipw, 0.15, 0.6, d.pipw),
+    corner: oneOf(r.corner, CORNERS, d.corner),
+    rate: num(r.rate, 0.25, 4, d.rate),
+    volume: num(r.volume, 0, 1, d.volume),
+    muted: bool(r.muted, d.muted),
+    captions: bool(r.captions, d.captions),
+    capSize: oneOf(r.capSize, Object.keys(CAPTION_SIZES), d.capSize),
+    capHidePaused: bool(r.capHidePaused, d.capHidePaused),
+    panel: bool(r.panel, d.panel),
+    tab: oneOf(r.tab, SIDEBAR_TABS, d.tab),
+    panelw: num(r.panelw, 260, 2000, d.panelw),
+    audio: { level: bool(audio.level, false), voice: bool(audio.voice, false), mono: bool(audio.mono, false) },
+    silence: {
+      auto: bool(silence.auto, false),
+      min: oneOf(silence.min, SILENCE_MIN_CHOICES, d.silence.min),
+      sens: oneOf(silence.sens, Object.keys(SILENCE_SENSITIVITY), d.silence.sens),
+    },
+    copySpan: oneOf(r.copySpan, COPY_SPANS, d.copySpan),
+    pdfMain: bool(r.pdfMain, d.pdfMain),
+    pdfFirst: bool(r.pdfFirst, d.pdfFirst),
+    quality: { screen: height(quality.screen), camera: height(quality.camera) },
+  };
+}
+
+// A saved position ({ t, at }) or null.
+function sanitizePos(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  if (typeof raw.t !== 'number' || !isFinite(raw.t) || raw.t < 0) return null;
+  return { t: raw.t, at: typeof raw.at === 'number' && isFinite(raw.at) ? raw.at : 0 };
+}
+
+// localStorage entries a backup may restore, with their validation. Development
+// switches (debug, dryRun, ...) are never restored.
+const BACKUP_LOCAL = [
+  { match: (k) => k === 'prefs', clean: sanitizePrefs },
+  { match: (k) => /^pos:[\w:.-]{1,200}$/.test(k), clean: sanitizePos },
+];
+
 // ---- 40-player.js ----
 // ===================================================================================
 // The player
@@ -2014,38 +2113,30 @@ const KEY_HELP = [
 
 class LitePlayer {
   constructor(lesson, opts) {
+    this.d = new Disposer();
+    this.destroyed = false;
+    // A failure half-way must not leave a half-built player (a black overlay over the
+    // original player, timers, requests): release everything made so far, then let the
+    // caller fall back.
+    try {
+      this.init(lesson, opts);
+    } catch (e) {
+      this.destroyed = true;
+      try { this.d.dispose(); } catch (err) { /* keep the first error */ }
+      throw e;
+    }
+  }
+
+  init(lesson, opts) {
     this.lesson = lesson;
     this.opts = opts;
-    this.d = new Disposer();
-    this.prefs = Object.assign(
-      {
-        primary: null, layout: 'side', ratio: 0.5, pipw: 0.26, corner: 'br', rate: 1, volume: 1, muted: false,
-        captions: false, capSize: 'm', capHidePaused: true, panel: false, tab: 'transcript', panelw: 360,
-        audio: { level: false, voice: false, mono: false },
-        silence: { auto: false, min: 30, sens: 'normal' },
-        copySpan: 60,
-        pdfMain: false, pdfFirst: false,
-        quality: { screen: 'auto', camera: 'auto' },
-      },
-      store.get('prefs', {}),
-    );
-    if (!LAYOUTS.includes(this.prefs.layout)) this.prefs.layout = 'side';
-    if (!CORNERS.includes(this.prefs.corner)) this.prefs.corner = 'br';
-    if (!(this.prefs.capSize in CAPTION_SIZES)) this.prefs.capSize = 'm';
-    const sp = Object.assign({ auto: false, min: 30, sens: 'normal' }, this.prefs.silence);
-    if (!SILENCE_MIN_CHOICES.includes(sp.min)) sp.min = 30;
-    if (!(sp.sens in SILENCE_SENSITIVITY)) sp.sens = 'normal';
-    this.prefs.silence = sp;
-    const qp = Object.assign({ screen: 'auto', camera: 'auto' }, this.prefs.quality);
-    for (const k of ['screen', 'camera']) if (qp[k] !== 'auto' && !(qp[k] > 0)) qp[k] = 'auto';
-    this.prefs.quality = qp;
+    this.prefs = sanitizePrefs(store.get('prefs', null));
     this.levelsByRole = {};
     this.played = new PlayedRanges();
     this.lastSecond = -1;
     this.lastP = -1;
     this.lastB = -1;
     this.dragging = false;
-    this.destroyed = false;
     this.sync = null;
     this.followerFailed = false;
     this.frame = new FrameTask(() => this.render());
@@ -2099,7 +2190,20 @@ class LitePlayer {
     if (start > 1) this.toast(t('resumedAt', { time: fmtTime(start) }), t('startOver'), () => this.seek(0));
   }
 
-  $(sel) { return this.root.querySelector(sel); }
+  // An element of the player's own markup. Each selector must name exactly one element:
+  // two elements sharing a class once bound one button's action to another. Looked up
+  // once and remembered (the markup is fixed; parts that are redrawn are not looked up
+  // this way).
+  $(sel) {
+    let el = this.refs.get(sel);
+    if (!el) {
+      const all = this.root.querySelectorAll(sel);
+      if (all.length !== 1) throw new Error('player markup: "' + sel + '" matches ' + all.length + ' elements');
+      el = all[0];
+      this.refs.set(sel, el);
+    }
+    return el;
+  }
 
   get secondaryPos() {
     return this.dual ? (this.primaryPos + 1) % this.sources.length : -1;
@@ -2122,6 +2226,7 @@ class LitePlayer {
     root.innerHTML = '<style>' + CSS + '</style>' + playerTemplate();
     this.host = host;
     this.root = root;
+    this.refs = new Map();
     this.stage = this.$('.stage');
     this.video = this.$('video.clock');
     this.fvideo = this.$('video.follower');
@@ -2177,8 +2282,8 @@ class LitePlayer {
     const dur = this.lesson.duration;
     let t0 = this.lesson.resumeAt;
     if (t0 == null) {
-      const local = store.get('pos:' + this.lesson.id, null);
-      t0 = local && typeof local.t === 'number' ? local.t : 0;
+      const local = sanitizePos(store.get('pos:' + this.lesson.id, null));
+      t0 = local ? local.t : 0;
     }
     if (!(t0 > 0) || (isFinite(dur) && t0 > dur - 10)) t0 = 0;
     return t0;
@@ -2800,7 +2905,7 @@ class LitePlayer {
       if (b) this.setCaptionSize(b.dataset.size);
     });
     for (const chip of this.root.querySelectorAll('.top [data-open]')) d.listen(chip, 'click', () => this.sidebar.toggle(chip.dataset.open));
-    d.listen($('.pclose'), 'click', () => this.sidebar.close());
+    d.listen($('.panelclose'), 'click', () => this.sidebar.close());
     d.listen($('.bmbtn'), 'click', (e) => { if (this.notes) this.notes.addBookmark(e); });
     d.listen($('.flagbtn'), 'click', (e) => { if (this.notes) this.notes.toggleFlag(e); });
     d.listen($('.pextras button'), 'click', () => this.opts.onFallback('extras'));
@@ -3224,7 +3329,7 @@ class LitePlayer {
     bar('.pprev', () => this.reader.turn(-1));
     bar('.pnext', () => this.reader.turn(1));
     bar('.pswap', () => this.swapPdf());
-    bar('.pclose', () => this.setPdfMain(false));
+    bar('.pdfclose', () => this.setPdfMain(false));
     // Dropping PDF files anywhere on the player adds them.
     const zone = this.$('.dropzone');
     const hasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
@@ -4562,7 +4667,7 @@ class NotesPane {
     area.value = item.text;
     const save = h('button.pbtn.primary', { text: t('save') });
     const cancel = h('button.pbtn', { text: t('cancel'), onclick: () => this.render() });
-    save.addEventListener('click', guard(async (e) => {
+    save.addEventListener('click', guard((e) => this.once(async () => {
       const text = area.value.trim();
       if (!text) return;
       save.disabled = true;
@@ -4572,13 +4677,25 @@ class NotesPane {
         this.showError('');
         this.changed();
       } catch (err) { save.disabled = false; this.fail(err); }
-    }));
+    })));
     card.querySelector('.ibody').replaceWith(h('div.composer', null, area, h('div.crow', null, h('span.grow'), cancel, save)));
     card.querySelector('.iactions').hidden = true;
     area.focus();
   }
 
-  async addNote(e) {
+  // One write at a time for the whole tab (see DiscussionPane.write): a second Ctrl+Enter
+  // or click while a request is on its way does nothing.
+  async once(fn) {
+    if (this.busy) return undefined;
+    this.busy = true;
+    try { return await fn(); } finally { this.busy = false; }
+  }
+
+  addNote(e) {
+    return this.once(() => this.addNoteNow(e));
+  }
+
+  async addNoteNow(e) {
     const text = this.textarea.value.trim();
     if (!text) return;
     this.addBtn.disabled = true;
@@ -4598,15 +4715,20 @@ class NotesPane {
 
   count(type) { return this.items.filter((x) => x.type === type).length; }
 
-  async addBookmark(e) {
-    const time = this.p.video.currentTime;
-    try {
-      const note = await this.api.addNote(e, { bookmark: true, time, num: this.count('bookmark') + 1 });
-      this.items.push(note);
-      this.sort();
-      this.changed();
-      this.p.toast(t('bookmarkedAt', { time: fmtTime(time) }), t('undo'), (ev) => this.remove(ev, note));
-    } catch (err) { this.fail(err); }
+  // Resolves to the new bookmark, or null if it could not be added (or another write was
+  // still on its way).
+  addBookmark(e) {
+    return this.once(async () => {
+      const time = this.p.video.currentTime;
+      try {
+        const note = await this.api.addNote(e, { bookmark: true, time, num: this.count('bookmark') + 1 });
+        this.items.push(note);
+        this.sort();
+        this.changed();
+        this.p.toast(t('bookmarkedAt', { time: fmtTime(time) }), t('undo'), (ev) => this.remove(ev, note));
+        return note;
+      } catch (err) { this.fail(err); return null; }
+    }).then((x) => x || null);
   }
 
   flagAt(time) {
@@ -4614,7 +4736,11 @@ class NotesPane {
     return this.items.find((x) => x.type === 'flag' && x.time === scene) || null;
   }
 
-  async toggleFlag(e) {
+  toggleFlag(e) {
+    return this.once(() => this.toggleFlagNow(e));
+  }
+
+  async toggleFlagNow(e) {
     if (!this.canFlag) return;
     const time = this.p.video.currentTime;
     const existing = this.flagAt(time);
@@ -4635,7 +4761,11 @@ class NotesPane {
     } catch (err) { this.fail(err); }
   }
 
-  async remove(e, item) {
+  remove(e, item) {
+    return this.once(() => this.removeNow(e, item));
+  }
+
+  async removeNow(e, item) {
     try {
       if (item.type === 'flag') await this.api.removeFlag(e, item);
       else await this.api.deleteNote(e, item);
@@ -4723,8 +4853,8 @@ class NotesPane {
     let item = null;
     for (const x of this.items) if (x.type !== 'flag' && x.time != null && x.time <= now + 5 && x.time >= now - 30 && (!item || Math.abs(x.time - now) < Math.abs(item.time - now))) item = x;
     if (!item) {
-      await this.addBookmark(e);
-      item = this.items.filter((x) => x.type === 'bookmark').sort((a, b) => Math.abs(a.time - now) - Math.abs(b.time - now))[0];
+      // The bookmark just made, and only that one: if adding it failed, nothing is tagged.
+      item = await this.addBookmark(e);
       if (!item) return;
     }
     this.filter = 'all';
@@ -5129,7 +5259,7 @@ class DiscussionPane {
     const send = h('button.pbtn.primary', { text: t('replyPublic') });
     const submit = (e) => {
       const body = area.value.trim();
-      if (!body || body.length > MAX_POST_LENGTH) return;
+      if (this.busy || !body || body.length > MAX_POST_LENGTH) return;
       send.disabled = true;
       this.write(e, () => this.api.reply(e, q.id, { body, anonymous: anon.checked }), () => { this.replyOpen = null; });
     };
@@ -5147,7 +5277,7 @@ class DiscussionPane {
 
   async post(e) {
     const body = this.textarea.value.trim();
-    if (!body || body.length > MAX_POST_LENGTH) return;
+    if (this.busy || !body || body.length > MAX_POST_LENGTH) return;
     this.postBtn.disabled = true;
     const time = this.linkTime.checked ? this.p.video.currentTime : null;
     await this.write(e, () => this.api.postComment(e, { body, anonymous: this.anon.checked, time }), () => {
@@ -5157,16 +5287,26 @@ class DiscussionPane {
     this.updateCounter(this.textarea, this.counter, this.postBtn);
   }
 
-  // Runs one write, then reloads the list so it shows what the server stored.
+  // Runs one write, then reloads the list so it shows what the server stored. One write
+  // at a time for the whole tab: a second Ctrl+Enter (or a click while the first request
+  // is on its way) does nothing, whatever state the buttons are in, so a post can never
+  // be published twice.
   async write(e, fn, onSuccess) {
+    if (this.busy) return false;
+    this.busy = true;
+    let ok = false;
     try {
       await fn();
+      ok = true;
       if (onSuccess) onSuccess();
       this.showError('');
     } catch (err) {
       this.fail(err);
+    } finally {
+      this.busy = false;
     }
     await this.load();
+    return ok;
   }
 
   markers() {
@@ -7234,12 +7374,19 @@ class SlideTextReader {
   }
 
   async recognize(blob) {
+    // Never start the engine (a Worker with tens of MB of WASM and language data) once
+    // reading has been stopped; one that finishes starting after a stop is ended at once.
+    if (this.ac.signal.aborted) throw new Error('aborted');
     if (!this.engine) {
+      const signal = this.ac.signal;
       this.engine = loadTesseract().then((T) => T.createWorker('eng', 1, {
         workerPath: TESS_BASE + TESS_FILES.worker,
         corePath: TESS_BASE + TESS_FILES.core,
         langPath: TESS_BASE + TESS_FILES.lang,
-      }));
+      })).then((w) => {
+        if (signal.aborted) { w.terminate(); throw new Error('aborted'); }
+        return w;
+      });
       this.engine.catch(() => { this.engine = null; });
     }
     const w = await this.engine;
@@ -7622,6 +7769,8 @@ class SlideTextWorker {
   }
 
   run(input) {
+    // Closed with the player: never start a new Worker afterwards.
+    if (this.closed) return Promise.reject(new Error('closed'));
     if (!this.worker) {
       const url = URL.createObjectURL(new Blob([slideTextWorkerSource()], { type: 'text/javascript' }));
       this.worker = new Worker(url);
@@ -7645,6 +7794,7 @@ class SlideTextWorker {
   }
 
   close() {
+    this.closed = true;
     if (this.worker) this.worker.terminate();
     this.worker = null;
     for (const w of this.waiting.values()) w.reject(new Error('closed'));
@@ -7857,7 +8007,8 @@ class SlideDeckController {
         if (!blob) continue;
         const task = lib.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) });
         const doc = await task.promise;
-        if (this.job !== job) { task.destroy().catch(() => {}); return; }
+        // Replaced by a newer load, or the player is gone: this document is not kept.
+        if (this.job !== job || this.ac.signal.aborted) { task.destroy().catch(() => {}); return; }
         this.docs.push(task);
         for (let n = 1; n <= doc.numPages; n++) {
           const page = await doc.getPage(n);
@@ -7945,7 +8096,7 @@ class SlideDeckController {
       if (!this.ac.signal.aborted) console.warn(TAG, 'slide following:', e && e.message ? e.message : e);
     }).finally(() => {
       this.deciding = null;
-      if (this.again) { this.again = false; this.decide(true); }
+      if (this.again && !this.ac.signal.aborted) { this.again = false; this.decide(true); }
     });
   }
 
@@ -8618,6 +8769,20 @@ class Exporter {
 
 const BACKUP_KEYS = /^(tags|tagmap|deck|deckref|watched):/;
 
+// The shape each restored IndexedDB entry must have (anything else is skipped, so a
+// damaged backup cannot plant data that breaks a later visit).
+const isStr = (x) => typeof x === 'string' && x.length < 2000;
+const isNum = (x) => typeof x === 'number' && isFinite(x);
+const BACKUP_DB_SHAPES = {
+  tags: (v) => v && Array.isArray(v.tags) && v.tags.every((g) => g && isStr(g.id) && isStr(g.name) && isStr(g.color)),
+  tagmap: (v) => v && typeof v === 'object' && !Array.isArray(v) && Object.values(v).every((a) => Array.isArray(a) && a.every(isStr)),
+  deck: (v) => v && Array.isArray(v.files) && v.files.every((f) => f && isStr(f.hash) && isStr(f.name))
+    && (v.fixes == null || (Array.isArray(v.fixes) && v.fixes.every((x) => x && isNum(x.a) && isNum(x.b) && isStr(String(x.page))))),
+  deckref: (v) => Array.isArray(v) && v.every(isStr),
+  watched: (v) => v && isNum(v.d) && Array.isArray(v.r) && v.r.every((x) => Array.isArray(x) && x.length === 2 && isNum(x[0]) && isNum(x[1])),
+  deckfile: (v) => v instanceof Blob,
+};
+
 async function blobToBase64(blob) {
   const bytes = new Uint8Array(await blob.arrayBuffer());
   let s = '';
@@ -8629,7 +8794,8 @@ async function makeBackup(withPdfs) {
   const out = { app: 'echo360-lite', v: 1, created: new Date().toISOString(), local: {}, db: {} };
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
-    if (k && k.startsWith(NS) && !/^(debug|dryRun)$/.test(k.slice(NS.length))) out.local[k.slice(NS.length)] = localStorage.getItem(k);
+    const key = k && k.startsWith(NS) ? k.slice(NS.length) : null;
+    if (key && BACKUP_LOCAL.some((x) => x.match(key))) out.local[key] = localStorage.getItem(k);
   }
   for (const k of await idbCache.keys()) {
     const key = String(k);
@@ -8643,12 +8809,19 @@ async function makeBackup(withPdfs) {
 
 // Restores a backup: its entries replace the ones with the same keys. Returns the number
 // of entries written.
-async function restoreBackup(data) {
+async function restoreBackup(data, db = idbCache) {
   if (!data || data.app !== 'echo360-lite' || data.v !== 1 || typeof data.db !== 'object') throw new Error(t('backupInvalid'));
   let n = 0;
-  for (const [k, v] of Object.entries(data.local || {})) {
-    if (/^(debug|dryRun)$/.test(k)) continue;
-    try { localStorage.setItem(NS + k, v); n++; } catch (e) { /* full */ }
+  // Settings and positions: only known keys, each validated like the player does (a
+  // damaged value becomes the default instead of breaking every later visit).
+  for (const [k, v] of Object.entries(data.local && typeof data.local === 'object' ? data.local : {})) {
+    const rule = BACKUP_LOCAL.find((x) => x.match(k));
+    if (!rule) continue;
+    let parsed = null;
+    try { parsed = JSON.parse(v); } catch (e) { parsed = null; }
+    const clean = rule.clean(parsed);
+    if (clean == null) continue;
+    try { localStorage.setItem(NS + k, JSON.stringify(clean)); n++; } catch (e) { /* storage full */ }
   }
   for (const [k, v] of Object.entries(data.db)) {
     if (!BACKUP_KEYS.test(k) && !k.startsWith('deckfile:')) continue;
@@ -8659,7 +8832,9 @@ async function restoreBackup(data) {
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
       val = new Blob([bytes], { type: v.type || 'application/octet-stream' });
     }
-    await idbCache.put(k, val);
+    const shape = BACKUP_DB_SHAPES[k.split(':')[0]];
+    if (!shape || !shape(val)) continue;
+    await db.put(k, val);
     n++;
   }
   return n;
@@ -8693,6 +8868,8 @@ async function restoreBackup(data) {
     }
     try {
       const lesson = adapter.parse(arg);
+      // Checked before anything is built: without a way to play HLS, the original player.
+      if (!canPlayHls()) throw new Error('this browser cannot play HLS here (hls.js missing and no native HLS)');
       player = new LitePlayer(lesson, {
         fetchCues: adapter.fetchCues ? (l) => adapter.fetchCues(l) : null,
         api: adapter.api ? (l) => adapter.api(l) : null,

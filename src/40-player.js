@@ -26,38 +26,30 @@ const KEY_HELP = [
 
 class LitePlayer {
   constructor(lesson, opts) {
+    this.d = new Disposer();
+    this.destroyed = false;
+    // A failure half-way must not leave a half-built player (a black overlay over the
+    // original player, timers, requests): release everything made so far, then let the
+    // caller fall back.
+    try {
+      this.init(lesson, opts);
+    } catch (e) {
+      this.destroyed = true;
+      try { this.d.dispose(); } catch (err) { /* keep the first error */ }
+      throw e;
+    }
+  }
+
+  init(lesson, opts) {
     this.lesson = lesson;
     this.opts = opts;
-    this.d = new Disposer();
-    this.prefs = Object.assign(
-      {
-        primary: null, layout: 'side', ratio: 0.5, pipw: 0.26, corner: 'br', rate: 1, volume: 1, muted: false,
-        captions: false, capSize: 'm', capHidePaused: true, panel: false, tab: 'transcript', panelw: 360,
-        audio: { level: false, voice: false, mono: false },
-        silence: { auto: false, min: 30, sens: 'normal' },
-        copySpan: 60,
-        pdfMain: false, pdfFirst: false,
-        quality: { screen: 'auto', camera: 'auto' },
-      },
-      store.get('prefs', {}),
-    );
-    if (!LAYOUTS.includes(this.prefs.layout)) this.prefs.layout = 'side';
-    if (!CORNERS.includes(this.prefs.corner)) this.prefs.corner = 'br';
-    if (!(this.prefs.capSize in CAPTION_SIZES)) this.prefs.capSize = 'm';
-    const sp = Object.assign({ auto: false, min: 30, sens: 'normal' }, this.prefs.silence);
-    if (!SILENCE_MIN_CHOICES.includes(sp.min)) sp.min = 30;
-    if (!(sp.sens in SILENCE_SENSITIVITY)) sp.sens = 'normal';
-    this.prefs.silence = sp;
-    const qp = Object.assign({ screen: 'auto', camera: 'auto' }, this.prefs.quality);
-    for (const k of ['screen', 'camera']) if (qp[k] !== 'auto' && !(qp[k] > 0)) qp[k] = 'auto';
-    this.prefs.quality = qp;
+    this.prefs = sanitizePrefs(store.get('prefs', null));
     this.levelsByRole = {};
     this.played = new PlayedRanges();
     this.lastSecond = -1;
     this.lastP = -1;
     this.lastB = -1;
     this.dragging = false;
-    this.destroyed = false;
     this.sync = null;
     this.followerFailed = false;
     this.frame = new FrameTask(() => this.render());
@@ -111,7 +103,20 @@ class LitePlayer {
     if (start > 1) this.toast(t('resumedAt', { time: fmtTime(start) }), t('startOver'), () => this.seek(0));
   }
 
-  $(sel) { return this.root.querySelector(sel); }
+  // An element of the player's own markup. Each selector must name exactly one element:
+  // two elements sharing a class once bound one button's action to another. Looked up
+  // once and remembered (the markup is fixed; parts that are redrawn are not looked up
+  // this way).
+  $(sel) {
+    let el = this.refs.get(sel);
+    if (!el) {
+      const all = this.root.querySelectorAll(sel);
+      if (all.length !== 1) throw new Error('player markup: "' + sel + '" matches ' + all.length + ' elements');
+      el = all[0];
+      this.refs.set(sel, el);
+    }
+    return el;
+  }
 
   get secondaryPos() {
     return this.dual ? (this.primaryPos + 1) % this.sources.length : -1;
@@ -134,6 +139,7 @@ class LitePlayer {
     root.innerHTML = '<style>' + CSS + '</style>' + playerTemplate();
     this.host = host;
     this.root = root;
+    this.refs = new Map();
     this.stage = this.$('.stage');
     this.video = this.$('video.clock');
     this.fvideo = this.$('video.follower');
@@ -189,8 +195,8 @@ class LitePlayer {
     const dur = this.lesson.duration;
     let t0 = this.lesson.resumeAt;
     if (t0 == null) {
-      const local = store.get('pos:' + this.lesson.id, null);
-      t0 = local && typeof local.t === 'number' ? local.t : 0;
+      const local = sanitizePos(store.get('pos:' + this.lesson.id, null));
+      t0 = local ? local.t : 0;
     }
     if (!(t0 > 0) || (isFinite(dur) && t0 > dur - 10)) t0 = 0;
     return t0;
@@ -812,7 +818,7 @@ class LitePlayer {
       if (b) this.setCaptionSize(b.dataset.size);
     });
     for (const chip of this.root.querySelectorAll('.top [data-open]')) d.listen(chip, 'click', () => this.sidebar.toggle(chip.dataset.open));
-    d.listen($('.pclose'), 'click', () => this.sidebar.close());
+    d.listen($('.panelclose'), 'click', () => this.sidebar.close());
     d.listen($('.bmbtn'), 'click', (e) => { if (this.notes) this.notes.addBookmark(e); });
     d.listen($('.flagbtn'), 'click', (e) => { if (this.notes) this.notes.toggleFlag(e); });
     d.listen($('.pextras button'), 'click', () => this.opts.onFallback('extras'));
@@ -1236,7 +1242,7 @@ class LitePlayer {
     bar('.pprev', () => this.reader.turn(-1));
     bar('.pnext', () => this.reader.turn(1));
     bar('.pswap', () => this.swapPdf());
-    bar('.pclose', () => this.setPdfMain(false));
+    bar('.pdfclose', () => this.setPdfMain(false));
     // Dropping PDF files anywhere on the player adds them.
     const zone = this.$('.dropzone');
     const hasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes('Files');

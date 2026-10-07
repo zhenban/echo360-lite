@@ -216,6 +216,20 @@ class Exporter {
 
 const BACKUP_KEYS = /^(tags|tagmap|deck|deckref|watched):/;
 
+// The shape each restored IndexedDB entry must have (anything else is skipped, so a
+// damaged backup cannot plant data that breaks a later visit).
+const isStr = (x) => typeof x === 'string' && x.length < 2000;
+const isNum = (x) => typeof x === 'number' && isFinite(x);
+const BACKUP_DB_SHAPES = {
+  tags: (v) => v && Array.isArray(v.tags) && v.tags.every((g) => g && isStr(g.id) && isStr(g.name) && isStr(g.color)),
+  tagmap: (v) => v && typeof v === 'object' && !Array.isArray(v) && Object.values(v).every((a) => Array.isArray(a) && a.every(isStr)),
+  deck: (v) => v && Array.isArray(v.files) && v.files.every((f) => f && isStr(f.hash) && isStr(f.name))
+    && (v.fixes == null || (Array.isArray(v.fixes) && v.fixes.every((x) => x && isNum(x.a) && isNum(x.b) && isStr(String(x.page))))),
+  deckref: (v) => Array.isArray(v) && v.every(isStr),
+  watched: (v) => v && isNum(v.d) && Array.isArray(v.r) && v.r.every((x) => Array.isArray(x) && x.length === 2 && isNum(x[0]) && isNum(x[1])),
+  deckfile: (v) => v instanceof Blob,
+};
+
 async function blobToBase64(blob) {
   const bytes = new Uint8Array(await blob.arrayBuffer());
   let s = '';
@@ -227,7 +241,8 @@ async function makeBackup(withPdfs) {
   const out = { app: 'echo360-lite', v: 1, created: new Date().toISOString(), local: {}, db: {} };
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
-    if (k && k.startsWith(NS) && !/^(debug|dryRun)$/.test(k.slice(NS.length))) out.local[k.slice(NS.length)] = localStorage.getItem(k);
+    const key = k && k.startsWith(NS) ? k.slice(NS.length) : null;
+    if (key && BACKUP_LOCAL.some((x) => x.match(key))) out.local[key] = localStorage.getItem(k);
   }
   for (const k of await idbCache.keys()) {
     const key = String(k);
@@ -241,12 +256,19 @@ async function makeBackup(withPdfs) {
 
 // Restores a backup: its entries replace the ones with the same keys. Returns the number
 // of entries written.
-async function restoreBackup(data) {
+async function restoreBackup(data, db = idbCache) {
   if (!data || data.app !== 'echo360-lite' || data.v !== 1 || typeof data.db !== 'object') throw new Error(t('backupInvalid'));
   let n = 0;
-  for (const [k, v] of Object.entries(data.local || {})) {
-    if (/^(debug|dryRun)$/.test(k)) continue;
-    try { localStorage.setItem(NS + k, v); n++; } catch (e) { /* full */ }
+  // Settings and positions: only known keys, each validated like the player does (a
+  // damaged value becomes the default instead of breaking every later visit).
+  for (const [k, v] of Object.entries(data.local && typeof data.local === 'object' ? data.local : {})) {
+    const rule = BACKUP_LOCAL.find((x) => x.match(k));
+    if (!rule) continue;
+    let parsed = null;
+    try { parsed = JSON.parse(v); } catch (e) { parsed = null; }
+    const clean = rule.clean(parsed);
+    if (clean == null) continue;
+    try { localStorage.setItem(NS + k, JSON.stringify(clean)); n++; } catch (e) { /* storage full */ }
   }
   for (const [k, v] of Object.entries(data.db)) {
     if (!BACKUP_KEYS.test(k) && !k.startsWith('deckfile:')) continue;
@@ -257,7 +279,9 @@ async function restoreBackup(data) {
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
       val = new Blob([bytes], { type: v.type || 'application/octet-stream' });
     }
-    await idbCache.put(k, val);
+    const shape = BACKUP_DB_SHAPES[k.split(':')[0]];
+    if (!shape || !shape(val)) continue;
+    await db.put(k, val);
     n++;
   }
   return n;

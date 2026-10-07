@@ -39,16 +39,22 @@ class SessionKeeper {
     this.renewals = 0;
     this.d = opts.disposer;
     this.timer = 0;
+    // Once the player is gone (falling back to the original player), nothing may start
+    // again: a renewal still on its way must not schedule the next one.
+    this.disposed = false;
+    this.ac = new AbortController();
+    this.d.add(() => { this.disposed = true; this.ac.abort(); clearTimeout(this.timer); });
     this.schedule();
-    this.d.add(() => clearTimeout(this.timer));
     const wake = () => { if (!document.hidden && Date.now() - this.last > this.renewMs) this.renew(false).catch(() => {}); };
     this.d.listen(document, 'visibilitychange', wake);
     this.wake = wake;
-    mediaSession.renew = () => this.renew(true);
-    this.d.add(() => { if (mediaSession.renew) mediaSession.renew = null; });
+    const hook = () => this.renew(true);
+    mediaSession.renew = hook;
+    this.d.add(() => { if (mediaSession.renew === hook) mediaSession.renew = null; });
   }
 
   schedule() {
+    if (this.disposed) return;
     clearTimeout(this.timer);
     this.timer = setTimeout(() => this.renew(false).catch(() => {}), Math.max(60000, this.renewMs - (Date.now() - this.last)));
   }
@@ -56,14 +62,17 @@ class SessionKeeper {
   // Renews the cookies. `afterFailure`: something was refused, so the user may notice a
   // pause and is told what is going on. Concurrent calls share one renewal.
   renew(afterFailure) {
+    if (this.disposed) return Promise.reject(new Error('stopped'));
     if (this.failed) return Promise.reject(new Error('session expired'));
     if (this.pending) return this.pending;
     if (afterFailure) this.onState('renewing');
     this.pending = this.attempt(0).then(() => {
+      if (this.disposed) throw new Error('stopped');
       this.last = Date.now();
       this.renewals++;
       this.onState('ok');
     }, (e) => {
+      if (this.disposed) throw e;
       // A routine renewal that could not reach the server is tried again later; the
       // cookies are still valid for a while.
       if ((e && e.login) || afterFailure) {
@@ -79,10 +88,12 @@ class SessionKeeper {
   }
 
   async attempt(k) {
+    if (this.disposed) throw new Error('stopped');
     let r = null;
     try {
-      r = await fetch(this.url, { credentials: 'include', cache: 'no-store', redirect: 'manual' });
+      r = await fetch(this.url, { credentials: 'include', cache: 'no-store', redirect: 'manual', signal: this.ac.signal });
     } catch (e) {
+      if (this.disposed) throw new Error('stopped');
       r = null;
     }
     if (r && r.body) r.body.cancel().catch(() => {});
@@ -94,7 +105,10 @@ class SessionKeeper {
     }
     if (r && r.ok) return;
     if (k >= this.retryMs.length) throw new Error('renewal failed' + (r ? ' (HTTP ' + r.status + ')' : ''));
-    await new Promise((res) => setTimeout(res, this.retryMs[k]));
+    await new Promise((res) => {
+      const id = setTimeout(res, this.retryMs[k]);
+      this.ac.signal.addEventListener('abort', () => { clearTimeout(id); res(); }, { once: true });
+    });
     return this.attempt(k + 1);
   }
 }

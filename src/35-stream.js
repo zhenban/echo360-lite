@@ -9,6 +9,12 @@
 // without affecting a fixed choice.
 // ===================================================================================
 
+// Whether streams can be played at all: hls.js with Media Source Extensions, or native HLS.
+function canPlayHls() {
+  if (typeof HlsLib !== 'undefined' && HlsLib && HlsLib.isSupported()) return true;
+  try { return !!document.createElement('video').canPlayType('application/vnd.apple.mpegurl'); } catch (e) { return false; }
+}
+
 class Stream {
   constructor(video, onFatal) {
     this.video = video;

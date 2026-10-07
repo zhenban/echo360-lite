@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.2
+Stability fixes from an independent code review (REVIEW-quality.md).
+- If anything fails while the player is being set up, everything it already made is removed and the original player takes over cleanly (before, a black overlay could stay over the original player). Browsers that cannot play the streams go to the original player before anything is built.
+- Settings are checked field by field when they are read and when a backup is restored; a damaged value falls back to its default instead of breaking every later visit. A restore only accepts known entries, each checked.
+- The side panel's close button works again (it shared a name with the PDF view's close button, which closed both).
+- The PDF toolbar's buttons and the top of a picture-in-picture window in a top corner could not be clicked where the title bar overlaps them; the title bar's background now lets clicks through.
+- A discussion post, reply, note, bookmark or flag can no longer be sent twice by pressing Ctrl+Enter (or clicking) again while the first request is on its way.
+- `G` no longer tags an older bookmark when adding the new one fails.
+- After switching to the original player, no background session renewal, slide-following Worker or text-recognition engine keeps running.
+
 ## 0.11.1
 - Fix: on some recordings the Slides tab never appeared (so no slide PDF could be added either). Two causes: a preview picture that the browser had cached from the original player without the headers this script needs stopped the slide analysis altogether; and a fixed "how flat is a screen" level rejected busy screens (a browser with toolbars) as not being slides. Now a failed picture is fetched again or skipped, the screen view is the one clearly flatter than the other views of that recording (measured on video frames if the preview pictures cannot be read), and the Slides tab is always there once the analysis is done, with or without chapters.
 

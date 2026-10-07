@@ -6,7 +6,7 @@ A userscript that replaces the Echo360 lecture-recording player with a lightweig
 
 The stock player keeps one CPU core busy for the whole lecture (loud fans, drained battery). Echo360 Lite plays the same streams with the browser's own video player, at close to the cost of playing a plain video file, and adds a few things that make watching lectures easier.
 
-> Status: **0.11.1, in development.** Tested on `echo360.net.au` (Australia). If the page is not recognised, the original player is used automatically.
+> Status: **0.11.2, in development.** Tested on `echo360.net.au` (Australia). If the page is not recognised, the original player is used automatically.
 
 ## Features
 

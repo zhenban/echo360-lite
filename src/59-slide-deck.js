@@ -202,7 +202,8 @@ class SlideDeckController {
         if (!blob) continue;
         const task = lib.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) });
         const doc = await task.promise;
-        if (this.job !== job) { task.destroy().catch(() => {}); return; }
+        // Replaced by a newer load, or the player is gone: this document is not kept.
+        if (this.job !== job || this.ac.signal.aborted) { task.destroy().catch(() => {}); return; }
         this.docs.push(task);
         for (let n = 1; n <= doc.numPages; n++) {
           const page = await doc.getPage(n);
@@ -290,7 +291,7 @@ class SlideDeckController {
       if (!this.ac.signal.aborted) console.warn(TAG, 'slide following:', e && e.message ? e.message : e);
     }).finally(() => {
       this.deciding = null;
-      if (this.again) { this.again = false; this.decide(true); }
+      if (this.again && !this.ac.signal.aborted) { this.again = false; this.decide(true); }
     });
   }
 

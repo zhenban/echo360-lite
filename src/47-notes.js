@@ -179,7 +179,7 @@ class NotesPane {
     area.value = item.text;
     const save = h('button.pbtn.primary', { text: t('save') });
     const cancel = h('button.pbtn', { text: t('cancel'), onclick: () => this.render() });
-    save.addEventListener('click', guard(async (e) => {
+    save.addEventListener('click', guard((e) => this.once(async () => {
       const text = area.value.trim();
       if (!text) return;
       save.disabled = true;
@@ -189,13 +189,25 @@ class NotesPane {
         this.showError('');
         this.changed();
       } catch (err) { save.disabled = false; this.fail(err); }
-    }));
+    })));
     card.querySelector('.ibody').replaceWith(h('div.composer', null, area, h('div.crow', null, h('span.grow'), cancel, save)));
     card.querySelector('.iactions').hidden = true;
     area.focus();
   }
 
-  async addNote(e) {
+  // One write at a time for the whole tab (see DiscussionPane.write): a second Ctrl+Enter
+  // or click while a request is on its way does nothing.
+  async once(fn) {
+    if (this.busy) return undefined;
+    this.busy = true;
+    try { return await fn(); } finally { this.busy = false; }
+  }
+
+  addNote(e) {
+    return this.once(() => this.addNoteNow(e));
+  }
+
+  async addNoteNow(e) {
     const text = this.textarea.value.trim();
     if (!text) return;
     this.addBtn.disabled = true;
@@ -215,15 +227,20 @@ class NotesPane {
 
   count(type) { return this.items.filter((x) => x.type === type).length; }
 
-  async addBookmark(e) {
-    const time = this.p.video.currentTime;
-    try {
-      const note = await this.api.addNote(e, { bookmark: true, time, num: this.count('bookmark') + 1 });
-      this.items.push(note);
-      this.sort();
-      this.changed();
-      this.p.toast(t('bookmarkedAt', { time: fmtTime(time) }), t('undo'), (ev) => this.remove(ev, note));
-    } catch (err) { this.fail(err); }
+  // Resolves to the new bookmark, or null if it could not be added (or another write was
+  // still on its way).
+  addBookmark(e) {
+    return this.once(async () => {
+      const time = this.p.video.currentTime;
+      try {
+        const note = await this.api.addNote(e, { bookmark: true, time, num: this.count('bookmark') + 1 });
+        this.items.push(note);
+        this.sort();
+        this.changed();
+        this.p.toast(t('bookmarkedAt', { time: fmtTime(time) }), t('undo'), (ev) => this.remove(ev, note));
+        return note;
+      } catch (err) { this.fail(err); return null; }
+    }).then((x) => x || null);
   }
 
   flagAt(time) {
@@ -231,7 +248,11 @@ class NotesPane {
     return this.items.find((x) => x.type === 'flag' && x.time === scene) || null;
   }
 
-  async toggleFlag(e) {
+  toggleFlag(e) {
+    return this.once(() => this.toggleFlagNow(e));
+  }
+
+  async toggleFlagNow(e) {
     if (!this.canFlag) return;
     const time = this.p.video.currentTime;
     const existing = this.flagAt(time);
@@ -252,7 +273,11 @@ class NotesPane {
     } catch (err) { this.fail(err); }
   }
 
-  async remove(e, item) {
+  remove(e, item) {
+    return this.once(() => this.removeNow(e, item));
+  }
+
+  async removeNow(e, item) {
     try {
       if (item.type === 'flag') await this.api.removeFlag(e, item);
       else await this.api.deleteNote(e, item);
@@ -340,8 +365,8 @@ class NotesPane {
     let item = null;
     for (const x of this.items) if (x.type !== 'flag' && x.time != null && x.time <= now + 5 && x.time >= now - 30 && (!item || Math.abs(x.time - now) < Math.abs(item.time - now))) item = x;
     if (!item) {
-      await this.addBookmark(e);
-      item = this.items.filter((x) => x.type === 'bookmark').sort((a, b) => Math.abs(a.time - now) - Math.abs(b.time - now))[0];
+      // The bookmark just made, and only that one: if adding it failed, nothing is tagged.
+      item = await this.addBookmark(e);
       if (!item) return;
     }
     this.filter = 'all';
