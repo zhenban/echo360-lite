@@ -26,21 +26,24 @@ const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.4.299/build/';
 const FOLLOW_MIN_SEC = 15;       // a quick look at another page (shorter than this) does not turn the page
 const FOLLOW_STALE_SEC = 120;    // after this long without a recognised page, say so
 const FOLLOW_UPDATE_MS = 15000;  // while reading, pages are decided again at most this often
-const DECK_RENDER_CACHE = 6;      // rendered pages kept
+const DECK_RENDER_BUDGET = 40e6;  // rendered pages kept, in pixels (about 160 MB at 4 bytes a pixel)
 
 let pdfjsPromise = null;
 function loadPdfJs() {
   if (!pdfjsPromise) {
-    pdfjsPromise = import(PDFJS_BASE + 'pdf.min.mjs').then((lib) => {
-      // A module worker from a blob that imports the pinned worker script: a cross-origin
-      // worker URL cannot be used directly.
-      const url = URL.createObjectURL(new Blob(['import "' + PDFJS_BASE + 'pdf.worker.min.mjs";'], { type: 'text/javascript' }));
-      lib.GlobalWorkerOptions.workerPort = new Worker(url, { type: 'module' });
-      return lib;
-    });
+    pdfjsPromise = import(PDFJS_BASE + 'pdf.min.mjs');
     pdfjsPromise.catch(() => { pdfjsPromise = null; });
   }
   return pdfjsPromise;
+}
+
+// pdf.js's worker for one controller: a module worker from a blob that imports the pinned
+// worker script (a cross-origin worker URL cannot be used directly). Ended by its owner.
+function makePdfWorker(lib) {
+  const url = URL.createObjectURL(new Blob(['import "' + PDFJS_BASE + 'pdf.worker.min.mjs";'], { type: 'text/javascript' }));
+  const port = new Worker(url, { type: 'module' });
+  URL.revokeObjectURL(url);
+  return { port, pdf: new lib.PDFWorker({ port }) };
 }
 
 async function sha256Hex(buf) {
@@ -103,7 +106,10 @@ class SlideDeckController {
     this.lesson = opts.lesson;
     this.video = opts.video;
     this.slides = opts.slides;
-    this.onChange = opts.onChange || (() => {});
+    // The listener redraws the player; an error there is a display problem, reported as
+    // such, not a failure of the analysis (which keeps its results and goes on).
+    const onChange = opts.onChange || (() => {});
+    this.onChange = () => { try { onChange(); } catch (e) { reportFeatureError('slide reader (display)', e); } };
     this.d = opts.disposer;
     this.ac = new AbortController();
     this.d.add(() => this.ac.abort());
@@ -120,7 +126,8 @@ class SlideDeckController {
     this.state = 'empty';     // empty | loading | reading | ready | error
     this.error = '';
     this.job = null;
-    this.rendered = new Map(); // "index@width" -> canvas
+    this.rendered = new Map(); // page index -> canvas (newest size), least recently used first
+    this.pdfWorker = null;     // pdf.js worker (makePdfWorker), owned here
     this.d.add(() => this.closeDocs());
   }
 
@@ -128,11 +135,17 @@ class SlideDeckController {
 
   get progress() { return this.ocr ? this.ocr.progress() : 0; }
 
-  // Closes the open documents (through their loading tasks, which own them in pdf.js).
-  closeDocs() {
+  // Closes the open documents (through their loading tasks, which own them in pdf.js), and
+  // pdf.js's worker when no document is left to use it.
+  closeDocs(keepWorker) {
     for (const task of this.docs) task.destroy().catch(() => {});
     this.docs = [];
     this.rendered.clear();
+    if (!keepWorker && this.pdfWorker) {
+      try { this.pdfWorker.pdf.destroy(); } catch (e) { /* ignore */ }
+      this.pdfWorker.port.terminate();
+      this.pdfWorker = null;
+    }
   }
 
   async restore() {
@@ -156,9 +169,19 @@ class SlideDeckController {
       const buf = await f.arrayBuffer();
       const hash = await sha256Hex(buf);
       if (this.files.some((x) => x.hash === hash)) continue;
-      await idbCache.put('deckfile:' + hash, new Blob([buf], { type: 'application/pdf' }));
-      const refs = (await idbCache.get('deckref:' + hash)) || [];
-      if (!refs.includes(this.lesson.mediaId)) await idbCache.put('deckref:' + hash, refs.concat(this.lesson.mediaId));
+      // The file must really be stored (a full disk would otherwise lose it silently on
+      // the next visit); the reference list changes in one transaction (another tab may
+      // add or remove the same file at the same time).
+      try {
+        await idbCache.putStrict('deckfile:' + hash, new Blob([buf], { type: 'application/pdf' }));
+        const mid = this.lesson.mediaId;
+        await idbCache.update('deckref:' + hash, (refs) => (Array.isArray(refs) ? (refs.includes(mid) ? refs : refs.concat(mid)) : [mid]));
+      } catch (e) {
+        this.state = 'error';
+        this.error = t('deckSaveFailed', { name: f.name, msg: (e && e.message) || e });
+        this.onChange();
+        throw e;
+      }
       this.files.push({ hash, name: f.name });
     }
     this.saveRecord();
@@ -172,9 +195,18 @@ class SlideDeckController {
     this.fixes = this.fixes.filter((x) => !String(x.page).startsWith(prefix));
     this.saveRecord();
     // The file itself is deleted when no other recording uses it.
-    const refs = ((await idbCache.get('deckref:' + hash)) || []).filter((m) => m !== this.lesson.mediaId);
-    if (refs.length) await idbCache.put('deckref:' + hash, refs);
-    else { await idbCache.del('deckref:' + hash); await idbCache.del('deckfile:' + hash); }
+    // In one transaction: drop this recording from the file's users and, if it was the
+    // last one, the file itself (no other tab can add itself in between).
+    const mid = this.lesson.mediaId;
+    await idbCache.tx('readwrite', (store) => {
+      const req = store.get('deckref:' + hash);
+      req.onsuccess = () => {
+        const refs = (Array.isArray(req.result) ? req.result : []).filter((m) => m !== mid);
+        if (refs.length) store.put(refs, 'deckref:' + hash);
+        else { store.delete('deckref:' + hash); store.delete('deckfile:' + hash); }
+      };
+      return req;
+    }).catch((e) => log.warn('slide file removal:', e));
     await this.reload();
   }
 
@@ -182,12 +214,13 @@ class SlideDeckController {
   async reload() {
     const job = {};
     this.job = job;
-    this.closeDocs();
+    this.again = false; // a pending recompute was for the old files
+    this.closeDocs(this.files.length > 0);
     this.pages = [];
     this.decided = null;
     this.shown = null;
     if (!this.files.length) {
-      if (this.ocr) { this.ocr.stop(); this.ocr = null; }
+      this.stopReading();
       this.state = 'empty';
       this.onChange();
       return;
@@ -200,7 +233,8 @@ class SlideDeckController {
       for (const f of this.files) {
         const blob = await idbCache.get('deckfile:' + f.hash);
         if (!blob) continue;
-        const task = lib.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) });
+        if (!this.pdfWorker) this.pdfWorker = makePdfWorker(lib);
+        const task = lib.getDocument({ data: new Uint8Array(await blob.arrayBuffer()), worker: this.pdfWorker.pdf });
         const doc = await task.promise;
         // Replaced by a newer load, or the player is gone: this document is not kept.
         if (this.job !== job || this.ac.signal.aborted) { task.destroy().catch(() => {}); return; }
@@ -224,9 +258,9 @@ class SlideDeckController {
       this.onChange();
     } catch (e) {
       if (this.ac.signal.aborted || this.job !== job) return;
-      console.warn(TAG, 'slide file:', e && e.message ? e.message : e);
+      log.warn('slide file:', e && e.message ? e.message : e);
       this.state = 'error';
-      this.error = String((e && e.message) || e);
+      this.error = t('deckError', { msg: String((e && e.message) || e) });
       this.onChange();
     }
   }
@@ -242,11 +276,20 @@ class SlideDeckController {
     if (idx == null) return;
     const source = sources.find((s) => s.index === idx);
     if (!source) return;
+    // Owned by its own child of the controller: stopping it (files removed) releases it
+    // and its texts, instead of keeping it referenced until the page closes.
+    this.ocrD = this.d.child();
     this.ocr = new SlideTextReader({
-      lesson: this.lesson, video: this.video, source, disposer: this.d,
+      lesson: this.lesson, video: this.video, source, disposer: this.ocrD,
       onChange: () => this.readingChanged(),
     });
     this.ocr.start();
+  }
+
+  stopReading() {
+    if (this.ocrD) this.ocrD.dispose();
+    this.ocrD = null;
+    this.ocr = null;
   }
 
   // Called when the slide analysis changes (the screen view becomes known).
@@ -288,7 +331,7 @@ class SlideDeckController {
       if (store.get('debug', false)) this.lastModel = res.model;
       this.onChange();
     }).catch((e) => {
-      if (!this.ac.signal.aborted) console.warn(TAG, 'slide following:', e && e.message ? e.message : e);
+      if (!this.ac.signal.aborted) log.warn('slide following:', e && e.message ? e.message : e);
     }).finally(() => {
       this.deciding = null;
       if (this.again && !this.ac.signal.aborted) { this.again = false; this.decide(true); }
@@ -311,15 +354,28 @@ class SlideDeckController {
     this.shown = r && this.decided ? followSamples(r.times, this.decided, FOLLOW_MIN_SEC, this.lesson.duration || undefined) : null;
   }
 
-  // Page i rendered `width` pixels wide (cached).
+  // Page i rendered `width` pixels wide. Kept for reuse within a pixel budget (pages can
+  // be 4096 pixels wide when zoomed in): only the newest size of each page, and the least
+  // recently used pages go first.
   async render(i, width) {
-    const k = i + '@' + Math.round(width);
-    let c = this.rendered.get(k);
-    if (!c) {
-      const page = await this.pages[i].doc.getPage(this.pages[i].num);
-      c = await renderPdfPage(page, width);
-      this.rendered.set(k, c);
-      if (this.rendered.size > DECK_RENDER_CACHE) this.rendered.delete(this.rendered.keys().next().value);
+    const w = Math.round(width);
+    const hit = this.rendered.get(i);
+    if (hit && hit.width === w) {
+      this.rendered.delete(i);
+      this.rendered.set(i, hit);
+      return hit;
+    }
+    const page = await this.pages[i].doc.getPage(this.pages[i].num);
+    const c = await renderPdfPage(page, width);
+    this.rendered.delete(i);
+    this.rendered.set(i, c);
+    let px = 0;
+    for (const x of this.rendered.values()) px += x.width * x.height;
+    for (const [k, x] of this.rendered) {
+      if (px <= DECK_RENDER_BUDGET || k === i) break;
+      px -= x.width * x.height;
+      x.width = 0; // releases the canvas memory now
+      this.rendered.delete(k);
     }
     return c;
   }

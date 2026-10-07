@@ -11,13 +11,14 @@
 const LOOP_MIN_SEC = 1;
 
 class ABLoop {
-  constructor(player) {
+  constructor(player, disposer) {
     this.p = player;
     this.a = null;
     this.b = null;
     this.last = -1;          // time at the previous check
     this.timer = 0;
-    this.d = player.d;
+    this.d = disposer;
+    this.d.add(() => clearTimeout(this.timer));
     this.build();
   }
 

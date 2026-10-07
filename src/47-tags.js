@@ -55,6 +55,7 @@ class TagStore {
   has(itemId, tagId) { return (this.map[itemId] || []).includes(tagId); }
 
   toggle(itemId, tagId) {
+    if (!this.ready) return null; // not loaded yet: writing now would overwrite the stored tags
     const ids = (this.map[itemId] || []).filter((x) => this.byId(x));
     const i = ids.indexOf(tagId);
     if (i >= 0) ids.splice(i, 1); else ids.push(tagId);
@@ -65,12 +66,14 @@ class TagStore {
 
   // Forgets an item's tags (the item was deleted).
   forget(itemId) {
+    if (!this.ready) return null; // not loaded yet: writing now would overwrite the stored tags
     if (!this.map[itemId]) return;
     delete this.map[itemId];
     this.saveMap();
   }
 
   create(name, color) {
+    if (!this.ready) return null; // not loaded yet: writing now would overwrite the stored tags
     const clean = String(name || '').trim().slice(0, 40);
     if (!clean) return null;
     const same = this.tags.find((x) => x.name.toLowerCase() === clean.toLowerCase());
@@ -83,6 +86,7 @@ class TagStore {
   }
 
   rename(id, name) {
+    if (!this.ready) return null; // not loaded yet: writing now would overwrite the stored tags
     const tag = this.byId(id);
     const clean = String(name || '').trim().slice(0, 40);
     if (!tag || !clean || clean === tag.name) return;
@@ -92,6 +96,7 @@ class TagStore {
   }
 
   recolor(id, color) {
+    if (!this.ready) return null; // not loaded yet: writing now would overwrite the stored tags
     const tag = this.byId(id);
     if (!tag) return;
     tag.color = color;
@@ -100,6 +105,7 @@ class TagStore {
   }
 
   remove(id) {
+    if (!this.ready) return null; // not loaded yet: writing now would overwrite the stored tags
     this.tags = this.tags.filter((x) => x.id !== id);
     for (const k of Object.keys(this.map)) {
       this.map[k] = this.map[k].filter((x) => x !== id);

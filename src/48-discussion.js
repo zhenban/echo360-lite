@@ -25,9 +25,13 @@ class DiscussionPane {
   }
 
   // Resolves true when discussions are enabled for this lesson.
+  // Loads can overlap (after a write, on opening the tab, "Refresh"): only the newest one's
+  // answer is used, so an older answer arriving late cannot hide a post just made.
   async load() {
+    const seq = (this.loadSeq = (this.loadSeq || 0) + 1);
     try {
       const data = await this.api.discussions();
+      if (seq !== this.loadSeq) return true;
       this.threads = data.threads;
       this.hiddenCount = data.hiddenCount;
       this.loadedAt = Date.now();
@@ -35,7 +39,8 @@ class DiscussionPane {
       this.changed();
       return true;
     } catch (e) {
-      console.info(TAG, 'discussions unavailable:', e.message);
+      if (seq !== this.loadSeq) return false;
+      log.info('discussions unavailable:', e.message);
       if (this.loadedAt) this.showError(t('loadFailed', { error: e.message }));
       return false;
     }
@@ -108,7 +113,7 @@ class DiscussionPane {
   }
 
   fail(e) {
-    console.warn(TAG, 'discussion write failed', e);
+    log.warn('discussion write failed', e);
     this.showError(t('saveFailed', { error: e.message || e }));
   }
 

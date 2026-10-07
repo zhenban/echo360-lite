@@ -28,6 +28,7 @@ const ICON = {
   discussion: '<path d="M4.5 5.5h15v10h-9l-4 3.5v-3.5h-2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
   audio: '<path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
   copy: '<rect x="8.5" y="8.5" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M15.5 5.5v-.5a1.5 1.5 0 0 0-1.5-1.5H6a1.5 1.5 0 0 0-1.5 1.5v8a1.5 1.5 0 0 0 1.5 1.5h.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+  more: '<circle cx="5.5" cy="12" r="1.8" fill="currentColor"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/><circle cx="18.5" cy="12" r="1.8" fill="currentColor"/>',
   close: '<path d="M6.5 6.5l11 11m0-11l-11 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
   up: '<path d="M6.5 14.5l5.5-5.5 5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
   down: '<path d="M6.5 9.5l5.5 5.5 5.5-5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
@@ -150,6 +151,7 @@ select.input option { background: #1b1b20; }
 .imarks { position: absolute; left: 0; right: 0; top: 0; height: 18px; pointer-events: none; }
 .mk { position: absolute; top: 2px; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%; box-shadow: 0 0 0 1.5px rgba(0,0,0,.6); }
 .mk-note { background: #6ea8ff; }
+.mk-laststop { top: -1px; width: 2px; height: 12px; margin-left: -1px; border-radius: 1px; background: rgba(255,255,255,.75); box-shadow: none; }
 .mk-bookmark { background: #4fd1a5; border-radius: 1px; }
 .mk-flag { background: #ff6b6b; top: 1px; width: 4px; height: 8px; margin-left: -2px; border-radius: 1px; }
 .mk-comment { background: #f3c969; transform: rotate(45deg); border-radius: 1px; }
@@ -238,6 +240,12 @@ select.input option { background: #1b1b20; }
   font-size: 13px; box-shadow: 0 6px 24px rgba(0,0,0,.4); transition: opacity .4s ease; }
 .skipsil:hover { background: #2a2a31; }
 .skipsil.fade { opacity: 0; pointer-events: none; }
+.endnote { position: absolute; z-index: 5; right: 14px; bottom: 96px; display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 14px;
+  border-radius: 18px; background: var(--panel); box-shadow: 0 4px 16px rgba(0,0,0,.4); font-size: 13px; }
+.endnote[hidden] { display: none; }
+.endnote button { height: 28px; padding: 0 12px; border-radius: 14px; background: rgba(255,255,255,.12); }
+.endnote .endclose { width: 28px; padding: 0; background: none; opacity: .7; }
+.sils i.empty { opacity: 1; filter: brightness(1.4); }
 .audiomenu .why { padding: 4px 10px 6px; font-size: 12px; line-height: 1.4; color: #ffd38a; }
 .ccmenu .opt { display: flex; justify-content: space-between; gap: 16px; }
 .ccmenu .sizes { display: flex; gap: 4px; padding: 4px 6px 2px; }
@@ -405,15 +413,22 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border: 0; bord
 .zmap i { position: absolute; border: 1.5px solid #fff; background: rgba(255,255,255,.2); border-radius: 2px; }
 .views .zoomed { cursor: grab; }
 .views .panning { cursor: grabbing; }
-.keyhelp { position: absolute; inset: 0; z-index: 8; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.6); }
-.keyhelp[hidden] { display: none; }
+.keyhelp, .diagbox { position: absolute; inset: 0; z-index: 8; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.6); }
+.keyhelp[hidden], .diagbox[hidden] { display: none; }
 .khcard { max-width: min(640px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto; padding: 18px 22px; border-radius: 14px;
   background: #1b1b20; box-shadow: 0 10px 40px rgba(0,0,0,.5); }
 .khcard h2 { margin: 0 0 12px; font-size: 16px; }
 .khlist { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; font-size: 13px; margin-bottom: 14px; }
 .khlist kbd { display: inline-block; min-width: 1.4em; padding: 1px 6px; margin-right: 3px; border-radius: 5px; text-align: center;
   background: rgba(255,255,255,.12); font: 12px/1.6 ui-monospace, monospace; }
-.khcard .actions { display: flex; justify-content: flex-end; }
+.khcard .actions { display: flex; justify-content: flex-end; gap: 8px; }
+.diaginfo { margin: 0 0 10px; font-size: 13px; opacity: .75; }
+.diagtext { max-height: 50vh; overflow: auto; margin: 0 0 14px; padding: 10px 12px; border-radius: 8px; background: rgba(255,255,255,.06);
+  font: 12px/1.5 ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; }
+.moremenu { min-width: 260px; }
+.moremenu .row { display: flex; align-items: center; gap: 10px; padding: 6px 10px; font-size: 13px; }
+.moremenu .row .grow { flex: 1; opacity: .8; }
+.moremenu .row button { width: auto; padding: 4px 10px; background: rgba(255,255,255,.1); }
 .kbtn { font-weight: 700; min-width: 32px; justify-content: center; }
 .error .card button { height: 34px; padding: 0 14px; border-radius: 8px; background: rgba(255,255,255,.1); }
 .error .card button.primary { background: var(--accent); color: #fff; }
@@ -490,6 +505,7 @@ function playerTemplate() {
       <button class="speed" title="${t('speed')}" aria-label="${t('speed')}">1x</button>
       <button class="btn popbtn" hidden aria-pressed="false" title="${t('popout')} (W)" aria-label="${t('popout')}">${svg('popout')}</button>
       <button class="btn fs" title="${t('fullscreen')}" aria-label="${t('fullscreen')}">${svg('fullscreen')}</button>
+      <button class="btn morebtn" title="${t('moreMenu')}" aria-label="${t('moreMenu')}" aria-haspopup="menu">${svg('more')}</button>
     </div>
   </div>
   <div class="menu qualitymenu" hidden role="menu"></div>
@@ -513,6 +529,10 @@ function playerTemplate() {
     <div class="sub">${t('copyCaptionsSpan')}</div>
     <div class="choices copyspan">${[30, 60, 120, 300].map((s) => `<button role="menuitemradio" data-span="${s}">${s < 60 ? s + 's' : s / 60 + 'm'}</button>`).join('')}</div>
   </div>
+  <div class="menu moremenu" hidden role="menu"></div>
+  <div class="diagbox" hidden role="dialog" aria-label="${t('diagTitle')}"><div class="khcard"><h2>${t('diagTitle')}</h2>
+    <p class="diaginfo">${t('diagInfo')}</p><pre class="diagtext"></pre>
+    <div class="actions"><button class="pbtn diagcopy">${t('diagCopy')}</button><button class="pbtn diagclose">${t('close')}</button></div></div></div>
   <div class="menu audiomenu" hidden role="menu"><div class="head">${t('audio')}</div>
     <div class="why" hidden></div>
     <button class="opt" role="menuitemcheckbox" data-audio="level" aria-checked="false"><span class="row1"><span>${t('audioLevel')}</span><span class="state"></span></span><span class="desc">${t('audioLevelDesc')}</span></button>
@@ -528,6 +548,9 @@ function playerTemplate() {
     <div class="choices silsens"><button role="menuitemradio" data-sens="low">${t('low')}</button><button role="menuitemradio" data-sens="normal">${t('normal')}</button><button role="menuitemradio" data-sens="high">${t('high')}</button></div></div>
   </div>
   <button class="skipsil fade" tabindex="-1"></button>
+  <div class="endnote" hidden role="status"><span>${t('contentEnded')}</span>
+    <button class="endskip">${t('contentEndSkip')}</button><button class="endstop">${t('contentEndStop')}</button>
+    <button class="endclose" aria-label="${t('close')}">✕</button></div>
   <div class="toast" hidden><span class="msg"></span><button class="act"></button></div>
   <div class="dropzone" hidden>${t('dropSlides')}</div>
   <div class="error" hidden><div class="card"><h2></h2><p></p><div class="actions"></div></div></div>

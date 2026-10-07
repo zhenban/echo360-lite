@@ -18,7 +18,7 @@ const cpuFix = (function () {
   function disable(part, err) {
     if (state.disabled[part]) return;
     state.disabled[part] = true;
-    console.warn(TAG, 'cpu-fix part "' + part + '" disabled after an error', err);
+    log.warn('cpu-fix part "' + part + '" disabled after an error', err);
   }
 
   function patchGlobalStyle(proto) {
@@ -190,21 +190,21 @@ const cpuFix = (function () {
     const timer = setInterval(() => {
       const el = document.querySelector('style[data-styled-version]');
       const ver = el && el.getAttribute('data-styled-version');
-      if (ver && !/^4\./.test(ver)) { clearInterval(timer); console.info(TAG, 'cpu-fix inactive: styled-components ' + ver); return; }
+      if (ver && !/^4\./.test(ver)) { clearInterval(timer); log.info('cpu-fix inactive: styled-components ' + ver); return; }
       if (ver) {
         try {
           const { gsProto, csProto } = scan();
           if (gsProto && !state.gs) { patchGlobalStyle(gsProto); state.gs = true; }
           if (csProto && !state.cs) { patchComponentStyle(csProto); state.cs = true; }
-        } catch (e) { clearInterval(timer); console.warn(TAG, 'cpu-fix scan failed', e); return; }
+        } catch (e) { clearInterval(timer); log.warn('cpu-fix scan failed', e); return; }
       }
       if (state.gs && state.cs) {
         state.throttleOn = true;
         clearInterval(timer);
-        console.info(TAG, 'cpu-fix active on the original player');
+        log.info('cpu-fix active on the original player');
       } else if (Date.now() - t0 > 60000) {
         clearInterval(timer);
-        console.info(TAG, 'cpu-fix inactive: player internals not found');
+        log.info('cpu-fix inactive: player internals not found');
       }
     }, 1000);
   }

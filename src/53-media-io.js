@@ -64,19 +64,31 @@ function fetchRange(url, offset, length, signal) {
   return fetchOk(url, { headers, signal }).then((r) => r.arrayBuffer());
 }
 
+// IndexedDB, one object store. Reads and ordinary writes never throw (a cache that cannot
+// be used just means work is done again) but failures are logged; writes whose loss the
+// user would notice (slide files, a restore) use putStrict, which throws. A failed open is
+// tried again on the next call; when another tab needs a newer database version, this
+// connection closes so it is not in the way.
 const idbCache = {
   db: null,
   open() {
     if (this.db) return this.db;
-    this.db = new Promise((resolve, reject) => {
+    const p = new Promise((resolve, reject) => {
       if (typeof indexedDB === 'undefined') { reject(new Error('no IndexedDB')); return; }
       const req = indexedDB.open('echo360lite', 1);
       req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains('cache')) req.result.createObjectStore('cache'); };
-      req.onsuccess = () => resolve(req.result);
+      req.onsuccess = () => {
+        const db = req.result;
+        db.onversionchange = () => { db.close(); if (this.db === p) this.db = null; };
+        db.onclose = () => { if (this.db === p) this.db = null; };
+        resolve(db);
+      };
       req.onerror = () => reject(req.error);
+      req.onblocked = () => log.warn('storage: opening is blocked by another tab');
     });
-    this.db.catch(() => {});
-    return this.db;
+    this.db = p;
+    p.catch((e) => { if (this.db === p) this.db = null; log.warn('storage unavailable:', e); });
+    return p;
   },
   tx(mode, fn) {
     return this.open().then((db) => new Promise((resolve, reject) => {
@@ -84,13 +96,41 @@ const idbCache = {
       const req = fn(tx.objectStore('cache'));
       tx.oncomplete = () => resolve(req && req.result);
       tx.onerror = () => reject(tx.error);
-      tx.onabort = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('transaction aborted'));
     }));
   },
-  get(key) { return this.tx('readonly', (s) => s.get(key)).catch(() => undefined); },
-  put(key, value) { return this.tx('readwrite', (s) => s.put(value, key)).catch(() => undefined); },
-  del(key) { return this.tx('readwrite', (s) => s.delete(key)).catch(() => undefined); },
-  keys() { return this.tx('readonly', (s) => s.getAllKeys()).catch(() => []); },
+  soft(what, key, p) {
+    return p.catch((e) => { log.warn('storage ' + what + ' failed (' + String(key).split(':')[0] + '):', e); return undefined; });
+  },
+  get(key) { return this.soft('read', key, this.tx('readonly', (s) => s.get(key))); },
+  put(key, value) { return storageLock.frozen ? Promise.resolve() : this.soft('write', key, this.tx('readwrite', (s) => s.put(value, key))); },
+  putStrict(key, value) { return this.tx('readwrite', (s) => s.put(value, key)); },
+  // Several entries in one transaction: all are written or none (throws on failure).
+  putMany(entries) {
+    if (!entries.length) return Promise.resolve();
+    return this.tx('readwrite', (s) => { let req = null; for (const [k, v] of entries) req = s.put(v, k); return req; });
+  },
+  del(key) { return this.soft('delete', key, this.tx('readwrite', (s) => s.delete(key))); },
+  keys() { return this.soft('list', '', this.tx('readonly', (s) => s.getAllKeys())).then((k) => k || []); },
+  // Read, change and write one entry in a single transaction (no other tab or task can
+  // write in between). fn(old) returns the new value, or undefined to delete the entry.
+  // Resolves to the new value.
+  update(key, fn) {
+    if (storageLock.frozen) return Promise.resolve(undefined);
+    return this.open().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction('cache', 'readwrite');
+      const store = tx.objectStore('cache');
+      let next;
+      const req = store.get(key);
+      req.onsuccess = () => {
+        try { next = fn(req.result); } catch (e) { tx.abort(); reject(e); return; }
+        if (next === undefined) store.delete(key); else store.put(next, key);
+      };
+      tx.oncomplete = () => resolve(next);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('transaction aborted'));
+    }));
+  },
 };
 
 // Background downloads must never compete with playback: turn() resolves only when the

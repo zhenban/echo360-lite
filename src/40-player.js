@@ -31,8 +31,10 @@ class LitePlayer {
     // A failure half-way must not leave a half-built player (a black overlay over the
     // original player, timers, requests): release everything made so far, then let the
     // caller fall back.
+    this.constructing = true;
     try {
       this.init(lesson, opts);
+      this.constructing = false;
     } catch (e) {
       this.destroyed = true;
       try { this.d.dispose(); } catch (err) { /* keep the first error */ }
@@ -43,8 +45,13 @@ class LitePlayer {
   init(lesson, opts) {
     this.lesson = lesson;
     this.opts = opts;
+    // A feature that fails is announced once (playback goes on).
+    featureErrors.notify = (name) => { if (!this.destroyed && this.root) this.toast(t('featureFailed', { name })); };
+    this.d.add(() => { featureErrors.notify = null; });
     this.prefs = sanitizePrefs(store.get('prefs', null));
     this.levelsByRole = {};
+    this.skips = [];          // skippable stretches (updateSkips)
+    this.contentEnd = null;
     this.played = new PlayedRanges();
     this.lastSecond = -1;
     this.lastP = -1;
@@ -63,7 +70,7 @@ class LitePlayer {
 
     this.buildDom();
     this.session = new SessionKeeper({
-      url: location.href, renewMs: lesson.sessionRenewMs, disposer: this.d,
+      url: location.href, renewMs: lesson.sessionRenewMs, disposer: this.d.feature('session renewal'),
       onState: (st) => { if (!this.destroyed) this.$('.sessionhint').hidden = st !== 'renewing'; },
     });
     this.clock = new Stream(this.video, (f) => this.onClockFatal(f));
@@ -89,12 +96,13 @@ class LitePlayer {
     this.d.listen(window, 'pagehide', () => this.watched.save(this.duration()));
     this.reporter = lesson.analytics ? new Reporter(lesson.analytics, this.video, this.played, this.d.child()) : null;
     if (this.reporter) this.reporter.stateFn = () => ({ captions: this.cc.on, transcript: this.sidebar.visible('transcript') });
-    this.setupSilence();
-    this.setupSlides();
-    this.setupDeck();
-    this.loadCues();
-    this.loadInteractions();
-    this.setupAudio();
+    // Optional features: one failing to start is turned off, the others and playback go on.
+    featureGuard('silence detection', () => this.setupSilence());
+    featureGuard('slide chapters', () => this.setupSlides());
+    featureGuard('slide reader', () => this.setupDeck());
+    featureGuard('captions', () => this.loadCues());
+    featureGuard('notes and discussion', () => this.loadInteractions());
+    featureGuard('audio tools', () => this.setupAudio());
 
     const start = this.pickStart();
     this.startAt = start;
@@ -204,7 +212,12 @@ class LitePlayer {
 
   // ---- streams and layout ----
 
+  // Core playback: an error here hands over to the original player.
   loadClock(pos, startAt, autoplay) {
+    try { this.loadClockNow(pos, startAt, autoplay); } catch (e) { if (this.constructing) throw e; reportUnexpected(e); }
+  }
+
+  loadClockNow(pos, startAt, autoplay) {
     const v = this.video;
     const source = this.sources[pos];
     this.played.absorb(v.played);
@@ -246,6 +259,10 @@ class LitePlayer {
   }
 
   applyLayout() {
+    try { this.applyLayoutNow(); } catch (e) { if (this.constructing) throw e; reportUnexpected(e); }
+  }
+
+  applyLayoutNow() {
     // A new arrangement starts with whole pictures.
     if (this.zoom) this.zoom.resetAll();
     const layout = this.layout;
@@ -475,8 +492,11 @@ class LitePlayer {
   recoverAccess(stream, fail) {
     const now = Date.now();
     if (stream.renewedAt && now - stream.renewedAt < 30000) { fail(); return; }
+    // The stream may be reloaded (views swapped) while renewing: resume only the instance
+    // that failed; a new one has started loading by itself.
+    const engine = stream.hls;
     this.session.renew(true).then(() => {
-      if (this.destroyed) return;
+      if (this.destroyed || stream.hls !== engine) return;
       stream.renewedAt = Date.now();
       stream.resume(stream.video.currentTime);
     }, () => { if (!this.destroyed) fail(); });
@@ -501,7 +521,8 @@ class LitePlayer {
   bindVideo() {
     const v = this.video;
     const stage = this.stage;
-    const d = this.d;
+    // The clock video's events are core playback: an error here hands over to the original player.
+    const d = this.d.core();
     const on = (type, fn) => d.listen(v, type, fn);
     on('play', () => {
       // Back after a long pause (or a sleeping laptop): renew the access before it runs out.
@@ -542,7 +563,7 @@ class LitePlayer {
     on('timeupdate', () => { invalidate(); onTime(); });
     on('seeked', onTime);
     on('progress', invalidate);
-    on('durationchange', () => { this.render(true); if (this.loop) this.loop.render(); this.renderWatched(); this.updateMarkers(); this.renderSilences(); this.renderChapterMarks(); });
+    on('durationchange', () => { this.render(true); if (this.loop) this.loop.render(); this.renderWatched(); this.updateMarkers(); this.updateSkips(); this.renderChapterMarks(); });
     on('ratechange', () => {
       this.$('.speed').textContent = v.playbackRate + 'x';
       for (const b of this.root.querySelectorAll('.speedmenu button')) b.setAttribute('aria-checked', String(+b.dataset.rate === v.playbackRate));
@@ -567,7 +588,7 @@ class LitePlayer {
       if (v.currentTime === lastT) {
         still += 2;
         if (still >= 12) {
-          console.warn(TAG, 'playback stalled, restarting loader at', v.currentTime.toFixed(1));
+          log.warn('playback stalled, restarting loader at', v.currentTime.toFixed(1));
           this.clock.kick(v.currentTime);
           still = 0;
         }
@@ -671,6 +692,13 @@ class LitePlayer {
   // window and back. Nothing is rebuilt: the same elements, streams and audio graph move.
   async togglePopout() {
     if (this.popout) { this.popout.close(); return; }
+    // A second press while the window is being opened does nothing (no second window).
+    if (this.popoutOpening) return;
+    this.popoutOpening = true;
+    try { await this.openPopout(); } finally { this.popoutOpening = false; }
+  }
+
+  async openPopout() {
     if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
     const r = this.host.getBoundingClientRect();
     let pip;
@@ -680,40 +708,55 @@ class LitePlayer {
       this.toast(t('popoutFailed', { msg: (e && e.message) || e }));
       return;
     }
+    if (this.destroyed) { pip.close(); return; }
     const playing = !this.video.paused;
-    this.popout = pip;
     const holder = h('div.e3l-holder', { style: 'display:flex;align-items:center;justify-content:center;gap:12px;width:100%;height:' + Math.round(r.height) + 'px;background:#111;color:#ccc;font:14px system-ui,sans-serif' },
       h('span', { text: t('popoutHere') }),
       h('button', { text: t('popoutBack'), style: 'padding:6px 12px;border-radius:8px;border:0;cursor:pointer', onclick: () => pip.close() }));
-    this.host.replaceWith(holder);
     const doc = pip.document;
-    doc.body.style.cssText = 'margin:0;background:#000;overflow:hidden';
-    doc.title = this.lesson.title;
     const css = this.host.style.cssText;
-    this.host.style.cssText = 'position:fixed;inset:0;width:100%;height:100%';
-    doc.body.append(this.host);
-    this.host.classList.add('in-popout');
     const keys = (e) => this.onKey(e);
-    doc.addEventListener('keydown', keys, true);
-    const resize = () => { this.applyQuality(); this.redrawPdf(); };
-    pip.addEventListener('resize', resize);
-    // Moving can pause the elements in some browsers: carry on as before.
-    if (playing && this.video.paused) this.video.play().catch(() => {});
-    this.$('.popbtn').setAttribute('aria-pressed', 'true');
-    pip.addEventListener('pagehide', () => {
-      const still = !this.video.paused;
+    const resize = () => { if (!this.destroyed) { this.applyQuality(); this.redrawPdf(); } };
+    // Putting the player back. Registered before anything moves, so a failure half-way
+    // (or the window closing at any point) always brings the player back to the page.
+    let back = false;
+    const putBack = () => {
+      if (back) return;
+      back = true;
       doc.removeEventListener('keydown', keys, true);
+      pip.removeEventListener('resize', resize);
+      this.popout = null;
+      // The player was destroyed meanwhile (handed over to the original player): only the
+      // placeholder goes; the old player must not come back over the original one.
+      if (this.destroyed) { holder.remove(); return; }
+      const still = !this.video.paused;
       this.host.classList.remove('in-popout');
       this.host.style.cssText = css;
-      holder.replaceWith(this.host);
-      this.popout = null;
+      if (holder.isConnected) holder.replaceWith(this.host);
       if (still && this.video.paused) this.video.play().catch(() => {});
-      if (!this.destroyed) {
-        this.$('.popbtn').setAttribute('aria-pressed', 'false');
-        this.applyQuality();
-        this.redrawPdf();
-      }
-    }, { once: true });
+      this.$('.popbtn').setAttribute('aria-pressed', 'false');
+      this.applyQuality();
+      this.redrawPdf();
+    };
+    pip.addEventListener('pagehide', putBack, { once: true });
+    this.popout = pip;
+    try {
+      this.host.replaceWith(holder);
+      doc.body.style.cssText = 'margin:0;background:#000;overflow:hidden';
+      doc.title = this.lesson.title;
+      this.host.style.cssText = 'position:fixed;inset:0;width:100%;height:100%';
+      doc.body.append(this.host);
+      this.host.classList.add('in-popout');
+      doc.addEventListener('keydown', keys, true);
+      pip.addEventListener('resize', resize);
+      // Moving can pause the elements in some browsers: carry on as before.
+      if (playing && this.video.paused) this.video.play().catch(() => {});
+      this.$('.popbtn').setAttribute('aria-pressed', 'true');
+    } catch (e) {
+      putBack();
+      try { pip.close(); } catch (err) { /* already closed */ }
+      throw e;
+    }
   }
 
   toggleFullscreen() {
@@ -742,6 +785,14 @@ class LitePlayer {
 
   bindControls() {
     this.d.listen(this.$('.kbtn'), 'click', (e) => { e.stopPropagation(); this.showKeys(true); });
+    this.d.listen(this.$('.diagclose'), 'click', (e) => { e.stopPropagation(); this.$('.diagbox').hidden = true; });
+    this.d.listen(this.$('.diagcopy'), 'click', (e) => {
+      e.stopPropagation();
+      navigator.clipboard.writeText(this.$('.diagtext').textContent)
+        .then(() => this.toast(t('diagCopied')), (err) => this.toast(t('copyFailed', { msg: (err && err.message) || err })));
+    });
+    // Old analysis results are cleaned up in the background, once the page has settled.
+    this.d.timeout(() => analysisCaches.prune().catch(() => {}), 60000);
     this.d.listen(this.$('.khclose'), 'click', (e) => { e.stopPropagation(); this.showKeys(false); });
     this.d.listen(this.$('.keyhelp'), 'click', (e) => { if (e.target === this.$('.keyhelp')) this.showKeys(false); });
     const $ = (s) => this.$(s);
@@ -758,7 +809,9 @@ class LitePlayer {
     d.listen($('.fs'), 'click', () => this.toggleFullscreen());
     $('.popbtn').hidden = !this.canPopout();
     d.listen($('.popbtn'), 'click', () => this.togglePopout());
-    d.add(() => { if (this.popout) this.popout.close(); });
+    // On teardown: close the window; its pagehide (sync or later) only removes the
+    // placeholder, since the player is destroyed by then.
+    d.add(() => { if (this.popout) { try { this.popout.close(); } catch (e) { /* closed */ } } });
     d.listen($('.swap'), 'click', () => this.swapViews());
     d.listen($('.orig'), 'click', () => this.opts.onFallback('user'));
     d.listen(document, 'fullscreenchange', () => {
@@ -766,7 +819,7 @@ class LitePlayer {
     });
 
     // Menus (speed, layout): one open at a time, closed by any click elsewhere.
-    const menus = [[$('.speed'), $('.speedmenu')], [$('.layout'), $('.layoutmenu')], [$('.ccbtn'), $('.ccmenu')], [$('.audiobtn'), $('.audiomenu')], [$('.qbtn'), $('.qualitymenu')], [$('.copybtn'), $('.copymenu')]];
+    const menus = [[$('.speed'), $('.speedmenu')], [$('.layout'), $('.layoutmenu')], [$('.ccbtn'), $('.ccmenu')], [$('.audiobtn'), $('.audiomenu')], [$('.qbtn'), $('.qualitymenu')], [$('.copybtn'), $('.copymenu')], [$('.morebtn'), $('.moremenu')]];
     for (const [btn, menu] of menus) {
       d.listen(btn, 'click', (e) => {
         e.stopPropagation();
@@ -774,6 +827,7 @@ class LitePlayer {
         for (const [, m] of menus) m.hidden = true;
         if (open && menu.classList.contains('qualitymenu')) this.renderQualityMenu();
         if (open && menu.classList.contains('copymenu')) this.renderCopyMenu();
+        if (open && menu.classList.contains('moremenu')) this.renderMoreMenu();
         menu.hidden = !open;
         this.wake();
       });
@@ -824,11 +878,11 @@ class LitePlayer {
     d.listen($('.pextras button'), 'click', () => this.opts.onFallback('extras'));
     this.bindPanelResize();
     d.listen(this.root, 'click', (e) => {
-      if (e.target.closest('.menu, .speed, .layout, .ccbtn, .audiobtn, .qbtn, .copybtn')) return;
+      if (e.target.closest('.menu, .speed, .layout, .ccbtn, .audiobtn, .qbtn, .copybtn, .morebtn')) return;
       for (const [, m] of menus) m.hidden = true;
       if (this.loop) this.loop.menu.hidden = true;
     });
-    this.loop = new ABLoop(this);
+    this.loop = new ABLoop(this, this.d.feature('A-B loop'));
 
     // Click on a picture: play/pause; double click: fullscreen. While the controls are
     // hidden, the first click only brings them back (it may be aimed at a hidden button).
@@ -840,7 +894,7 @@ class LitePlayer {
       this.wake();
     }, true);
     const views = $('.views');
-    this.zoom = new Zoomer(views, d, {
+    this.zoom = new Zoomer(views, this.d.feature('zoom'), {
       // The PDF is drawn again at the zoom level once zooming pauses (in steps, so that
       // small changes do not render it again).
       onChange: () => {
@@ -891,10 +945,10 @@ class LitePlayer {
       const dur = this.duration();
       seekEl.style.setProperty('--h', f.toFixed(4));
       nearMarker = this.markers.nearest(f, rect.width, 6);
-      const sil = nearMarker ? null : this.silence.silences[silenceIndexAt(this.silence.silences, f * dur)];
+      const sil = nearMarker ? null : this.skips[silenceIndexAt(this.skips, f * dur)];
       tipText.textContent = nearMarker
         ? fmtTime(nearMarker.time, dur >= 3600) + ' \u00b7 ' + (nearMarker.label.length > 70 ? nearMarker.label.slice(0, 67) + '\u2026' : nearMarker.label)
-        : fmtTime(f * dur, dur >= 3600) + (sil ? ' \u00b7 ' + t('silenceTip', { time: fmtTime(sil.end - sil.start) }) : '');
+        : fmtTime(f * dur, dur >= 3600) + (sil ? ' \u00b7 ' + t(sil.kind + 'Tip', { time: fmtTime(sil.end - sil.start) }) : '');
       const pv = this.previewAt(nearMarker ? nearMarker.time : f * dur);
       if (pv) { if (tipImg.getAttribute('src') !== pv) tipImg.src = pv; tipImg.hidden = false; } else tipImg.hidden = true;
       const half = pv ? 96 : 24;
@@ -1061,7 +1115,8 @@ class LitePlayer {
         case 'p': case 'P': this.copyFrame(); break;
         case 'a': case 'A': this.copyCaptions(); break;
         case 'Escape':
-          if (!this.$('.keyhelp').hidden) this.showKeys(false);
+          if (!this.$('.diagbox').hidden) this.$('.diagbox').hidden = true;
+          else if (!this.$('.keyhelp').hidden) this.showKeys(false);
           else if (this.menusOpen()) { for (const m of this.root.querySelectorAll('.menu')) m.hidden = true; } else handled = false;
           break;
         case '?': this.showKeys(this.$('.keyhelp').hidden); break;
@@ -1187,7 +1242,7 @@ class LitePlayer {
     this.slides = new SlideAnalyzer({
       lesson: this.lesson,
       video: this.video,
-      disposer: this.d,
+      disposer: this.d.feature('slide chapters'),
       onChange: () => { if (!this.destroyed) this.onSlidesChange(); },
     });
     this.slides.start();
@@ -1195,6 +1250,7 @@ class LitePlayer {
 
   onSlidesChange() {
     const a = this.slides;
+    if (a.uniform !== this.knownUniform) { this.knownUniform = a.uniform; this.updateSkips(); }
     // The screen view is known now: the per-view quality settings may apply differently.
     if (a.screenIndex !== this.knownScreen) {
       this.knownScreen = a.screenIndex;
@@ -1223,12 +1279,12 @@ class LitePlayer {
   setupDeck() {
     this.reader = new SlideReader(this);
     this.reader.addTarget('main', this.$('.pstage'));
-    this.reader.onInfo(() => { if (!this.destroyed) this.renderPdfBar(); });
+    this.d.add(this.reader.onInfo(() => { if (!this.destroyed) this.renderPdfBar(); }));
     this.deck = new SlideDeckController({
       lesson: this.lesson,
       video: this.video,
       slides: this.slides,
-      disposer: this.d,
+      disposer: this.d.feature('slide reader'),
       onChange: () => {
         if (this.destroyed) return;
         if (this.slidesPane) this.slidesPane.invalidate();
@@ -1237,7 +1293,7 @@ class LitePlayer {
         if (this.reader.active) this.reader.update(this.video.currentTime, true);
       },
     });
-    this.deck.restore().catch((e) => console.warn(TAG, 'slide files:', e && e.message ? e.message : e));
+    this.deck.restore().catch((e) => log.warn('slide files:', e && e.message ? e.message : e));
     const bar = (sel, fn) => this.d.listen(this.$(sel), 'click', (e) => { e.stopPropagation(); fn(); });
     bar('.pprev', () => this.reader.turn(-1));
     bar('.pnext', () => this.reader.turn(1));
@@ -1258,7 +1314,7 @@ class LitePlayer {
       this.deck.addFiles(e.dataTransfer.files).then((n) => {
         if (!n) { this.toast(t('dropNotPdf')); return; }
         if (this.sidebar.has('slides')) this.sidebar.open('slides');
-      }).catch((err) => this.toast(t('deckError', { msg: String((err && err.message) || err) })));
+      }).catch((err) => this.toast(this.deck.state === 'error' && this.deck.error ? this.deck.error : t('deckError', { msg: String((err && err.message) || err) })));
     });
   }
 
@@ -1314,17 +1370,20 @@ class LitePlayer {
       lesson: this.lesson,
       video: this.video,
       masterUrl: av ? av.av : null,
-      disposer: this.d,
-      onChange: () => { if (!this.destroyed) { this.renderSilences(); this.renderSilenceMenu(); } },
+      disposer: this.d.feature('silence detection'),
+      onChange: () => { if (!this.destroyed) { this.updateSkips(); this.renderSilenceMenu(); } },
     });
     this.silence.options = { minSec: p.min, sensitivity: p.sens };
     this.silIdx = -1;
     this.silAutoSkipped = new Set();
-    this.d.add(() => clearTimeout(this.skipTimer));
+    this.d.add(() => { clearTimeout(this.skipTimer); clearTimeout(this.endTimer); });
+    this.d.listen(this.$('.endskip'), 'click', (e) => { e.stopPropagation(); this.hideEnd(); this.seek(this.duration()); });
+    this.d.listen(this.$('.endstop'), 'click', (e) => { e.stopPropagation(); this.hideEnd(); this.video.pause(); });
+    this.d.listen(this.$('.endclose'), 'click', (e) => { e.stopPropagation(); this.hideEnd(); });
     const btn = this.$('.skipsil');
     this.d.listen(btn, 'click', (e) => {
       e.stopPropagation();
-      const s = this.silence.silences[this.silIdx];
+      const s = this.skips[this.silIdx];
       this.hideSkip();
       if (s) this.seek(s.end);
     });
@@ -1354,21 +1413,34 @@ class LitePlayer {
     this.renderSilenceMenu();
   }
 
+  // Stretches that can be skipped (silences, empty screen) and where the content ends.
+  updateSkips() {
+    const sil = this.silence;
+    const uniform = this.slides ? this.slides.uniform : [];
+    const audioKnown = !!sil && (sil.source === 'transcript' || sil.source === 'audio');
+    this.skips = skipStretches(sil ? sil.silences : [], uniform, audioKnown, this.prefs.silence.min);
+    const dur = this.duration();
+    this.contentEnd = dur ? contentEndAt(this.skips, dur) : null;
+    if (this.watched) this.watched.contentEnd = this.contentEnd && this.contentEnd < dur ? this.contentEnd : null;
+    this.renderSilences();
+  }
+
   renderSilences() {
     const el = this.$('.sils');
     el.textContent = '';
     const dur = this.duration();
     if (!dur) return;
     const frag = document.createDocumentFragment();
-    for (const s of this.silence.silences) {
+    for (const s of this.skips) {
       const i = document.createElement('i');
+      if (s.kind !== 'silence') i.className = 'empty';
       i.style.left = ((s.start / dur) * 100).toFixed(3) + '%';
       i.style.width = (((Math.min(s.end, dur) - s.start) / dur) * 100).toFixed(3) + '%';
       frag.appendChild(i);
     }
     el.appendChild(frag);
     // New results (the analysis refines them as it goes) must not pop the button up again.
-    this.silIdx = silenceIndexAt(this.silence.silences, this.video.currentTime);
+    this.silIdx = silenceIndexAt(this.skips, this.video.currentTime);
   }
 
   renderSilenceMenu() {
@@ -1398,21 +1470,25 @@ class LitePlayer {
   // turned that on). Only playback running into a silence skips automatically; seeking
   // into one just shows the button.
   silenceTick(ct) {
-    const list = this.silence.silences;
+    const list = this.skips;
     if (!list.length && this.silIdx === -1) return;
     const prev = this.silIdx;
     const i = silenceIndexAt(list, ct);
     if (i === prev) return;
     this.silIdx = i;
     const s = list[i];
-    if (!s || s.end - ct < 5) { this.hideSkip(); return; }
+    if (!s) { this.hideSkip(); this.hideEnd(); return; }
     const ranInto = !this.video.seeking && !this.dragging && ct - s.start < 2;
-    if (this.prefs.silence.auto && ranInto && !this.silAutoSkipped.has(s.start)) {
+    // The empty stretch at the end: the lecture is over.
+    if (s.start === this.contentEnd) { this.hideSkip(); if (ranInto || ct - s.start < 15) this.showEnd(); return; }
+    if (s.end - ct < 5) { this.hideSkip(); return; }
+    // An empty screen with unknown audio is never skipped automatically.
+    if (this.prefs.silence.auto && s.kind !== 'black' && ranInto && !this.silAutoSkipped.has(s.start)) {
       this.silAutoSkipped.add(s.start);
       const from = ct;
       this.hideSkip();
       this.seek(s.end);
-      this.toast(t('skippedSilence', { time: fmtTime(s.end - from) }), t('undo'), () => this.seek(from));
+      this.toast(t(s.kind === 'blank' ? 'skippedBlank' : 'skippedSilence', { time: fmtTime(s.end - from) }), t('undo'), () => this.seek(from));
       return;
     }
     this.showSkip(s, ct);
@@ -1420,7 +1496,7 @@ class LitePlayer {
 
   showSkip(s, ct) {
     const btn = this.$('.skipsil');
-    btn.textContent = t('skipSilence', { time: fmtTime(s.end - ct) });
+    btn.textContent = t(s.kind === 'silence' ? 'skipSilence' : 'skipBlank', { time: fmtTime(s.end - ct) });
     btn.classList.remove('fade');
     btn.tabIndex = 0;
     clearTimeout(this.skipTimer);
@@ -1432,6 +1508,19 @@ class LitePlayer {
     btn.classList.add('fade');
     btn.tabIndex = -1;
     clearTimeout(this.skipTimer);
+  }
+
+  // "The lecture has ended": jump to the end (finishing it) or stop here.
+  showEnd() {
+    const box = this.$('.endnote');
+    box.hidden = false;
+    clearTimeout(this.endTimer);
+    this.endTimer = setTimeout(guard(() => this.hideEnd()), 20000);
+  }
+
+  hideEnd() {
+    this.$('.endnote').hidden = true;
+    clearTimeout(this.endTimer);
   }
 
   // ---- side panel, notes, discussion, markers ----
@@ -1463,7 +1552,7 @@ class LitePlayer {
     if (!api) return;
     const canFlag = !!l.sectionId && !l.isAnonymousUser;
     this.tags = new TagStore(l, () => { if (!this.destroyed && this.notes) this.notes.changed(); });
-    this.tags.load().catch((e) => console.warn(TAG, 'tags:', e && e.message ? e.message : e));
+    this.tags.load().catch((e) => log.warn('tags:', e && e.message ? e.message : e));
     this.notes = new NotesPane(this, this.$('.pane[data-pane=notes]'), api, canFlag);
     this.notes.load().then((ok) => {
       if (this.destroyed || !ok) return;
@@ -1483,6 +1572,9 @@ class LitePlayer {
   updateMarkers() {
     if (this.destroyed) return;
     const items = [];
+    // Where Echo360 says playback stopped last time (any device), as it was when the page opened.
+    const last = this.lesson.resumeAt;
+    if (last > 1 && last < this.duration() - 1) items.push({ time: last, kind: 'laststop', label: t('lastStopped') });
     if (this.notes) items.push(...this.notes.markers());
     if (this.discussion && this.sidebar.has('discussion')) items.push(...this.discussion.markers());
     this.markers.set(items, this.duration());
@@ -1547,6 +1639,33 @@ class LitePlayer {
     if (!el) return;
     if (!factor) { this.zoom.reset(el); return; }
     this.zoom.zoomAt(el, factor, 0.5, 0.5);
+  }
+
+  // The ⋯ menu: analysis results stored on this device (size, clear), diagnostics, keys.
+  renderMoreMenu() {
+    const m = this.$('.moremenu');
+    m.textContent = '';
+    const size = h('span.grow', { text: t('cachesMeasuring') });
+    const clear = h('button', { text: t('cachesClear') });
+    clear.addEventListener('click', guard(async (e) => {
+      e.stopPropagation();
+      clear.disabled = true;
+      const n = await analysisCaches.clear();
+      size.textContent = t('cachesCleared', { n });
+    }));
+    m.append(h('div.head', { text: 'Echo360 Lite ' + VERSION }),
+      h('div.row', { title: t('cachesInfo') }, size, clear),
+      h('button', { text: t('diagMenu'), onclick: (e) => { e.stopPropagation(); m.hidden = true; this.showDiagnostics(); } }),
+      h('button', { text: t('keysTitle') + ' (?)', onclick: (e) => { e.stopPropagation(); m.hidden = true; this.showKeys(true); } }));
+    analysisCaches.usage().then((u) => {
+      size.textContent = t('cachesSize', { mb: (u.bytes / 1e6).toFixed(u.bytes < 1e7 ? 1 : 0), n: u.count });
+    }).catch(() => { size.textContent = t('cachesUnknown'); });
+  }
+
+  showDiagnostics() {
+    this.$('.diagtext').textContent = diagnosticsText(this);
+    this.$('.diagbox').hidden = false;
+    this.$('.diagcopy').focus();
   }
 
   showKeys(on) {

@@ -33,7 +33,7 @@ function loadSources(names, overrides) {
   const code = files.map((f) => readFileSync(join(root, 'src', f), 'utf8')).join('\n')
     + '\n;globalThis.__exports = {};'
     + ['clamp', 'fmtTime', 'parseIsoDuration', 'Disposer', 'PlayedRanges', 'FollowerSync', 'CueIndex', 'parseVtt', 'AudioChain', 'seg', 'thumbnailFor', 'pickAudioRendition', 'parseMediaPlaylist', 'Envelope', 'findSilences', 'silencesFromCues', 'speechSpans', 'silenceIndexAt', 'mp4Boxes', 'parseFragment', 'videoVariants', 'frameDistance', 'sameView', 'buildScenes', 'chapterIndexAt', 'SessionKeeper', 'mediaSession', 'TagStore', 'watchedShare', 'makeZip', 'crc32', 'lectureMarkdown', 'mdTag', 'followSamples', 'followLecture', 'textScores', 'FORCE_OFF', 'captionExcerpt',
-      'sanitizePrefs', 'sanitizePos', 'prefDefaults', 'restoreBackup', 'LitePlayer', 'NotesPane', 'DiscussionPane', 'SlideTextReader', 'SlideTextWorker', 'playerTemplate', 'NS']
+      'sanitizePrefs', 'sanitizePos', 'prefDefaults', 'guard', 'guardCore', 'featureGuard', 'unexpected', 'featureErrors', 'eventLog', 'SilenceAnalyzer', 'skipStretches', 'contentEndAt', 'frameUniform', 'uniformStretches', 'maskUrls', 'diagnosticsText', 'cacheTouched', 'cacheLastUse', 'cacheValid', 'restoreBackup', 'LitePlayer', 'NotesPane', 'DiscussionPane', 'SlideTextReader', 'SlideTextWorker', 'SlideDeckController', 'playerTemplate', 'NS']
       .map((n) => `if (typeof ${n} !== 'undefined') globalThis.__exports.${n} = ${n};`).join('\n');
   vm.runInContext(code, ctx);
   return { ...ctx.__exports, timers, window: ctx.window, setFetch: (fn) => { ctx.__fetch = fn; } };
@@ -681,7 +681,7 @@ test('E2: a backup restore takes only known keys, validated, and skips damaged e
     localStorage: { getItem: (k) => (local.has(k) ? local.get(k) : null), setItem: (k, v) => local.set(k, v), key: () => null, length: 0 },
   });
   // In-memory IndexedDB stand-in.
-  const ctxIdb = { get: async (k) => db.get(k), put: async (k, v) => { db.set(k, v); }, del: async (k) => { db.delete(k); }, keys: async () => [...db.keys()] };
+  const ctxIdb = { get: async (k) => db.get(k), put: async (k, v) => { db.set(k, v); }, putMany: async (es) => { for (const [k, v] of es) db.set(k, v); }, del: async (k) => { db.delete(k); }, keys: async () => [...db.keys()] };
   const n = await m.restoreBackup({
     app: 'echo360-lite', v: 1,
     local: { prefs: JSON.stringify({ rate: 'x', layout: 'pip' }), 'pos:abc': JSON.stringify({ t: 30 }), debug: 'true', 'evil:key': '1', 'pos:bad': '{"t":"no"}' },
@@ -776,6 +776,123 @@ test('worker wrapper: closed means closed (no new Worker afterwards)', async () 
   const w = new m.SlideTextWorker(new m.Disposer());
   w.close();
   await assert.rejects(w.run({}), /closed/);
+});
+
+// ---- M8.9 B and D ----
+
+test('B1: errors in features are reported, not fatal; core errors hand over; async rejections are caught', async () => {
+  const m = loadSources(['00-util']);
+  let fallback = 0;
+  const notices = [];
+  m.unexpected.handler = () => { fallback++; };
+  m.featureErrors.notify = (name) => notices.push(name);
+  m.guard(() => { throw new Error('sync'); })();
+  m.guard(async () => { throw new Error('async'); })(); // as a listener would: the return value is ignored
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(fallback, 0);
+  assert.equal(notices.length, 1);                   // one notice per feature, not per error
+  const d = new m.Disposer();
+  const f = d.feature('zoom');
+  let released = 0;
+  f.add(() => { released++; });
+  const target = { addEventListener(type, fn) { this.fn = fn; }, removeEventListener() {} };
+  f.listen(target, 'wheel', () => { throw new Error('zoom broke'); });
+  target.fn();
+  assert.equal(released, 1);                          // the feature's resources were released
+  assert.ok(notices.includes('zoom'));
+  assert.equal(fallback, 0);
+  m.guardCore(() => { throw new Error('stream'); })();
+  assert.equal(fallback, 1);                          // core playback: hand over
+  assert.equal(m.featureGuard('x', () => { throw new Error('setup'); }), undefined);
+  assert.ok(m.eventLog.some((e) => /setup/.test(e.text)));
+});
+
+test('B2: silence detection that stops keeps what it already found', () => {
+  const m = loadSources(['00-util', '53-media-io', '54-silence']);
+  let recomputed = 0;
+  const a = { env: { coverage: () => 0.4 }, recompute() { recomputed++; }, onChange() {}, silences: [{ start: 1, end: 40 }], source: 'audio' };
+  m.SilenceAnalyzer.prototype.fail.call(a, 'error');
+  assert.equal(recomputed, 1);
+  assert.equal(a.source, 'audio');
+  const b = { env: null, onChange() {}, silences: [{ start: 1, end: 2 }], source: 'audio' };
+  m.SilenceAnalyzer.prototype.fail.call(b, 'error');
+  assert.equal(b.source, 'unavailable');
+});
+
+test('B6: an older discussion load that answers late does not overwrite a newer one', async () => {
+  const m = loadSources(['00-util', '01-i18n', '46-sidebar', '48-discussion']);
+  const answers = [];
+  const pane = { api: { discussions: () => new Promise((r) => answers.push(r)) }, showError() {}, changed() {} };
+  const first = m.DiscussionPane.prototype.load.call(pane);
+  const second = m.DiscussionPane.prototype.load.call(pane);
+  answers[1]({ threads: ['new'], hiddenCount: 0 });
+  await second;
+  answers[0]({ threads: ['old'], hiddenCount: 0 });
+  await first;
+  assert.deepEqual(pane.threads, ['new']);
+});
+
+test('B9: a restore that cannot write its entries writes nothing (no settings either)', async () => {
+  const local = new Map();
+  const m = loadSources(['00-util', '01-i18n', '39-prefs', '40-player', '45-captions', '46-sidebar', '53-media-io', '54-silence', '11-echo360-api', '10-adapter', '85-export'], {
+    localStorage: { getItem: () => null, setItem: (k, v) => local.set(k, v), key: () => null, length: 0 },
+  });
+  const failing = { putMany: async () => { throw new Error('disk full'); } };
+  await assert.rejects(m.restoreBackup({ app: 'echo360-lite', v: 1, local: { prefs: '{"rate":1.5}' }, db: { 'tags:s': { tags: [] } } }, failing), /disk full/);
+  assert.equal(local.size, 0);
+});
+
+test('B8: diagnostics mask every address and long id', () => {
+  const m = loadSources(['00-util', '86-diagnostics']);
+  const s = m.maskUrls('HTTP 403 for https://content.echo360.net.au/0000.1eced04d/abc/s1q1.mp4 id 1eced04d-17e2-4cc3-affa-0643f089cf31 //x.y/z');
+  assert.equal(/https?:|\/\/x/.test(s), false);
+  assert.equal(s.includes('1eced04d-17e2'), false);
+});
+
+test('D1: uniform pictures, skippable stretches and where the content ends', () => {
+  const m = loadSources(['00-util', '53-media-io', '54-silence', '56-slides']);
+  const flat = new Uint8Array(32 * 18 * 3).fill(12);
+  flat[30] = 200; // a cursor or a small logo
+  const slide = new Uint8Array(32 * 18 * 3).map((x, i) => (i % 7 === 0 ? 0 : 230));
+  assert.equal(m.frameUniform(flat), true);
+  assert.equal(m.frameUniform(slide), false);
+  const samples = [0, 10, 20, 30, 40].map((t, i) => ({ t, uniform: i >= 3 }));
+  assert.equal(JSON.stringify(m.uniformStretches(samples, 50)), '[{"start":30,"end":50}]');
+  const sil = [{ start: 5, end: 9 }, { start: 31, end: 50 }];
+  const list = m.skipStretches(sil, [{ start: 30, end: 50 }], true, 15);
+  assert.equal(list.map((x) => x.kind).join(','), 'silence,blank');
+  assert.equal(m.contentEndAt(list, 50), 31);
+  // Someone speaking over the empty screen: nothing to skip there.
+  assert.equal(m.skipStretches([], [{ start: 30, end: 50 }], true, 15).length, 0);
+  // Audio unknown: marked as "black screen" (skipped only by hand).
+  assert.equal(m.skipStretches([], [{ start: 30, end: 50 }], false, 15)[0].kind, 'black');
+  assert.equal(m.contentEndAt([{ start: 1, end: 9, kind: 'silence' }], 50), 50);
+});
+
+test('D1: watched share leaves out an empty ending', () => {
+  const m = loadSources(['00-util', '20-reporter', '53-media-io', '43-watched']);
+  assert.equal(m.watchedShare({ d: 100, e: 80, r: [[0, 80]] }), 1);
+  assert.equal(m.watchedShare({ d: 100, r: [[0, 80]] }), 0.8);
+});
+
+test('slide controller: the page-deciding Worker and the pdf.js worker are separate fields', () => {
+  const m = loadSources(['00-util', '01-i18n', '53-media-io', '58-slide-text', '59-slide-deck']);
+  const deck = new m.SlideDeckController({ lesson: {}, video: {}, slides: null, disposer: new m.Disposer() });
+  assert.ok(deck.worker instanceof m.SlideTextWorker);
+  assert.equal(typeof deck.worker.run, 'function');
+  assert.equal(deck.pdfWorker, null);
+});
+
+test('caches: marking a record as used never touches its data (OCR records keep their own "at")', () => {
+  const m = loadSources(['00-util', '53-media-io', '55-caches']);
+  const rec = { v: 1, at: [3, -1, 4], texts: ['a'], savedAt: 1000 };
+  const t = m.cacheTouched(rec, 5000);
+  assert.deepEqual(Array.from(t.at), [3, -1, 4]);
+  assert.equal(m.cacheLastUse(t), 5000);
+  assert.equal(m.cacheLastUse({ v: 1, at: [1, 2], savedAt: 1234 }), 1234);   // from before "used"
+  assert.equal(m.cacheLastUse({ v: 1, at: 777 }), 777);
+  assert.equal(m.cacheValid('ocr', rec), true);
+  assert.equal(m.cacheValid('slides', { v: 1 }), false);
 });
 
 test('caption excerpt: last span in whole sentences', () => {

@@ -6,7 +6,7 @@ A userscript that replaces the Echo360 lecture-recording player with a lightweig
 
 The stock player keeps one CPU core busy for the whole lecture (loud fans, drained battery). Echo360 Lite plays the same streams with the browser's own video player, at close to the cost of playing a plain video file, and adds a few things that make watching lectures easier.
 
-> Status: **0.11.2, in development.** Tested on `echo360.net.au` (Australia). If the page is not recognised, the original player is used automatically.
+> Status: **0.12.0, in development.** Tested on `echo360.net.au` (Australia). If the page is not recognised, the original player is used automatically.
 
 ## Features
 
@@ -16,13 +16,13 @@ The stock player keeps one CPU core busy for the whole lecture (loud fans, drain
 - **Captions and transcript**: caption overlay in four sizes. A transcript panel follows along with the lecture, lets you click a sentence to jump there, and searches the full text, with matches marked on the progress bar.
 - **Notes, bookmarks, "didn't understand" flags and discussion**: these use the same data as the original player, so everything stays in sync with Echo360. Items with a time are marked on the progress bar.
 - **Audio tools** (off by default): even out the volume (for lecturers without a microphone), clearer voice, mono.
-- **Silence detection**: long pauses (breaks, group work) are marked on the progress bar. A "Skip silence" button appears when you reach one, and an optional auto-skip jumps over them.
+- **Silence and empty-screen detection**: long pauses (breaks, group work) and stretches with a black or blank screen and nobody speaking are marked on the progress bar, with a Skip button and optional auto-skip. When a recording ends with a long empty part, you are told the lecture is over.
 - **Slide chapters**: slide changes in the screen view are found automatically. A Slides tab lists every slide with a picture and what was said; the progress bar shows chapter boundaries and a preview when you hover. `Shift+←` / `Shift+→` move to the previous / next slide.
 - **Read along with the slides**: drop the lecturer's slide PDF on the player and the Slides tab turns into a PDF reader that follows the lecture, turning to the page being talked about (it reads the text on screen and finds it in the PDF). Page through it yourself at any time; one click brings you back. The PDF stays on your device.
 - **Private tags**: tag notes and bookmarks ("Exam", "Assignment", your own), filter by tag, see tag colours on the progress bar. Tags stay on your device.
 - **Zoom and pan**: zoom into the screen, camera or slide PDF with the wheel or a pinch, drag to move, double-click to go back.
 - **A-B loop**: replay a stretch (a derivation, a sentence) as often as you like.
-- **Watch progress**: what you have watched is shown on the progress bar, and the course page shows how much of each recording you have seen.
+- **Watch progress**: what you have watched is shown on the progress bar, and the course page shows a small progress bar for each recording: the parts you watched on this device and where Echo360 says you stopped last time.
 - **Floating window**: pop the whole player out into a small window that stays on top while you code or write.
 - **Export and backup**: notes, bookmarks and tags as Markdown (with links back to the moment and, with a slide PDF, the slide pictures), for one recording or the whole course. Back up and restore everything that only lives in your browser.
 - **No interruptions**: Echo360's video access is renewed in the background, so long sessions do not stop for a reload.

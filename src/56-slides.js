@@ -35,6 +35,7 @@ const SCENE_MIN_SEC = 20;                // shorter scenes in a row are one chap
 const SCENE_REVISIT_SEC = 180;           // going back to a view shown this recently is no new chapter
 const SCENE_DETOUR_SEC = 60;             // a shorter excursion that comes back belongs to the chapter
 const SCREEN_CLEARLY = 0.75;             // see findScreen
+const ANALYSIS_MAX_FAILS = 5;            // segments in a row that cannot be read before an analysis gives up
 const CHAPTER_THUMB_W = 192;
 
 // ---- fragmented MP4 ----
@@ -333,6 +334,34 @@ function sameViewStrict(a, b) {
   return d.changed < 0.06 || d.mad <= 6;
 }
 
+// A picture of (almost) one colour: a black screen, a "no signal" picture, a blank slide in
+// one colour. Judged by evenness, not darkness, so any kind of empty picture counts: nearly
+// every pixel of the small signature is within noise of the median brightness.
+const UNIFORM_NOISE = 10;     // brightness levels (0-255) of compression noise at 32 x 18
+const UNIFORM_SHARE = 0.985;  // pixels that must be that close (a small logo or a cursor may differ)
+function frameUniform(sig) {
+  const n = sig.length / 3;
+  const l = new Float32Array(n);
+  for (let i = 0, j = 0; i < n; i++, j += 3) l[i] = sig[j] * 0.299 + sig[j + 1] * 0.587 + sig[j + 2] * 0.114;
+  const sorted = Float32Array.from(l).sort();
+  const med = sorted[n >> 1];
+  let close = 0;
+  for (let i = 0; i < n; i++) if (Math.abs(l[i] - med) <= UNIFORM_NOISE) close++;
+  return close >= UNIFORM_SHARE * n;
+}
+
+// Stretches of uniform samples: [{ start, end }] (a stretch ends where the next sample starts).
+function uniformStretches(samples, duration) {
+  const out = [];
+  for (let k = 0; k < samples.length; k++) {
+    if (!samples[k].uniform) continue;
+    const end = k + 1 < samples.length ? samples[k + 1].t : duration;
+    const last = out[out.length - 1];
+    if (last && last.end >= samples[k].t - 0.01) last.end = end; else out.push({ start: samples[k].t, end });
+  }
+  return out;
+}
+
 // Share of pixels that equal their right and lower neighbours: high for slides and code,
 // low for camera pictures.
 function flatShare(img) {
@@ -452,7 +481,10 @@ class SlideAnalyzer {
   constructor(opts) {
     this.lesson = opts.lesson;
     this.video = opts.video;
-    this.onChange = opts.onChange || (() => {});
+    // The listener redraws the player; an error there is a display problem, reported as
+    // such, not a failure of the analysis (which keeps its results and goes on).
+    const onChange = opts.onChange || (() => {});
+    this.onChange = () => { try { onChange(); } catch (e) { reportFeatureError('slide chapters (display)', e); } };
     this.d = opts.disposer;
     this.ac = new AbortController();
     this.d.add(() => this.ac.abort());
@@ -460,17 +492,18 @@ class SlideAnalyzer {
     this.state = 'pending';   // pending | thumbnails | keyframes | done | unavailable
     this.progress = 0;
     this.chapters = [];
+    this.uniform = [];       // stretches where the screen shows (almost) one colour
     this.screenIndex = null;
     this.guessScreen = null;
     this.reader = null;
     this.urls = [];
-    this.d.add(() => { for (const u of this.urls) URL.revokeObjectURL(u); });
+    this.d.add(() => { for (const u of this.urls) URL.revokeObjectURL(u); this.urlOf = null; });
   }
 
   start() {
     this.run().catch((e) => {
       if (this.ac.signal.aborted) return;
-      console.warn(TAG, 'slide detection stopped:', e && e.message ? e.message : e);
+      log.warn('slide detection stopped:', e && e.message ? e.message : e);
       if (!this.chapters.length) { this.state = 'unavailable'; this.onChange(); }
     });
   }
@@ -491,11 +524,25 @@ class SlideAnalyzer {
     return u;
   }
 
+  // Lets go of pictures no chapter shows any more (chapters are rebuilt while scanning).
+  pruneThumbs() {
+    if (!this.urlOf) return;
+    const used = new Set(this.chapters.map((c) => c.blob).filter(Boolean));
+    for (const [blob, u] of this.urlOf) {
+      if (used.has(blob)) continue;
+      URL.revokeObjectURL(u);
+      this.urlOf.delete(blob);
+    }
+    this.urls = [...this.urlOf.values()];
+  }
+
   async run() {
     const signal = this.ac.signal;
     const key = 'slides:' + this.lesson.mediaId;
     const cached = this.lesson.mediaId ? await idbCache.get(key) : undefined;
-    if (cached && cached.v === 1 && Array.isArray(cached.chapters)) {
+    if (cacheValid('slides', cached) && Array.isArray(cached.chapters)) {
+      cacheTouch(key);
+      this.uniform = Array.isArray(cached.uniform) ? cached.uniform : [];
       this.screenIndex = cached.screen;
       this.chapters = cached.chapters.map((c) => Object.assign({}, c, { thumb: c.blob ? this.thumbUrl(c.blob) : c.thumb }));
       this.state = 'done';
@@ -600,12 +647,19 @@ class SlideAnalyzer {
   // placed half way between them.
   async fromThumbnailsAsync(set) {
     const samples = [];
+    let fails = 0;
     for (const t of set.timesInSeconds) {
       await this.gate.wait(0);
-      const img = await this.loadThumb(set, t, this.ac.signal);
+      // A preview picture that cannot be read is left out.
+      let img = null;
+      try { img = await this.loadThumb(set, t, this.ac.signal); fails = 0; } catch (e) {
+        if (this.ac.signal.aborted || ++fails >= ANALYSIS_MAX_FAILS) throw e;
+        continue;
+      }
       samples.push({ t, sig: frameSignature(img) });
       img.close();
     }
+    if (samples.length < 2) return;
     const scenes = buildScenes(samples, this.duration(), { minSec: 0 });
     this.chapters = scenes.map((s, i) => {
       const first = chapterSampleStart(samples, s);
@@ -623,7 +677,7 @@ class SlideAnalyzer {
   }
 
   fromThumbnails(set) {
-    this.thumbsDone = this.fromThumbnailsAsync(set).catch((e) => { if (!this.ac.signal.aborted) console.warn(TAG, 'thumbnails:', e.message); });
+    this.thumbsDone = this.fromThumbnailsAsync(set).catch((e) => { if (!this.ac.signal.aborted) log.warn('thumbnails:', e.message); });
   }
 
   async fromKeyframes(source, signal) {
@@ -635,15 +689,33 @@ class SlideAnalyzer {
     if (store.get('debug', false)) this.samples = samples; // for tuning, development only
     const thumbs = new Map();
     let lastBuild = 0;
+    let fails = 0;
     for (let i = 0; i < n; i++) {
       await this.gate.turn(300, 120, 20);
       let sig = null;
       let pic = null;
-      await reader.keyframe(i, signal, (f) => { sig = frameSignature(f); pic = smallBitmap(f, CHAPTER_THUMB_W); });
-      samples.push({ t: reader.segments[i].start, sig });
+      // One segment that cannot be read (a missing keyframe, a failed request) does not end
+      // the analysis: it counts as "same picture as before"; only several in a row do.
+      try {
+        await reader.keyframe(i, signal, (f) => { sig = frameSignature(f); pic = smallBitmap(f, CHAPTER_THUMB_W); });
+        fails = 0;
+      } catch (e) {
+        if (signal.aborted) throw e;
+        if (++fails >= ANALYSIS_MAX_FAILS) {
+          if (samples.length) this.applyScenes(samples, thumbs, false);
+          throw e;
+        }
+        log.warn('slide chapters: segment ' + i + ' skipped:', e);
+      }
+      const j = samples.length;
+      if (!sig) {
+        if (j) samples.push({ t: reader.segments[i].start, sig: samples[j - 1].sig, uniform: samples[j - 1].uniform });
+        continue;
+      }
+      samples.push({ t: reader.segments[i].start, sig, uniform: frameUniform(sig) });
       // Keep a small picture only for the last frame of each run of identical frames.
-      if (thumbs.has(i - 1) && sameView(samples[i - 1].sig, sig)) thumbs.delete(i - 1);
-      thumbs.set(i, await bitmapToBlob(pic));
+      if (thumbs.has(j - 1) && sameView(samples[j - 1].sig, sig)) thumbs.delete(j - 1);
+      thumbs.set(j, await bitmapToBlob(pic));
       this.progress = ((i + 1) / n) * 0.8;
       if (i - lastBuild >= 30) {
         lastBuild = i;
@@ -653,6 +725,7 @@ class SlideAnalyzer {
       }
     }
     this.state = 'keyframes';
+    this.uniform = uniformStretches(samples, this.duration());
     this.applyScenes(samples, thumbs, true);
     // Pin each change to about a second inside the segment where it happened.
     const chs = this.chapters;
@@ -662,7 +735,13 @@ class SlideAnalyzer {
       await this.gate.turn(1000, 300, 30);
       const before = samples[k - 1].sig;
       let at = null;
-      await reader.frames(k - 1, 1, signal, (f, t) => { if (at === null && !sameView(before, frameSignature(f))) at = t; });
+      // A segment that cannot be read keeps the coarse (10 s) time.
+      try {
+        await reader.frames(reader.segmentAt(samples[k - 1].t), 1, signal, (f, t) => { if (at === null && !sameView(before, frameSignature(f))) at = t; });
+      } catch (e) {
+        if (signal.aborted) throw e;
+        at = null;
+      }
       // Seeking exactly to a frame's timestamp can still show the frame before it.
       if (at !== null) at = Math.round((at + 0.05) * 100) / 100;
       if (at !== null && at < chs[c].start) {
@@ -688,13 +767,16 @@ class SlideAnalyzer {
       for (let k = s.rep; k >= first && !blob; k--) blob = thumbs.get(k) || null;
       return { start: s.start, end: s.end, precise: false, repTime: samples[s.rep].t, firstSample: first, blob, thumb: blob ? this.thumbUrl(blob) : '' };
     });
+    this.pruneThumbs();
     this.onChange();
   }
 
   save(key) {
     if (!this.lesson.mediaId || this.state !== 'done') return;
     idbCache.put(key, {
-      v: 1,
+      used: Date.now(),
+      v: cacheVersion('slides'),
+      uniform: this.uniform,
       screen: this.screenIndex,
       at: Date.now(),
       chapters: this.chapters.map((c) => ({ start: c.start, end: c.end, precise: c.precise, repTime: c.repTime, blob: c.blob || null, thumb: c.blob ? '' : c.thumb })),

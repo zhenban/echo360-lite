@@ -53,7 +53,8 @@ class SlideReader {
     return false;
   }
 
-  onInfo(fn) { this.infoListeners.add(fn); }
+  // Returns a function that removes the listener again.
+  onInfo(fn) { this.infoListeners.add(fn); return () => this.infoListeners.delete(fn); }
 
   info() { for (const fn of this.infoListeners) fn(); }
 
@@ -120,7 +121,7 @@ class SlideReader {
       requestAnimationFrame(() => c.classList.add('in'));
       const old = [...tg.pages.querySelectorAll('canvas')].filter((x) => x !== c);
       setTimeout(() => { for (const x of old) x.remove(); }, 220);
-    }).catch((e) => console.warn(TAG, 'render page:', e && e.message ? e.message : e));
+    }).catch((e) => log.warn('render page:', e && e.message ? e.message : e));
   }
 
   // "Page 5 of 21 · file" for the page shown.
@@ -161,7 +162,7 @@ class SlidesPane {
     this.list = h('div.slist');
     el.append(this.deckBox, this.readerBox, this.chapToggle, this.status, this.list);
     this.buildReader();
-    this.reader.onInfo(() => { if (this.visible) this.renderPageInfo(); });
+    this.d.add(this.reader.onInfo(() => { if (this.visible) this.renderPageInfo(); }));
     this.d.listen(this.list, 'click', (e) => {
       const card = e.target.closest('.scard');
       if (card) this.player.seek(this.chapters[+card.dataset.i].start);
@@ -210,7 +211,8 @@ class SlidesPane {
     box.textContent = '';
     if (!deck) return;
     const input = h('input', { type: 'file', accept: '.pdf,application/pdf', multiple: true, hidden: true });
-    input.addEventListener('change', guard(() => { if (input.files.length) deck.addFiles(input.files); }));
+    // Failures are shown in this tab (deck.error).
+    input.addEventListener('change', guard(() => { if (input.files.length) deck.addFiles(input.files).catch(() => {}); }));
     const files = h('div.sfiles');
     for (const f of deck.files) {
       files.append(h('span.sfile', null, h('span.sfname', { text: f.name, title: f.name }),
@@ -220,7 +222,7 @@ class SlidesPane {
     let msg = '';
     if (deck.state === 'loading') msg = t('deckLoading');
     else if (deck.state === 'reading') msg = deck.ocr ? t('deckReading', { pct: Math.floor(deck.progress * 100) }) : t('deckWaiting');
-    else if (deck.state === 'error') msg = t('deckError', { msg: deck.error });
+    else if (deck.state === 'error') msg = deck.error;
     else if (!deck.files.length) msg = t('slidesLocal');
     box.append(files);
     if (msg) box.append(h('div.sdmsg', { text: msg }));

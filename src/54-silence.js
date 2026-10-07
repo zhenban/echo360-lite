@@ -280,6 +280,34 @@ function speechSpans(silences, duration, env, maxSec) {
 }
 
 // Index of the silence containing t, or -1. Silences are sorted and disjoint.
+// Stretches that can be skipped, from silences and from stretches where the screen shows
+// one colour (`uniform`, from the slide analysis):
+//   kind 'silence'  silent, picture as usual
+//   kind 'blank'    silent and the screen empty (at least half of the silence)
+//   kind 'black'    the screen empty while nothing is known about the audio (no transcript,
+//                   audio not analysed): marked and skippable by hand, never automatically.
+// An empty screen with someone speaking is not skippable. Sorted by start.
+function skipStretches(silences, uniform, audioKnown, minSec) {
+  const overlap = (a, b) => {
+    let n = 0;
+    for (const u of uniform) n += Math.max(0, Math.min(b, u.end) - Math.max(a, u.start));
+    return n;
+  };
+  const out = silences.map((x) => ({ start: x.start, end: x.end, kind: overlap(x.start, x.end) >= 0.5 * (x.end - x.start) ? 'blank' : 'silence' }));
+  if (!audioKnown) {
+    for (const u of uniform) if (u.end - u.start >= minSec) out.push({ start: u.start, end: u.end, kind: 'black' });
+  }
+  return out.sort((a, b) => a.start - b.start);
+}
+
+// Where the lecture's content ends: the start of an empty stretch (blank or black) that
+// runs to the end of the recording (within `slack` seconds, one sample), else the duration.
+function contentEndAt(stretches, duration, slack) {
+  const last = stretches[stretches.length - 1];
+  if (last && (last.kind === 'blank' || last.kind === 'black') && last.end >= duration - (slack == null ? 15 : slack)) return last.start;
+  return duration;
+}
+
 function silenceIndexAt(silences, t) {
   let lo = 0;
   let hi = silences.length - 1;
@@ -300,7 +328,10 @@ class SilenceAnalyzer {
     this.lesson = opts.lesson;
     this.video = opts.video;
     this.masterUrl = opts.masterUrl;
-    this.onChange = opts.onChange || (() => {});
+    // The listener redraws the player; an error there is a display problem, reported as
+    // such, not a failure of the analysis (which keeps its results and goes on).
+    const onChange = opts.onChange || (() => {});
+    this.onChange = () => { try { onChange(); } catch (e) { reportFeatureError('silence detection (display)', e); } };
     this.d = opts.disposer;
     this.ac = new AbortController();
     this.d.add(() => this.ac.abort());
@@ -334,14 +365,17 @@ class SilenceAnalyzer {
     this.source = 'audio';
     this.runAudio().catch((e) => {
       if (this.ac.signal.aborted) return;
-      console.warn(TAG, 'silence analysis stopped:', e && e.message ? e.message : e);
+      log.warn('silence analysis stopped:', e && e.message ? e.message : e);
       this.fail('error');
     });
   }
 
+  // The analysis stopped. Silences already found from the audio are kept (and stay
+  // cached); only when nothing was found is the feature unavailable.
   fail(reason) {
-    this.source = 'unavailable';
     this.reason = reason;
+    if (this.env && this.env.coverage() > 0) { this.recompute(); return; }
+    this.source = 'unavailable';
     this.silences = [];
     this.onChange();
   }
@@ -371,7 +405,8 @@ class SilenceAnalyzer {
     await this.gate.wait(cached ? 0 : 8000); // let playback start first
     const track = await new HlsAudioTrack(this.masterUrl).open(signal);
     this.track = track;
-    const data = cached && cached.v === 1 && cached.step === ENV_STEP ? cached.data : null;
+    const data = cacheValid('silence-env', cached) && cached.step === ENV_STEP ? cached.data : null;
+    if (data) cacheTouch(key);
     this.env = new Envelope(track.duration, data);
     this.progress = this.env.coverage();
     this.recompute();
@@ -382,11 +417,23 @@ class SilenceAnalyzer {
     const order = [];
     for (let k = 0; k < n; k++) order.push((from + k) % n);
     let sinceSave = 0;
+    let fails = 0;
     for (const i of order) {
       const span = track.chunkSpan(i);
       if (this.env.coverageOf(span.start, span.end) > 0.9) continue;
       await this.gate.turn(2000, 400);
-      const chunk = await track.readChunk(i, signal);
+      // A chunk that cannot be read or decoded is left out (that stretch stays unknown,
+      // never "silent"); only several in a row end the analysis, keeping what was found.
+      let chunk;
+      try {
+        chunk = await track.readChunk(i, signal);
+        fails = 0;
+      } catch (e) {
+        if (signal.aborted) return;
+        if (++fails >= ANALYSIS_MAX_FAILS) { this.save(key); this.recompute(); throw e; }
+        log.warn('silence detection: chunk ' + i + ' skipped:', e);
+        continue;
+      }
       await idle();
       if (signal.aborted) return;
       this.env.fill(chunk.start, chunk.pcm, chunk.rate);
@@ -403,7 +450,7 @@ class SilenceAnalyzer {
   }
 
   save(key) {
-    if (this.lesson.mediaId) idbCache.put(key, { v: 1, step: ENV_STEP, data: this.env.data, at: Date.now() });
+    if (this.lesson.mediaId) idbCache.put(key, { v: cacheVersion('silence-env'), used: Date.now(), step: ENV_STEP, data: this.env.data, at: Date.now() });
   }
 
 }

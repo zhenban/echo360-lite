@@ -5,6 +5,7 @@
 import { readFileSync, writeFileSync, readdirSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import vm from 'node:vm';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const version = readFileSync(join(root, 'VERSION'), 'utf8').trim();
@@ -35,6 +36,15 @@ const out = `${meta}
 ${parts.join('\n')}
 })();
 `;
+
+// The concatenation must be valid JavaScript (each file alone can be, while the joined
+// script is not): compile it before writing anything.
+try {
+  new vm.Script(out, { filename: 'echo360-lite.user.js' });
+} catch (e) {
+  console.error('build failed: the joined script does not compile:', e.message);
+  process.exit(1);
+}
 
 mkdirSync(join(root, 'dist'), { recursive: true });
 writeFileSync(join(root, 'dist', 'echo360-lite.user.js'), out);

@@ -72,7 +72,7 @@ class Echo360Api {
     if (this.dryRun === 'all' || (this.dryRun === 'public' && visibility === 'public')) {
       const rec = { method, url: new URL(path, location.origin).href, body: body === undefined ? null : JSON.stringify(body), visibility };
       (window.__echo360LiteDryRun = window.__echo360LiteDryRun || []).push(rec);
-      console.info(TAG, 'DRY RUN (not sent):', method, rec.url, rec.body || '');
+      log.info('DRY RUN (not sent):', method, rec.url, rec.body || '');
       return Promise.resolve(dryRunResult(method, path, body));
     }
     return this.request(method, path, body);

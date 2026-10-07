@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.12.0
+New:
+- Empty parts: a black screen, a "no signal" picture or any one-colour screen while nobody speaks is found from the slide analysis (no extra download) and marked on the progress bar like silences, with the same Skip button and setting (hover says "silence", "black screen and silence" or "black screen"). An empty screen while someone is still speaking is left alone.
+- End of the lecture: when the recording ends with such an empty part, playback reaching it says "The lecture has ended" with "Skip to the end" or "Stop here", and the watched percentage leaves it out (watching all of the content is 100%).
+- Course page: each recording gets a small progress bar showing both what you watched on this device (filled parts, with the percentage) and where Echo360 says you stopped last time (a tick, any device). The player's progress bar also shows that tick.
+- ⋯ menu: how much space analysis results take on this device, with a Clear button (unused results are also removed after 60 days, and results from older versions are made again), "Copy diagnostics" for bug reports (shown before copying; no sign-in data, addresses, names, notes or posts), and the shortcut list.
+
+More robust:
+- Only a failure in playback itself still switches to the original player. A failure in any other feature turns just that feature off with one short notice; playback goes on.
+- One unreadable segment no longer ends slide chapters, silence detection or slide reading; results found so far are kept, and parts that could not be read are tried again on the next visit.
+- Storage: failed writes are reported (a PDF that cannot be stored says so), storage that failed to open is tried again, and records shared by several tabs (slide files, watched parts) are changed in one step so tabs cannot undo each other. A restored backup is written all at once and the page reloads straight away, so it cannot write older data back.
+- The floating window recovers if moving the player into it fails, and cannot be opened twice by a double press; after switching to the original player nothing of this player comes back.
+- Memory: rendered PDF pages are kept within a fixed pixel budget; pdf.js's worker ends when no PDF is open; pictures of old chapters are released.
+- Discussion: an older refresh that answers late no longer hides a post just made.
+- Console output: warnings and errors only, in one format (details with localStorage `echo360lite:debug` = true).
+
 ## 0.11.2
 Stability fixes from an independent code review (REVIEW-quality.md).
 - If anything fails while the player is being set up, everything it already made is removed and the original player takes over cleanly (before, a black overlay could stay over the original player). Browsers that cannot play the streams go to the original player before anything is built.

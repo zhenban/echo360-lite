@@ -50,7 +50,7 @@ class FollowerSync {
 
   start() {
     if (this.timer) return;
-    this.timer = setInterval(guard(() => this.check()), 1000);
+    this.timer = setInterval(guardCore(() => this.check()), 1000);
   }
 
   stop() {

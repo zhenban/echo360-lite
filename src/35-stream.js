@@ -109,25 +109,31 @@ class Stream {
         xhrSetup: (xhr) => { xhr.withCredentials = true; },
       });
       this.hls = hls;
-      hls.on(HlsLib.Events.ERROR, guard((e, data) => this.onError(data)));
-      hls.once(HlsLib.Events.MANIFEST_PARSED, guard(() => {
+      hls.on(HlsLib.Events.ERROR, guardCore((e, data) => this.onError(data)));
+      hls.once(HlsLib.Events.MANIFEST_PARSED, guardCore(() => {
         this.applyQuality(true);
         if (onReady) onReady();
       }));
-      hls.on(HlsLib.Events.LEVEL_SWITCHED, guard(() => { if (this.onLevel) this.onLevel(); }));
+      hls.on(HlsLib.Events.LEVEL_SWITCHED, guardCore(() => { if (this.onLevel) this.onLevel(); }));
       // hls.js resets the MediaSource after some failed appends (refused segments can cause
       // them) and then starts over at startPosition: keep the position and play state.
-      hls.on(HlsLib.Events.MEDIA_DETACHING, guard(() => {
+      hls.on(HlsLib.Events.MEDIA_DETACHING, guardCore(() => {
         if (this.hls === hls && v.readyState > 0) this.restore = { t: v.currentTime, play: !v.paused };
       }));
-      hls.on(HlsLib.Events.MEDIA_ATTACHED, guard(() => {
+      hls.on(HlsLib.Events.MEDIA_ATTACHED, guardCore(() => {
         const r = this.restore;
         this.restore = null;
         if (!r || this.hls !== hls) return;
-        v.addEventListener('loadedmetadata', () => {
+        // Only for this hls instance: if the view is swapped before the metadata arrives,
+        // the new source must not jump to the old position.
+        const onMeta = () => {
+          this.pendingRestore = null;
+          if (this.hls !== hls) return;
           if (Math.abs(v.currentTime - r.t) > 1) v.currentTime = r.t;
           if (r.play && v.paused) v.play().catch(() => {});
-        }, { once: true });
+        };
+        this.pendingRestore = onMeta;
+        v.addEventListener('loadedmetadata', onMeta, { once: true });
       }));
       hls.loadSource(uri);
       hls.attachMedia(v);
@@ -153,7 +159,7 @@ class Stream {
       if (data.type === HlsLib.ErrorTypes.NETWORK_ERROR && this.netRetries < 4) {
         this.netRetries++;
         clearTimeout(this.retryTimer);
-        this.retryTimer = setTimeout(guard(() => this.hls && this.hls.startLoad()), 1000 * this.netRetries);
+        this.retryTimer = setTimeout(guardCore(() => this.hls && this.hls.startLoad()), 1000 * this.netRetries);
         return;
       }
       if (data.type === HlsLib.ErrorTypes.MEDIA_ERROR && this.mediaRecoveries < 2) {
@@ -162,7 +168,7 @@ class Stream {
         return;
       }
     }
-    console.warn(TAG, 'fatal hls error', data.type, data.details, code || '');
+    log.warn('fatal hls error', data.type, data.details, code || '');
     this.onFatal({ auth: code === 401 || code === 403, details: data.details });
   }
 
@@ -183,6 +189,7 @@ class Stream {
 
   destroyEngine() {
     clearTimeout(this.retryTimer);
+    if (this.pendingRestore) { this.video.removeEventListener('loadedmetadata', this.pendingRestore); this.pendingRestore = null; }
     if (this.hls) { this.hls.destroy(); this.hls = null; }
   }
 

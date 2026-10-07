@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Echo360 Lite Player
 // @namespace    echo360-lite
-// @version      0.11.2
+// @version      0.12.0
 // @description  Replaces the Echo360 lecture player with a lightweight native player (far lower CPU use). Falls back to the original player automatically if anything is not recognised.
 // @license      MIT
 // @match        https://echo360.net.au/lesson/*
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.11.2';
+  const VERSION = '0.12.0';
 
 // ---- 00-util.js ----
 // ===================================================================================
@@ -27,6 +27,10 @@
 const TAG = '[Echo360 Lite]';
 const NS = 'echo360lite:';
 const HlsLib = typeof Hls !== 'undefined' ? Hls : window.Hls;
+
+// After a backup has been restored, this page must not write its older data back over
+// it (it reloads right away; until then writes are dropped).
+const storageLock = { frozen: false };
 
 const store = {
   get(key, fallback) {
@@ -38,6 +42,7 @@ const store = {
     }
   },
   set(key, value) {
+    if (storageLock.frozen) return;
     try { localStorage.setItem(NS + key, JSON.stringify(value)); } catch (e) { /* ignore */ }
   },
 };
@@ -63,9 +68,16 @@ function clamp(v, lo, hi) {
   return Math.min(hi, Math.max(lo, v));
 }
 
-// Unexpected errors in our own handlers end up here. The bootstrap installs a handler that
-// hands the page back to the original player (it runs at most once).
+// Errors in our own code come in two kinds.
+//  - Core playback (the streams, the clock video's events, the layout): the page is handed
+//    back to the original player (`unexpected.handler`, installed by the bootstrap, runs at
+//    most once). Code reports these with reportUnexpected / guardCore.
+//  - Everything else (menus, panels, tags, zoom, analyses, ...): logged, the user gets one
+//    unobtrusive notice per feature, and the feature's own resources may be released
+//    (Disposer.feature). Playback goes on. This is what guard() does by default.
+// guard() also catches rejections of the Promise an async callback returns.
 const unexpected = { handler: null };
+const featureErrors = { notify: null, seen: new Set() };
 
 function reportUnexpected(err) {
   console.error(TAG, 'unexpected error', err);
@@ -74,24 +86,78 @@ function reportUnexpected(err) {
   if (h) { try { h(err); } catch (e) { /* ignore */ } }
 }
 
-function guard(fn) {
+function reportFeatureError(name, err) {
+  const what = name || 'player';
+  console.error(TAG, 'error in ' + what + ':', err);
+  logEvent('error', what + ': ' + ((err && err.message) || err));
+  if (featureErrors.seen.has(what)) return;
+  featureErrors.seen.add(what);
+  if (featureErrors.notify) { try { featureErrors.notify(what, err); } catch (e) { /* ignore */ } }
+}
+
+// fn wrapped so that an exception (or the rejection of the Promise it returns) goes to
+// onError, by default a non-fatal feature error.
+function guard(fn, onError) {
+  const report = onError || ((e) => reportFeatureError(null, e));
   return function guarded() {
     try {
-      return fn.apply(this, arguments);
+      const r = fn.apply(this, arguments);
+      if (r && typeof r.then === 'function' && typeof r.catch === 'function') r.catch(report);
+      return r;
     } catch (e) {
-      reportUnexpected(e);
+      report(e);
       return undefined;
     }
   };
+}
+
+// Core playback: an error hands the page back to the original player.
+function guardCore(fn) {
+  return guard(fn, reportUnexpected);
+}
+
+// Runs fn (a feature's setup) and turns the feature off instead of failing the player.
+function featureGuard(name, fn) {
+  try {
+    const r = fn();
+    if (r && typeof r.catch === 'function') r.catch((e) => reportFeatureError(name, e));
+    return r;
+  } catch (e) {
+    reportFeatureError(name, e);
+    return undefined;
+  }
+}
+
+// One log format: "[Echo360 Lite] ..." in the console. Warnings and errors always (and kept
+// for diagnostics); information only with localStorage["echo360lite:debug"] = true.
+const log = {
+  info(...a) { if (store.get('debug', false)) console.info(TAG, ...a); },
+  warn(...a) { console.warn(TAG, ...a); logEvent('warn', a.map(logText).join(' ')); },
+  error(...a) { console.error(TAG, ...a); logEvent('error', a.map(logText).join(' ')); },
+};
+function logText(x) { return x && x.message ? x.message : typeof x === 'string' ? x : String(x); }
+
+// Recent warnings and errors (no content, no addresses), for "copy diagnostics".
+const LOG_KEEP = 40;
+const eventLog = [];
+function logEvent(level, text) {
+  eventLog.push({ t: new Date().toISOString().slice(11, 19), level, text: String(text).slice(0, 300) });
+  if (eventLog.length > LOG_KEEP) eventLog.shift();
 }
 
 // Owns every timer, listener, observer and child resource of a component so that one
 // dispose() call releases all of them (used when switching recordings and when handing
 // over to the original player). Listener and timer callbacks are wrapped with guard().
 class Disposer {
-  constructor() {
+  // opts: { onError } (where errors of its listeners and timers go; inherited by children)
+  constructor(opts) {
     this.fns = [];
     this.disposed = false;
+    this.onError = (opts && opts.onError) || null;
+  }
+
+  guarded(fn) {
+    return guard(fn, this.onError);
   }
 
   add(fn) {
@@ -101,20 +167,20 @@ class Disposer {
   }
 
   listen(target, type, fn, opts) {
-    const g = guard(fn);
+    const g = this.guarded(fn);
     target.addEventListener(type, g, opts);
     this.add(() => target.removeEventListener(type, g, opts));
     return g;
   }
 
   interval(fn, ms) {
-    const id = setInterval(guard(fn), ms);
+    const id = setInterval(this.guarded(fn), ms);
     this.add(() => clearInterval(id));
     return id;
   }
 
   timeout(fn, ms) {
-    const id = setTimeout(guard(fn), ms);
+    const id = setTimeout(this.guarded(fn), ms);
     this.add(() => clearTimeout(id));
     return id;
   }
@@ -124,10 +190,23 @@ class Disposer {
     return observer;
   }
 
-  child() {
-    const d = new Disposer();
+  child(opts) {
+    const d = new Disposer(Object.assign({ onError: this.onError }, opts));
     this.add(() => d.dispose());
     return d;
+  }
+
+  // Resources of one optional feature: an error in its listeners or timers is reported
+  // once, and the feature's resources are released (the feature stops; playback goes on).
+  feature(name) {
+    let d = null;
+    d = this.child({ onError: (e) => { reportFeatureError(name, e); if (d) d.dispose(); } });
+    return d;
+  }
+
+  // Resources of core playback: an error hands over to the original player.
+  core() {
+    return this.child({ onError: reportUnexpected });
   }
 
   dispose() {
@@ -305,6 +384,7 @@ const STRINGS = {
     deckReading: 'Reading the slides on screen: {pct}%',
     deckWaiting: 'Waiting to find the screen view…',
     deckError: 'Could not read the slide file ({msg}).',
+    deckSaveFailed: 'Could not store {name} on this device ({msg}). Is the disk full?',
     prevPage: 'Previous page',
     nextPage: 'Next page',
     pageOfN: 'Page {n} of {total}',
@@ -346,6 +426,13 @@ const STRINGS = {
     silenceUnavailable: 'Silence detection is not available for this recording.',
     silenceSaveData: 'Silence detection is off while Data Saver is on.',
     silenceTip: 'silence {time}',
+    blankTip: 'black screen and silence {time}',
+    blackTip: 'black screen {time}',
+    skipBlank: 'Skip empty part ({time}) \u203a',
+    skippedBlank: 'Skipped {time} of black screen and silence',
+    contentEnded: 'The lecture has ended (black screen and silence from here).',
+    contentEndSkip: 'Skip to the end',
+    contentEndStop: 'Stop here',
     skipSilence: 'Skip silence ({time}) \u203a',
     skippedSilence: 'Skipped {time} of silence',
     audioNoWebAudio: 'Audio processing is not available in this browser.',
@@ -358,6 +445,7 @@ const STRINGS = {
     authExpiredText: 'Echo360\'s video access has expired and could not be renewed. Reload the page to continue from where you are.',
     authLoginExpiredText: 'Your Echo360 sign-in has expired. Reload the page to sign in again; playback continues from where you are.',
     sessionRenewing: 'Refreshing the session…',
+    featureFailed: 'Something went wrong in {name}; it is off for now. Playback is not affected.',
     tagExam: 'Exam',
     tagAssignment: 'Assignment',
     tagConfused: 'Didn\'t get it',
@@ -395,6 +483,18 @@ const STRINGS = {
     keyLoop: 'Loop: set start / end (A-B), or right-click the progress bar',
     keyLoopClear: 'End the loop',
     keyHelp: 'This list',
+    moreMenu: 'More',
+    cachesMeasuring: 'Analysis results on this device: measuring…',
+    cachesSize: 'Analysis results on this device: {mb} MB ({n})',
+    cachesUnknown: 'Analysis results on this device: unknown',
+    cachesClear: 'Clear',
+    cachesCleared: 'Cleared {n} results; they are made again when needed',
+    cachesInfo: 'Slide chapters, silences and slide text found for each recording, so they are instant next time. Not your notes, tags or slide files. Unused results go after 60 days.',
+    diagMenu: 'Copy diagnostics…',
+    diagTitle: 'Diagnostics',
+    diagInfo: 'For a bug report: versions, the state of each feature and recent warnings. No sign-in data, addresses, names, notes or posts. This is exactly what will be copied:',
+    diagCopy: 'Copy',
+    diagCopied: 'Diagnostics copied',
     keyExport: 'Export notes and bookmarks, backup',
     exportMenu: 'Export…',
     exportInfo: 'Notes and bookmarks with their times and tags, as Markdown (for Obsidian and other notes apps). Each time links back to that moment. The video and its address are never included.',
@@ -412,7 +512,7 @@ const STRINGS = {
     backupMake: 'Download backup',
     backupRestore: 'Restore from a backup…',
     backupMade: 'Backup saved ({n} items)',
-    backupRestored: 'Restored {n} items. Reload to use them everywhere.',
+    backupRestored: 'Restored {n} items. Reloading…',
     backupInvalid: 'This is not an Echo360 Lite backup file',
     mdRecorded: 'Recorded {date}',
     mdOpen: 'Open in Echo360',
@@ -425,9 +525,10 @@ const STRINGS = {
     popoutBack: 'Back to this page',
     popoutFailed: 'Could not open a floating window ({msg})',
     listWatched: '{pct}% watched',
-    listWatchedTitle: 'Share of this recording you have watched (Echo360 Lite, this device)',
-    listLastAt: 'Last at {pct}%',
-    listLastAtTitle: 'Where you stopped last time (Echo360; no record on this device)',
+    listWatchedTitle: 'Watched {pct}% on this device',
+    listLastAt: 'last at {time}',
+    listLastAtTitle: 'last stopped at {time} (Echo360, any device)',
+    lastStopped: 'You stopped here last time (Echo360)',
     loopStart: 'Loop start (drag)',
     loopEnd: 'Loop end (drag)',
     loopClear: 'End loop',
@@ -732,7 +833,7 @@ class Echo360Api {
     if (this.dryRun === 'all' || (this.dryRun === 'public' && visibility === 'public')) {
       const rec = { method, url: new URL(path, location.origin).href, body: body === undefined ? null : JSON.stringify(body), visibility };
       (window.__echo360LiteDryRun = window.__echo360LiteDryRun || []).push(rec);
-      console.info(TAG, 'DRY RUN (not sent):', method, rec.url, rec.body || '');
+      log.info('DRY RUN (not sent):', method, rec.url, rec.body || '');
       return Promise.resolve(dryRunResult(method, path, body));
     }
     return this.request(method, path, body);
@@ -938,12 +1039,11 @@ class Reporter {
     this.d = disposer;
     const onUnload = () => this.end();
     this.d.listen(window, 'pagehide', onUnload);
-    this.d.listen(window, 'beforeunload', onUnload);
     this.d.add(() => this.detach());
     // The original player validates the session on load; the response may carry a fresh token.
     fetch(info.appUrl + '/api/ui/sessions/' + encodeURIComponent(info.sessionId), { credentials: 'include', headers: this.headers(false) })
       .then((r) => this.saveToken(r))
-      .catch(() => {});
+      .catch((e) => log.info('watch report (session) failed:', e));
   }
 
   headers(withBody) {
@@ -971,7 +1071,7 @@ class Reporter {
           .then(() => this.post(path, body, true));
       }
       return r;
-    }).catch(() => {});
+    }).catch((e) => log.info('watch report failed:', e));
   }
 
   mediaState() {
@@ -1074,6 +1174,7 @@ const ICON = {
   discussion: '<path d="M4.5 5.5h15v10h-9l-4 3.5v-3.5h-2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
   audio: '<path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
   copy: '<rect x="8.5" y="8.5" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M15.5 5.5v-.5a1.5 1.5 0 0 0-1.5-1.5H6a1.5 1.5 0 0 0-1.5 1.5v8a1.5 1.5 0 0 0 1.5 1.5h.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+  more: '<circle cx="5.5" cy="12" r="1.8" fill="currentColor"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/><circle cx="18.5" cy="12" r="1.8" fill="currentColor"/>',
   close: '<path d="M6.5 6.5l11 11m0-11l-11 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
   up: '<path d="M6.5 14.5l5.5-5.5 5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
   down: '<path d="M6.5 9.5l5.5 5.5 5.5-5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
@@ -1196,6 +1297,7 @@ select.input option { background: #1b1b20; }
 .imarks { position: absolute; left: 0; right: 0; top: 0; height: 18px; pointer-events: none; }
 .mk { position: absolute; top: 2px; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%; box-shadow: 0 0 0 1.5px rgba(0,0,0,.6); }
 .mk-note { background: #6ea8ff; }
+.mk-laststop { top: -1px; width: 2px; height: 12px; margin-left: -1px; border-radius: 1px; background: rgba(255,255,255,.75); box-shadow: none; }
 .mk-bookmark { background: #4fd1a5; border-radius: 1px; }
 .mk-flag { background: #ff6b6b; top: 1px; width: 4px; height: 8px; margin-left: -2px; border-radius: 1px; }
 .mk-comment { background: #f3c969; transform: rotate(45deg); border-radius: 1px; }
@@ -1284,6 +1386,12 @@ select.input option { background: #1b1b20; }
   font-size: 13px; box-shadow: 0 6px 24px rgba(0,0,0,.4); transition: opacity .4s ease; }
 .skipsil:hover { background: #2a2a31; }
 .skipsil.fade { opacity: 0; pointer-events: none; }
+.endnote { position: absolute; z-index: 5; right: 14px; bottom: 96px; display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 14px;
+  border-radius: 18px; background: var(--panel); box-shadow: 0 4px 16px rgba(0,0,0,.4); font-size: 13px; }
+.endnote[hidden] { display: none; }
+.endnote button { height: 28px; padding: 0 12px; border-radius: 14px; background: rgba(255,255,255,.12); }
+.endnote .endclose { width: 28px; padding: 0; background: none; opacity: .7; }
+.sils i.empty { opacity: 1; filter: brightness(1.4); }
 .audiomenu .why { padding: 4px 10px 6px; font-size: 12px; line-height: 1.4; color: #ffd38a; }
 .ccmenu .opt { display: flex; justify-content: space-between; gap: 16px; }
 .ccmenu .sizes { display: flex; gap: 4px; padding: 4px 6px 2px; }
@@ -1451,15 +1559,22 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border: 0; bord
 .zmap i { position: absolute; border: 1.5px solid #fff; background: rgba(255,255,255,.2); border-radius: 2px; }
 .views .zoomed { cursor: grab; }
 .views .panning { cursor: grabbing; }
-.keyhelp { position: absolute; inset: 0; z-index: 8; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.6); }
-.keyhelp[hidden] { display: none; }
+.keyhelp, .diagbox { position: absolute; inset: 0; z-index: 8; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.6); }
+.keyhelp[hidden], .diagbox[hidden] { display: none; }
 .khcard { max-width: min(640px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto; padding: 18px 22px; border-radius: 14px;
   background: #1b1b20; box-shadow: 0 10px 40px rgba(0,0,0,.5); }
 .khcard h2 { margin: 0 0 12px; font-size: 16px; }
 .khlist { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; font-size: 13px; margin-bottom: 14px; }
 .khlist kbd { display: inline-block; min-width: 1.4em; padding: 1px 6px; margin-right: 3px; border-radius: 5px; text-align: center;
   background: rgba(255,255,255,.12); font: 12px/1.6 ui-monospace, monospace; }
-.khcard .actions { display: flex; justify-content: flex-end; }
+.khcard .actions { display: flex; justify-content: flex-end; gap: 8px; }
+.diaginfo { margin: 0 0 10px; font-size: 13px; opacity: .75; }
+.diagtext { max-height: 50vh; overflow: auto; margin: 0 0 14px; padding: 10px 12px; border-radius: 8px; background: rgba(255,255,255,.06);
+  font: 12px/1.5 ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; }
+.moremenu { min-width: 260px; }
+.moremenu .row { display: flex; align-items: center; gap: 10px; padding: 6px 10px; font-size: 13px; }
+.moremenu .row .grow { flex: 1; opacity: .8; }
+.moremenu .row button { width: auto; padding: 4px 10px; background: rgba(255,255,255,.1); }
 .kbtn { font-weight: 700; min-width: 32px; justify-content: center; }
 .error .card button { height: 34px; padding: 0 14px; border-radius: 8px; background: rgba(255,255,255,.1); }
 .error .card button.primary { background: var(--accent); color: #fff; }
@@ -1536,6 +1651,7 @@ function playerTemplate() {
       <button class="speed" title="${t('speed')}" aria-label="${t('speed')}">1x</button>
       <button class="btn popbtn" hidden aria-pressed="false" title="${t('popout')} (W)" aria-label="${t('popout')}">${svg('popout')}</button>
       <button class="btn fs" title="${t('fullscreen')}" aria-label="${t('fullscreen')}">${svg('fullscreen')}</button>
+      <button class="btn morebtn" title="${t('moreMenu')}" aria-label="${t('moreMenu')}" aria-haspopup="menu">${svg('more')}</button>
     </div>
   </div>
   <div class="menu qualitymenu" hidden role="menu"></div>
@@ -1559,6 +1675,10 @@ function playerTemplate() {
     <div class="sub">${t('copyCaptionsSpan')}</div>
     <div class="choices copyspan">${[30, 60, 120, 300].map((s) => `<button role="menuitemradio" data-span="${s}">${s < 60 ? s + 's' : s / 60 + 'm'}</button>`).join('')}</div>
   </div>
+  <div class="menu moremenu" hidden role="menu"></div>
+  <div class="diagbox" hidden role="dialog" aria-label="${t('diagTitle')}"><div class="khcard"><h2>${t('diagTitle')}</h2>
+    <p class="diaginfo">${t('diagInfo')}</p><pre class="diagtext"></pre>
+    <div class="actions"><button class="pbtn diagcopy">${t('diagCopy')}</button><button class="pbtn diagclose">${t('close')}</button></div></div></div>
   <div class="menu audiomenu" hidden role="menu"><div class="head">${t('audio')}</div>
     <div class="why" hidden></div>
     <button class="opt" role="menuitemcheckbox" data-audio="level" aria-checked="false"><span class="row1"><span>${t('audioLevel')}</span><span class="state"></span></span><span class="desc">${t('audioLevelDesc')}</span></button>
@@ -1574,6 +1694,9 @@ function playerTemplate() {
     <div class="choices silsens"><button role="menuitemradio" data-sens="low">${t('low')}</button><button role="menuitemradio" data-sens="normal">${t('normal')}</button><button role="menuitemradio" data-sens="high">${t('high')}</button></div></div>
   </div>
   <button class="skipsil fade" tabindex="-1"></button>
+  <div class="endnote" hidden role="status"><span>${t('contentEnded')}</span>
+    <button class="endskip">${t('contentEndSkip')}</button><button class="endstop">${t('contentEndStop')}</button>
+    <button class="endclose" aria-label="${t('close')}">✕</button></div>
   <div class="toast" hidden><span class="msg"></span><button class="act"></button></div>
   <div class="dropzone" hidden>${t('dropSlides')}</div>
   <div class="error" hidden><div class="card"><h2></h2><p></p><div class="actions"></div></div></div>
@@ -1721,25 +1844,31 @@ class Stream {
         xhrSetup: (xhr) => { xhr.withCredentials = true; },
       });
       this.hls = hls;
-      hls.on(HlsLib.Events.ERROR, guard((e, data) => this.onError(data)));
-      hls.once(HlsLib.Events.MANIFEST_PARSED, guard(() => {
+      hls.on(HlsLib.Events.ERROR, guardCore((e, data) => this.onError(data)));
+      hls.once(HlsLib.Events.MANIFEST_PARSED, guardCore(() => {
         this.applyQuality(true);
         if (onReady) onReady();
       }));
-      hls.on(HlsLib.Events.LEVEL_SWITCHED, guard(() => { if (this.onLevel) this.onLevel(); }));
+      hls.on(HlsLib.Events.LEVEL_SWITCHED, guardCore(() => { if (this.onLevel) this.onLevel(); }));
       // hls.js resets the MediaSource after some failed appends (refused segments can cause
       // them) and then starts over at startPosition: keep the position and play state.
-      hls.on(HlsLib.Events.MEDIA_DETACHING, guard(() => {
+      hls.on(HlsLib.Events.MEDIA_DETACHING, guardCore(() => {
         if (this.hls === hls && v.readyState > 0) this.restore = { t: v.currentTime, play: !v.paused };
       }));
-      hls.on(HlsLib.Events.MEDIA_ATTACHED, guard(() => {
+      hls.on(HlsLib.Events.MEDIA_ATTACHED, guardCore(() => {
         const r = this.restore;
         this.restore = null;
         if (!r || this.hls !== hls) return;
-        v.addEventListener('loadedmetadata', () => {
+        // Only for this hls instance: if the view is swapped before the metadata arrives,
+        // the new source must not jump to the old position.
+        const onMeta = () => {
+          this.pendingRestore = null;
+          if (this.hls !== hls) return;
           if (Math.abs(v.currentTime - r.t) > 1) v.currentTime = r.t;
           if (r.play && v.paused) v.play().catch(() => {});
-        }, { once: true });
+        };
+        this.pendingRestore = onMeta;
+        v.addEventListener('loadedmetadata', onMeta, { once: true });
       }));
       hls.loadSource(uri);
       hls.attachMedia(v);
@@ -1765,7 +1894,7 @@ class Stream {
       if (data.type === HlsLib.ErrorTypes.NETWORK_ERROR && this.netRetries < 4) {
         this.netRetries++;
         clearTimeout(this.retryTimer);
-        this.retryTimer = setTimeout(guard(() => this.hls && this.hls.startLoad()), 1000 * this.netRetries);
+        this.retryTimer = setTimeout(guardCore(() => this.hls && this.hls.startLoad()), 1000 * this.netRetries);
         return;
       }
       if (data.type === HlsLib.ErrorTypes.MEDIA_ERROR && this.mediaRecoveries < 2) {
@@ -1774,7 +1903,7 @@ class Stream {
         return;
       }
     }
-    console.warn(TAG, 'fatal hls error', data.type, data.details, code || '');
+    log.warn('fatal hls error', data.type, data.details, code || '');
     this.onFatal({ auth: code === 401 || code === 403, details: data.details });
   }
 
@@ -1795,6 +1924,7 @@ class Stream {
 
   destroyEngine() {
     clearTimeout(this.retryTimer);
+    if (this.pendingRestore) { this.video.removeEventListener('loadedmetadata', this.pendingRestore); this.pendingRestore = null; }
     if (this.hls) { this.hls.destroy(); this.hls = null; }
   }
 
@@ -1978,7 +2108,7 @@ class FollowerSync {
 
   start() {
     if (this.timer) return;
-    this.timer = setInterval(guard(() => this.check()), 1000);
+    this.timer = setInterval(guardCore(() => this.check()), 1000);
   }
 
   stop() {
@@ -2118,8 +2248,10 @@ class LitePlayer {
     // A failure half-way must not leave a half-built player (a black overlay over the
     // original player, timers, requests): release everything made so far, then let the
     // caller fall back.
+    this.constructing = true;
     try {
       this.init(lesson, opts);
+      this.constructing = false;
     } catch (e) {
       this.destroyed = true;
       try { this.d.dispose(); } catch (err) { /* keep the first error */ }
@@ -2130,8 +2262,13 @@ class LitePlayer {
   init(lesson, opts) {
     this.lesson = lesson;
     this.opts = opts;
+    // A feature that fails is announced once (playback goes on).
+    featureErrors.notify = (name) => { if (!this.destroyed && this.root) this.toast(t('featureFailed', { name })); };
+    this.d.add(() => { featureErrors.notify = null; });
     this.prefs = sanitizePrefs(store.get('prefs', null));
     this.levelsByRole = {};
+    this.skips = [];          // skippable stretches (updateSkips)
+    this.contentEnd = null;
     this.played = new PlayedRanges();
     this.lastSecond = -1;
     this.lastP = -1;
@@ -2150,7 +2287,7 @@ class LitePlayer {
 
     this.buildDom();
     this.session = new SessionKeeper({
-      url: location.href, renewMs: lesson.sessionRenewMs, disposer: this.d,
+      url: location.href, renewMs: lesson.sessionRenewMs, disposer: this.d.feature('session renewal'),
       onState: (st) => { if (!this.destroyed) this.$('.sessionhint').hidden = st !== 'renewing'; },
     });
     this.clock = new Stream(this.video, (f) => this.onClockFatal(f));
@@ -2176,12 +2313,13 @@ class LitePlayer {
     this.d.listen(window, 'pagehide', () => this.watched.save(this.duration()));
     this.reporter = lesson.analytics ? new Reporter(lesson.analytics, this.video, this.played, this.d.child()) : null;
     if (this.reporter) this.reporter.stateFn = () => ({ captions: this.cc.on, transcript: this.sidebar.visible('transcript') });
-    this.setupSilence();
-    this.setupSlides();
-    this.setupDeck();
-    this.loadCues();
-    this.loadInteractions();
-    this.setupAudio();
+    // Optional features: one failing to start is turned off, the others and playback go on.
+    featureGuard('silence detection', () => this.setupSilence());
+    featureGuard('slide chapters', () => this.setupSlides());
+    featureGuard('slide reader', () => this.setupDeck());
+    featureGuard('captions', () => this.loadCues());
+    featureGuard('notes and discussion', () => this.loadInteractions());
+    featureGuard('audio tools', () => this.setupAudio());
 
     const start = this.pickStart();
     this.startAt = start;
@@ -2291,7 +2429,12 @@ class LitePlayer {
 
   // ---- streams and layout ----
 
+  // Core playback: an error here hands over to the original player.
   loadClock(pos, startAt, autoplay) {
+    try { this.loadClockNow(pos, startAt, autoplay); } catch (e) { if (this.constructing) throw e; reportUnexpected(e); }
+  }
+
+  loadClockNow(pos, startAt, autoplay) {
     const v = this.video;
     const source = this.sources[pos];
     this.played.absorb(v.played);
@@ -2333,6 +2476,10 @@ class LitePlayer {
   }
 
   applyLayout() {
+    try { this.applyLayoutNow(); } catch (e) { if (this.constructing) throw e; reportUnexpected(e); }
+  }
+
+  applyLayoutNow() {
     // A new arrangement starts with whole pictures.
     if (this.zoom) this.zoom.resetAll();
     const layout = this.layout;
@@ -2562,8 +2709,11 @@ class LitePlayer {
   recoverAccess(stream, fail) {
     const now = Date.now();
     if (stream.renewedAt && now - stream.renewedAt < 30000) { fail(); return; }
+    // The stream may be reloaded (views swapped) while renewing: resume only the instance
+    // that failed; a new one has started loading by itself.
+    const engine = stream.hls;
     this.session.renew(true).then(() => {
-      if (this.destroyed) return;
+      if (this.destroyed || stream.hls !== engine) return;
       stream.renewedAt = Date.now();
       stream.resume(stream.video.currentTime);
     }, () => { if (!this.destroyed) fail(); });
@@ -2588,7 +2738,8 @@ class LitePlayer {
   bindVideo() {
     const v = this.video;
     const stage = this.stage;
-    const d = this.d;
+    // The clock video's events are core playback: an error here hands over to the original player.
+    const d = this.d.core();
     const on = (type, fn) => d.listen(v, type, fn);
     on('play', () => {
       // Back after a long pause (or a sleeping laptop): renew the access before it runs out.
@@ -2629,7 +2780,7 @@ class LitePlayer {
     on('timeupdate', () => { invalidate(); onTime(); });
     on('seeked', onTime);
     on('progress', invalidate);
-    on('durationchange', () => { this.render(true); if (this.loop) this.loop.render(); this.renderWatched(); this.updateMarkers(); this.renderSilences(); this.renderChapterMarks(); });
+    on('durationchange', () => { this.render(true); if (this.loop) this.loop.render(); this.renderWatched(); this.updateMarkers(); this.updateSkips(); this.renderChapterMarks(); });
     on('ratechange', () => {
       this.$('.speed').textContent = v.playbackRate + 'x';
       for (const b of this.root.querySelectorAll('.speedmenu button')) b.setAttribute('aria-checked', String(+b.dataset.rate === v.playbackRate));
@@ -2654,7 +2805,7 @@ class LitePlayer {
       if (v.currentTime === lastT) {
         still += 2;
         if (still >= 12) {
-          console.warn(TAG, 'playback stalled, restarting loader at', v.currentTime.toFixed(1));
+          log.warn('playback stalled, restarting loader at', v.currentTime.toFixed(1));
           this.clock.kick(v.currentTime);
           still = 0;
         }
@@ -2758,6 +2909,13 @@ class LitePlayer {
   // window and back. Nothing is rebuilt: the same elements, streams and audio graph move.
   async togglePopout() {
     if (this.popout) { this.popout.close(); return; }
+    // A second press while the window is being opened does nothing (no second window).
+    if (this.popoutOpening) return;
+    this.popoutOpening = true;
+    try { await this.openPopout(); } finally { this.popoutOpening = false; }
+  }
+
+  async openPopout() {
     if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
     const r = this.host.getBoundingClientRect();
     let pip;
@@ -2767,40 +2925,55 @@ class LitePlayer {
       this.toast(t('popoutFailed', { msg: (e && e.message) || e }));
       return;
     }
+    if (this.destroyed) { pip.close(); return; }
     const playing = !this.video.paused;
-    this.popout = pip;
     const holder = h('div.e3l-holder', { style: 'display:flex;align-items:center;justify-content:center;gap:12px;width:100%;height:' + Math.round(r.height) + 'px;background:#111;color:#ccc;font:14px system-ui,sans-serif' },
       h('span', { text: t('popoutHere') }),
       h('button', { text: t('popoutBack'), style: 'padding:6px 12px;border-radius:8px;border:0;cursor:pointer', onclick: () => pip.close() }));
-    this.host.replaceWith(holder);
     const doc = pip.document;
-    doc.body.style.cssText = 'margin:0;background:#000;overflow:hidden';
-    doc.title = this.lesson.title;
     const css = this.host.style.cssText;
-    this.host.style.cssText = 'position:fixed;inset:0;width:100%;height:100%';
-    doc.body.append(this.host);
-    this.host.classList.add('in-popout');
     const keys = (e) => this.onKey(e);
-    doc.addEventListener('keydown', keys, true);
-    const resize = () => { this.applyQuality(); this.redrawPdf(); };
-    pip.addEventListener('resize', resize);
-    // Moving can pause the elements in some browsers: carry on as before.
-    if (playing && this.video.paused) this.video.play().catch(() => {});
-    this.$('.popbtn').setAttribute('aria-pressed', 'true');
-    pip.addEventListener('pagehide', () => {
-      const still = !this.video.paused;
+    const resize = () => { if (!this.destroyed) { this.applyQuality(); this.redrawPdf(); } };
+    // Putting the player back. Registered before anything moves, so a failure half-way
+    // (or the window closing at any point) always brings the player back to the page.
+    let back = false;
+    const putBack = () => {
+      if (back) return;
+      back = true;
       doc.removeEventListener('keydown', keys, true);
+      pip.removeEventListener('resize', resize);
+      this.popout = null;
+      // The player was destroyed meanwhile (handed over to the original player): only the
+      // placeholder goes; the old player must not come back over the original one.
+      if (this.destroyed) { holder.remove(); return; }
+      const still = !this.video.paused;
       this.host.classList.remove('in-popout');
       this.host.style.cssText = css;
-      holder.replaceWith(this.host);
-      this.popout = null;
+      if (holder.isConnected) holder.replaceWith(this.host);
       if (still && this.video.paused) this.video.play().catch(() => {});
-      if (!this.destroyed) {
-        this.$('.popbtn').setAttribute('aria-pressed', 'false');
-        this.applyQuality();
-        this.redrawPdf();
-      }
-    }, { once: true });
+      this.$('.popbtn').setAttribute('aria-pressed', 'false');
+      this.applyQuality();
+      this.redrawPdf();
+    };
+    pip.addEventListener('pagehide', putBack, { once: true });
+    this.popout = pip;
+    try {
+      this.host.replaceWith(holder);
+      doc.body.style.cssText = 'margin:0;background:#000;overflow:hidden';
+      doc.title = this.lesson.title;
+      this.host.style.cssText = 'position:fixed;inset:0;width:100%;height:100%';
+      doc.body.append(this.host);
+      this.host.classList.add('in-popout');
+      doc.addEventListener('keydown', keys, true);
+      pip.addEventListener('resize', resize);
+      // Moving can pause the elements in some browsers: carry on as before.
+      if (playing && this.video.paused) this.video.play().catch(() => {});
+      this.$('.popbtn').setAttribute('aria-pressed', 'true');
+    } catch (e) {
+      putBack();
+      try { pip.close(); } catch (err) { /* already closed */ }
+      throw e;
+    }
   }
 
   toggleFullscreen() {
@@ -2829,6 +3002,14 @@ class LitePlayer {
 
   bindControls() {
     this.d.listen(this.$('.kbtn'), 'click', (e) => { e.stopPropagation(); this.showKeys(true); });
+    this.d.listen(this.$('.diagclose'), 'click', (e) => { e.stopPropagation(); this.$('.diagbox').hidden = true; });
+    this.d.listen(this.$('.diagcopy'), 'click', (e) => {
+      e.stopPropagation();
+      navigator.clipboard.writeText(this.$('.diagtext').textContent)
+        .then(() => this.toast(t('diagCopied')), (err) => this.toast(t('copyFailed', { msg: (err && err.message) || err })));
+    });
+    // Old analysis results are cleaned up in the background, once the page has settled.
+    this.d.timeout(() => analysisCaches.prune().catch(() => {}), 60000);
     this.d.listen(this.$('.khclose'), 'click', (e) => { e.stopPropagation(); this.showKeys(false); });
     this.d.listen(this.$('.keyhelp'), 'click', (e) => { if (e.target === this.$('.keyhelp')) this.showKeys(false); });
     const $ = (s) => this.$(s);
@@ -2845,7 +3026,9 @@ class LitePlayer {
     d.listen($('.fs'), 'click', () => this.toggleFullscreen());
     $('.popbtn').hidden = !this.canPopout();
     d.listen($('.popbtn'), 'click', () => this.togglePopout());
-    d.add(() => { if (this.popout) this.popout.close(); });
+    // On teardown: close the window; its pagehide (sync or later) only removes the
+    // placeholder, since the player is destroyed by then.
+    d.add(() => { if (this.popout) { try { this.popout.close(); } catch (e) { /* closed */ } } });
     d.listen($('.swap'), 'click', () => this.swapViews());
     d.listen($('.orig'), 'click', () => this.opts.onFallback('user'));
     d.listen(document, 'fullscreenchange', () => {
@@ -2853,7 +3036,7 @@ class LitePlayer {
     });
 
     // Menus (speed, layout): one open at a time, closed by any click elsewhere.
-    const menus = [[$('.speed'), $('.speedmenu')], [$('.layout'), $('.layoutmenu')], [$('.ccbtn'), $('.ccmenu')], [$('.audiobtn'), $('.audiomenu')], [$('.qbtn'), $('.qualitymenu')], [$('.copybtn'), $('.copymenu')]];
+    const menus = [[$('.speed'), $('.speedmenu')], [$('.layout'), $('.layoutmenu')], [$('.ccbtn'), $('.ccmenu')], [$('.audiobtn'), $('.audiomenu')], [$('.qbtn'), $('.qualitymenu')], [$('.copybtn'), $('.copymenu')], [$('.morebtn'), $('.moremenu')]];
     for (const [btn, menu] of menus) {
       d.listen(btn, 'click', (e) => {
         e.stopPropagation();
@@ -2861,6 +3044,7 @@ class LitePlayer {
         for (const [, m] of menus) m.hidden = true;
         if (open && menu.classList.contains('qualitymenu')) this.renderQualityMenu();
         if (open && menu.classList.contains('copymenu')) this.renderCopyMenu();
+        if (open && menu.classList.contains('moremenu')) this.renderMoreMenu();
         menu.hidden = !open;
         this.wake();
       });
@@ -2911,11 +3095,11 @@ class LitePlayer {
     d.listen($('.pextras button'), 'click', () => this.opts.onFallback('extras'));
     this.bindPanelResize();
     d.listen(this.root, 'click', (e) => {
-      if (e.target.closest('.menu, .speed, .layout, .ccbtn, .audiobtn, .qbtn, .copybtn')) return;
+      if (e.target.closest('.menu, .speed, .layout, .ccbtn, .audiobtn, .qbtn, .copybtn, .morebtn')) return;
       for (const [, m] of menus) m.hidden = true;
       if (this.loop) this.loop.menu.hidden = true;
     });
-    this.loop = new ABLoop(this);
+    this.loop = new ABLoop(this, this.d.feature('A-B loop'));
 
     // Click on a picture: play/pause; double click: fullscreen. While the controls are
     // hidden, the first click only brings them back (it may be aimed at a hidden button).
@@ -2927,7 +3111,7 @@ class LitePlayer {
       this.wake();
     }, true);
     const views = $('.views');
-    this.zoom = new Zoomer(views, d, {
+    this.zoom = new Zoomer(views, this.d.feature('zoom'), {
       // The PDF is drawn again at the zoom level once zooming pauses (in steps, so that
       // small changes do not render it again).
       onChange: () => {
@@ -2978,10 +3162,10 @@ class LitePlayer {
       const dur = this.duration();
       seekEl.style.setProperty('--h', f.toFixed(4));
       nearMarker = this.markers.nearest(f, rect.width, 6);
-      const sil = nearMarker ? null : this.silence.silences[silenceIndexAt(this.silence.silences, f * dur)];
+      const sil = nearMarker ? null : this.skips[silenceIndexAt(this.skips, f * dur)];
       tipText.textContent = nearMarker
         ? fmtTime(nearMarker.time, dur >= 3600) + ' \u00b7 ' + (nearMarker.label.length > 70 ? nearMarker.label.slice(0, 67) + '\u2026' : nearMarker.label)
-        : fmtTime(f * dur, dur >= 3600) + (sil ? ' \u00b7 ' + t('silenceTip', { time: fmtTime(sil.end - sil.start) }) : '');
+        : fmtTime(f * dur, dur >= 3600) + (sil ? ' \u00b7 ' + t(sil.kind + 'Tip', { time: fmtTime(sil.end - sil.start) }) : '');
       const pv = this.previewAt(nearMarker ? nearMarker.time : f * dur);
       if (pv) { if (tipImg.getAttribute('src') !== pv) tipImg.src = pv; tipImg.hidden = false; } else tipImg.hidden = true;
       const half = pv ? 96 : 24;
@@ -3148,7 +3332,8 @@ class LitePlayer {
         case 'p': case 'P': this.copyFrame(); break;
         case 'a': case 'A': this.copyCaptions(); break;
         case 'Escape':
-          if (!this.$('.keyhelp').hidden) this.showKeys(false);
+          if (!this.$('.diagbox').hidden) this.$('.diagbox').hidden = true;
+          else if (!this.$('.keyhelp').hidden) this.showKeys(false);
           else if (this.menusOpen()) { for (const m of this.root.querySelectorAll('.menu')) m.hidden = true; } else handled = false;
           break;
         case '?': this.showKeys(this.$('.keyhelp').hidden); break;
@@ -3274,7 +3459,7 @@ class LitePlayer {
     this.slides = new SlideAnalyzer({
       lesson: this.lesson,
       video: this.video,
-      disposer: this.d,
+      disposer: this.d.feature('slide chapters'),
       onChange: () => { if (!this.destroyed) this.onSlidesChange(); },
     });
     this.slides.start();
@@ -3282,6 +3467,7 @@ class LitePlayer {
 
   onSlidesChange() {
     const a = this.slides;
+    if (a.uniform !== this.knownUniform) { this.knownUniform = a.uniform; this.updateSkips(); }
     // The screen view is known now: the per-view quality settings may apply differently.
     if (a.screenIndex !== this.knownScreen) {
       this.knownScreen = a.screenIndex;
@@ -3310,12 +3496,12 @@ class LitePlayer {
   setupDeck() {
     this.reader = new SlideReader(this);
     this.reader.addTarget('main', this.$('.pstage'));
-    this.reader.onInfo(() => { if (!this.destroyed) this.renderPdfBar(); });
+    this.d.add(this.reader.onInfo(() => { if (!this.destroyed) this.renderPdfBar(); }));
     this.deck = new SlideDeckController({
       lesson: this.lesson,
       video: this.video,
       slides: this.slides,
-      disposer: this.d,
+      disposer: this.d.feature('slide reader'),
       onChange: () => {
         if (this.destroyed) return;
         if (this.slidesPane) this.slidesPane.invalidate();
@@ -3324,7 +3510,7 @@ class LitePlayer {
         if (this.reader.active) this.reader.update(this.video.currentTime, true);
       },
     });
-    this.deck.restore().catch((e) => console.warn(TAG, 'slide files:', e && e.message ? e.message : e));
+    this.deck.restore().catch((e) => log.warn('slide files:', e && e.message ? e.message : e));
     const bar = (sel, fn) => this.d.listen(this.$(sel), 'click', (e) => { e.stopPropagation(); fn(); });
     bar('.pprev', () => this.reader.turn(-1));
     bar('.pnext', () => this.reader.turn(1));
@@ -3345,7 +3531,7 @@ class LitePlayer {
       this.deck.addFiles(e.dataTransfer.files).then((n) => {
         if (!n) { this.toast(t('dropNotPdf')); return; }
         if (this.sidebar.has('slides')) this.sidebar.open('slides');
-      }).catch((err) => this.toast(t('deckError', { msg: String((err && err.message) || err) })));
+      }).catch((err) => this.toast(this.deck.state === 'error' && this.deck.error ? this.deck.error : t('deckError', { msg: String((err && err.message) || err) })));
     });
   }
 
@@ -3401,17 +3587,20 @@ class LitePlayer {
       lesson: this.lesson,
       video: this.video,
       masterUrl: av ? av.av : null,
-      disposer: this.d,
-      onChange: () => { if (!this.destroyed) { this.renderSilences(); this.renderSilenceMenu(); } },
+      disposer: this.d.feature('silence detection'),
+      onChange: () => { if (!this.destroyed) { this.updateSkips(); this.renderSilenceMenu(); } },
     });
     this.silence.options = { minSec: p.min, sensitivity: p.sens };
     this.silIdx = -1;
     this.silAutoSkipped = new Set();
-    this.d.add(() => clearTimeout(this.skipTimer));
+    this.d.add(() => { clearTimeout(this.skipTimer); clearTimeout(this.endTimer); });
+    this.d.listen(this.$('.endskip'), 'click', (e) => { e.stopPropagation(); this.hideEnd(); this.seek(this.duration()); });
+    this.d.listen(this.$('.endstop'), 'click', (e) => { e.stopPropagation(); this.hideEnd(); this.video.pause(); });
+    this.d.listen(this.$('.endclose'), 'click', (e) => { e.stopPropagation(); this.hideEnd(); });
     const btn = this.$('.skipsil');
     this.d.listen(btn, 'click', (e) => {
       e.stopPropagation();
-      const s = this.silence.silences[this.silIdx];
+      const s = this.skips[this.silIdx];
       this.hideSkip();
       if (s) this.seek(s.end);
     });
@@ -3441,21 +3630,34 @@ class LitePlayer {
     this.renderSilenceMenu();
   }
 
+  // Stretches that can be skipped (silences, empty screen) and where the content ends.
+  updateSkips() {
+    const sil = this.silence;
+    const uniform = this.slides ? this.slides.uniform : [];
+    const audioKnown = !!sil && (sil.source === 'transcript' || sil.source === 'audio');
+    this.skips = skipStretches(sil ? sil.silences : [], uniform, audioKnown, this.prefs.silence.min);
+    const dur = this.duration();
+    this.contentEnd = dur ? contentEndAt(this.skips, dur) : null;
+    if (this.watched) this.watched.contentEnd = this.contentEnd && this.contentEnd < dur ? this.contentEnd : null;
+    this.renderSilences();
+  }
+
   renderSilences() {
     const el = this.$('.sils');
     el.textContent = '';
     const dur = this.duration();
     if (!dur) return;
     const frag = document.createDocumentFragment();
-    for (const s of this.silence.silences) {
+    for (const s of this.skips) {
       const i = document.createElement('i');
+      if (s.kind !== 'silence') i.className = 'empty';
       i.style.left = ((s.start / dur) * 100).toFixed(3) + '%';
       i.style.width = (((Math.min(s.end, dur) - s.start) / dur) * 100).toFixed(3) + '%';
       frag.appendChild(i);
     }
     el.appendChild(frag);
     // New results (the analysis refines them as it goes) must not pop the button up again.
-    this.silIdx = silenceIndexAt(this.silence.silences, this.video.currentTime);
+    this.silIdx = silenceIndexAt(this.skips, this.video.currentTime);
   }
 
   renderSilenceMenu() {
@@ -3485,21 +3687,25 @@ class LitePlayer {
   // turned that on). Only playback running into a silence skips automatically; seeking
   // into one just shows the button.
   silenceTick(ct) {
-    const list = this.silence.silences;
+    const list = this.skips;
     if (!list.length && this.silIdx === -1) return;
     const prev = this.silIdx;
     const i = silenceIndexAt(list, ct);
     if (i === prev) return;
     this.silIdx = i;
     const s = list[i];
-    if (!s || s.end - ct < 5) { this.hideSkip(); return; }
+    if (!s) { this.hideSkip(); this.hideEnd(); return; }
     const ranInto = !this.video.seeking && !this.dragging && ct - s.start < 2;
-    if (this.prefs.silence.auto && ranInto && !this.silAutoSkipped.has(s.start)) {
+    // The empty stretch at the end: the lecture is over.
+    if (s.start === this.contentEnd) { this.hideSkip(); if (ranInto || ct - s.start < 15) this.showEnd(); return; }
+    if (s.end - ct < 5) { this.hideSkip(); return; }
+    // An empty screen with unknown audio is never skipped automatically.
+    if (this.prefs.silence.auto && s.kind !== 'black' && ranInto && !this.silAutoSkipped.has(s.start)) {
       this.silAutoSkipped.add(s.start);
       const from = ct;
       this.hideSkip();
       this.seek(s.end);
-      this.toast(t('skippedSilence', { time: fmtTime(s.end - from) }), t('undo'), () => this.seek(from));
+      this.toast(t(s.kind === 'blank' ? 'skippedBlank' : 'skippedSilence', { time: fmtTime(s.end - from) }), t('undo'), () => this.seek(from));
       return;
     }
     this.showSkip(s, ct);
@@ -3507,7 +3713,7 @@ class LitePlayer {
 
   showSkip(s, ct) {
     const btn = this.$('.skipsil');
-    btn.textContent = t('skipSilence', { time: fmtTime(s.end - ct) });
+    btn.textContent = t(s.kind === 'silence' ? 'skipSilence' : 'skipBlank', { time: fmtTime(s.end - ct) });
     btn.classList.remove('fade');
     btn.tabIndex = 0;
     clearTimeout(this.skipTimer);
@@ -3519,6 +3725,19 @@ class LitePlayer {
     btn.classList.add('fade');
     btn.tabIndex = -1;
     clearTimeout(this.skipTimer);
+  }
+
+  // "The lecture has ended": jump to the end (finishing it) or stop here.
+  showEnd() {
+    const box = this.$('.endnote');
+    box.hidden = false;
+    clearTimeout(this.endTimer);
+    this.endTimer = setTimeout(guard(() => this.hideEnd()), 20000);
+  }
+
+  hideEnd() {
+    this.$('.endnote').hidden = true;
+    clearTimeout(this.endTimer);
   }
 
   // ---- side panel, notes, discussion, markers ----
@@ -3550,7 +3769,7 @@ class LitePlayer {
     if (!api) return;
     const canFlag = !!l.sectionId && !l.isAnonymousUser;
     this.tags = new TagStore(l, () => { if (!this.destroyed && this.notes) this.notes.changed(); });
-    this.tags.load().catch((e) => console.warn(TAG, 'tags:', e && e.message ? e.message : e));
+    this.tags.load().catch((e) => log.warn('tags:', e && e.message ? e.message : e));
     this.notes = new NotesPane(this, this.$('.pane[data-pane=notes]'), api, canFlag);
     this.notes.load().then((ok) => {
       if (this.destroyed || !ok) return;
@@ -3570,6 +3789,9 @@ class LitePlayer {
   updateMarkers() {
     if (this.destroyed) return;
     const items = [];
+    // Where Echo360 says playback stopped last time (any device), as it was when the page opened.
+    const last = this.lesson.resumeAt;
+    if (last > 1 && last < this.duration() - 1) items.push({ time: last, kind: 'laststop', label: t('lastStopped') });
     if (this.notes) items.push(...this.notes.markers());
     if (this.discussion && this.sidebar.has('discussion')) items.push(...this.discussion.markers());
     this.markers.set(items, this.duration());
@@ -3634,6 +3856,33 @@ class LitePlayer {
     if (!el) return;
     if (!factor) { this.zoom.reset(el); return; }
     this.zoom.zoomAt(el, factor, 0.5, 0.5);
+  }
+
+  // The ⋯ menu: analysis results stored on this device (size, clear), diagnostics, keys.
+  renderMoreMenu() {
+    const m = this.$('.moremenu');
+    m.textContent = '';
+    const size = h('span.grow', { text: t('cachesMeasuring') });
+    const clear = h('button', { text: t('cachesClear') });
+    clear.addEventListener('click', guard(async (e) => {
+      e.stopPropagation();
+      clear.disabled = true;
+      const n = await analysisCaches.clear();
+      size.textContent = t('cachesCleared', { n });
+    }));
+    m.append(h('div.head', { text: 'Echo360 Lite ' + VERSION }),
+      h('div.row', { title: t('cachesInfo') }, size, clear),
+      h('button', { text: t('diagMenu'), onclick: (e) => { e.stopPropagation(); m.hidden = true; this.showDiagnostics(); } }),
+      h('button', { text: t('keysTitle') + ' (?)', onclick: (e) => { e.stopPropagation(); m.hidden = true; this.showKeys(true); } }));
+    analysisCaches.usage().then((u) => {
+      size.textContent = t('cachesSize', { mb: (u.bytes / 1e6).toFixed(u.bytes < 1e7 ? 1 : 0), n: u.count });
+    }).catch(() => { size.textContent = t('cachesUnknown'); });
+  }
+
+  showDiagnostics() {
+    this.$('.diagtext').textContent = diagnosticsText(this);
+    this.$('.diagbox').hidden = false;
+    this.$('.diagcopy').focus();
   }
 
   showKeys(on) {
@@ -3887,13 +4136,14 @@ class Zoomer {
 const LOOP_MIN_SEC = 1;
 
 class ABLoop {
-  constructor(player) {
+  constructor(player, disposer) {
     this.p = player;
     this.a = null;
     this.b = null;
     this.last = -1;          // time at the previous check
     this.timer = 0;
-    this.d = player.d;
+    this.d = disposer;
+    this.d.add(() => clearTimeout(this.timer));
     this.build();
   }
 
@@ -4058,6 +4308,7 @@ class WatchedStore {
     this.played = played;
     this.base = [];            // stored before this visit
     this.ready = false;
+    this.contentEnd = null;    // where the lecture's content ends (an empty stretch follows), if known
   }
 
   async load() {
@@ -4075,20 +4326,32 @@ class WatchedStore {
     return all.ranges;
   }
 
+  // Merged with what is stored now, in one transaction: the same lecture open in another
+  // tab may have saved its own stretches since this page loaded.
   save(duration) {
-    if (!this.key || !this.ready || !(duration > 0)) return;
-    const r = this.ranges().map(([a, b]) => [Math.floor(a), Math.ceil(b)]);
-    if (!r.length) return;
-    idbCache.put(this.key, { d: Math.round(duration), r, at: Date.now() });
+    if (!this.key || !this.ready || !(duration > 0) || storageLock.frozen) return;
+    const mine = this.ranges();
+    if (!mine.length) return;
+    idbCache.update(this.key, (old) => {
+      const all = new PlayedRanges();
+      if (old && Array.isArray(old.r)) for (const [a, b] of old.r) if (b > a) all.add(a, b);
+      for (const [a, b] of mine) all.add(a, b);
+      const rec = { d: Math.round(duration), r: all.ranges.map(([a, b]) => [Math.floor(a), Math.ceil(b)]), at: Date.now() };
+      if (this.contentEnd > 0) rec.e = Math.round(this.contentEnd); else if (old && old.e > 0) rec.e = old.e;
+      return rec;
+    }).then((rec) => { if (rec) this.base = rec.r; }).catch((e) => log.warn('watched record:', e));
   }
 }
 
-// Share of a recording watched (0..1) from a stored record.
+// Share of a recording watched (0..1) from a stored record. Only the lecture's content
+// counts: an empty stretch at the end (rec.e, black screen and silence) is left out, so
+// watching all of the content is 100%.
 function watchedShare(rec) {
   if (!rec || !(rec.d > 0) || !Array.isArray(rec.r)) return 0;
+  const end = rec.e > 0 && rec.e < rec.d ? rec.e : rec.d;
   let s = 0;
-  for (const [a, b] of rec.r) s += Math.max(0, Math.min(b, rec.d) - Math.max(a, 0));
-  return Math.min(1, s / rec.d);
+  for (const [a, b] of rec.r) s += Math.max(0, Math.min(b, end) - Math.max(a, 0));
+  return Math.min(1, s / end);
 }
 
 // ---- 45-captions.js ----
@@ -4517,7 +4780,7 @@ class NotesPane {
   async load() {
     const [notes, flags] = await Promise.allSettled([this.api.notes(), this.canFlag ? this.api.flags() : Promise.resolve([])]);
     if (notes.status !== 'fulfilled') {
-      console.info(TAG, 'notes unavailable:', notes.reason && notes.reason.message);
+      log.info('notes unavailable:', notes.reason && notes.reason.message);
       return false;
     }
     this.items = notes.value.concat(flags.status === 'fulfilled' ? flags.value : []);
@@ -4585,7 +4848,7 @@ class NotesPane {
   }
 
   fail(e) {
-    console.warn(TAG, 'write failed', e);
+    log.warn('write failed', e);
     this.showError(t('saveFailed', { error: e.message || e }));
     this.p.toast(t('saveFailed', { error: e.message || e }));
   }
@@ -4831,7 +5094,11 @@ class NotesPane {
       if (!f) return;
       try {
         const n = await restoreBackup(JSON.parse(await f.text()));
-        this.p.toast(t('backupRestored', { n }), t('reload'), () => location.reload());
+        // From now on this page must not write its older data over the restored one (its
+        // settings on leaving, the watched record): stop all writes and reload at once.
+        storageLock.frozen = true;
+        this.p.toast(t('backupRestored', { n }));
+        setTimeout(() => location.reload(), 1200);
       } catch (e) { this.p.toast(t('exportFailed', { msg: (e && e.message) || e })); }
       file.value = '';
     }));
@@ -4931,6 +5198,7 @@ class TagStore {
   has(itemId, tagId) { return (this.map[itemId] || []).includes(tagId); }
 
   toggle(itemId, tagId) {
+    if (!this.ready) return null; // not loaded yet: writing now would overwrite the stored tags
     const ids = (this.map[itemId] || []).filter((x) => this.byId(x));
     const i = ids.indexOf(tagId);
     if (i >= 0) ids.splice(i, 1); else ids.push(tagId);
@@ -4941,12 +5209,14 @@ class TagStore {
 
   // Forgets an item's tags (the item was deleted).
   forget(itemId) {
+    if (!this.ready) return null; // not loaded yet: writing now would overwrite the stored tags
     if (!this.map[itemId]) return;
     delete this.map[itemId];
     this.saveMap();
   }
 
   create(name, color) {
+    if (!this.ready) return null; // not loaded yet: writing now would overwrite the stored tags
     const clean = String(name || '').trim().slice(0, 40);
     if (!clean) return null;
     const same = this.tags.find((x) => x.name.toLowerCase() === clean.toLowerCase());
@@ -4959,6 +5229,7 @@ class TagStore {
   }
 
   rename(id, name) {
+    if (!this.ready) return null; // not loaded yet: writing now would overwrite the stored tags
     const tag = this.byId(id);
     const clean = String(name || '').trim().slice(0, 40);
     if (!tag || !clean || clean === tag.name) return;
@@ -4968,6 +5239,7 @@ class TagStore {
   }
 
   recolor(id, color) {
+    if (!this.ready) return null; // not loaded yet: writing now would overwrite the stored tags
     const tag = this.byId(id);
     if (!tag) return;
     tag.color = color;
@@ -4976,6 +5248,7 @@ class TagStore {
   }
 
   remove(id) {
+    if (!this.ready) return null; // not loaded yet: writing now would overwrite the stored tags
     this.tags = this.tags.filter((x) => x.id !== id);
     for (const k of Object.keys(this.map)) {
       this.map[k] = this.map[k].filter((x) => x !== id);
@@ -5083,9 +5356,13 @@ class DiscussionPane {
   }
 
   // Resolves true when discussions are enabled for this lesson.
+  // Loads can overlap (after a write, on opening the tab, "Refresh"): only the newest one's
+  // answer is used, so an older answer arriving late cannot hide a post just made.
   async load() {
+    const seq = (this.loadSeq = (this.loadSeq || 0) + 1);
     try {
       const data = await this.api.discussions();
+      if (seq !== this.loadSeq) return true;
       this.threads = data.threads;
       this.hiddenCount = data.hiddenCount;
       this.loadedAt = Date.now();
@@ -5093,7 +5370,8 @@ class DiscussionPane {
       this.changed();
       return true;
     } catch (e) {
-      console.info(TAG, 'discussions unavailable:', e.message);
+      if (seq !== this.loadSeq) return false;
+      log.info('discussions unavailable:', e.message);
       if (this.loadedAt) this.showError(t('loadFailed', { error: e.message }));
       return false;
     }
@@ -5166,7 +5444,7 @@ class DiscussionPane {
   }
 
   fail(e) {
-    console.warn(TAG, 'discussion write failed', e);
+    log.warn('discussion write failed', e);
     this.showError(t('saveFailed', { error: e.message || e }));
   }
 
@@ -5632,19 +5910,31 @@ function fetchRange(url, offset, length, signal) {
   return fetchOk(url, { headers, signal }).then((r) => r.arrayBuffer());
 }
 
+// IndexedDB, one object store. Reads and ordinary writes never throw (a cache that cannot
+// be used just means work is done again) but failures are logged; writes whose loss the
+// user would notice (slide files, a restore) use putStrict, which throws. A failed open is
+// tried again on the next call; when another tab needs a newer database version, this
+// connection closes so it is not in the way.
 const idbCache = {
   db: null,
   open() {
     if (this.db) return this.db;
-    this.db = new Promise((resolve, reject) => {
+    const p = new Promise((resolve, reject) => {
       if (typeof indexedDB === 'undefined') { reject(new Error('no IndexedDB')); return; }
       const req = indexedDB.open('echo360lite', 1);
       req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains('cache')) req.result.createObjectStore('cache'); };
-      req.onsuccess = () => resolve(req.result);
+      req.onsuccess = () => {
+        const db = req.result;
+        db.onversionchange = () => { db.close(); if (this.db === p) this.db = null; };
+        db.onclose = () => { if (this.db === p) this.db = null; };
+        resolve(db);
+      };
       req.onerror = () => reject(req.error);
+      req.onblocked = () => log.warn('storage: opening is blocked by another tab');
     });
-    this.db.catch(() => {});
-    return this.db;
+    this.db = p;
+    p.catch((e) => { if (this.db === p) this.db = null; log.warn('storage unavailable:', e); });
+    return p;
   },
   tx(mode, fn) {
     return this.open().then((db) => new Promise((resolve, reject) => {
@@ -5652,13 +5942,41 @@ const idbCache = {
       const req = fn(tx.objectStore('cache'));
       tx.oncomplete = () => resolve(req && req.result);
       tx.onerror = () => reject(tx.error);
-      tx.onabort = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('transaction aborted'));
     }));
   },
-  get(key) { return this.tx('readonly', (s) => s.get(key)).catch(() => undefined); },
-  put(key, value) { return this.tx('readwrite', (s) => s.put(value, key)).catch(() => undefined); },
-  del(key) { return this.tx('readwrite', (s) => s.delete(key)).catch(() => undefined); },
-  keys() { return this.tx('readonly', (s) => s.getAllKeys()).catch(() => []); },
+  soft(what, key, p) {
+    return p.catch((e) => { log.warn('storage ' + what + ' failed (' + String(key).split(':')[0] + '):', e); return undefined; });
+  },
+  get(key) { return this.soft('read', key, this.tx('readonly', (s) => s.get(key))); },
+  put(key, value) { return storageLock.frozen ? Promise.resolve() : this.soft('write', key, this.tx('readwrite', (s) => s.put(value, key))); },
+  putStrict(key, value) { return this.tx('readwrite', (s) => s.put(value, key)); },
+  // Several entries in one transaction: all are written or none (throws on failure).
+  putMany(entries) {
+    if (!entries.length) return Promise.resolve();
+    return this.tx('readwrite', (s) => { let req = null; for (const [k, v] of entries) req = s.put(v, k); return req; });
+  },
+  del(key) { return this.soft('delete', key, this.tx('readwrite', (s) => s.delete(key))); },
+  keys() { return this.soft('list', '', this.tx('readonly', (s) => s.getAllKeys())).then((k) => k || []); },
+  // Read, change and write one entry in a single transaction (no other tab or task can
+  // write in between). fn(old) returns the new value, or undefined to delete the entry.
+  // Resolves to the new value.
+  update(key, fn) {
+    if (storageLock.frozen) return Promise.resolve(undefined);
+    return this.open().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction('cache', 'readwrite');
+      const store = tx.objectStore('cache');
+      let next;
+      const req = store.get(key);
+      req.onsuccess = () => {
+        try { next = fn(req.result); } catch (e) { tx.abort(); reject(e); return; }
+        if (next === undefined) store.delete(key); else store.put(next, key);
+      };
+      tx.oncomplete = () => resolve(next);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('transaction aborted'));
+    }));
+  },
 };
 
 // Background downloads must never compete with playback: turn() resolves only when the
@@ -5988,6 +6306,34 @@ function speechSpans(silences, duration, env, maxSec) {
 }
 
 // Index of the silence containing t, or -1. Silences are sorted and disjoint.
+// Stretches that can be skipped, from silences and from stretches where the screen shows
+// one colour (`uniform`, from the slide analysis):
+//   kind 'silence'  silent, picture as usual
+//   kind 'blank'    silent and the screen empty (at least half of the silence)
+//   kind 'black'    the screen empty while nothing is known about the audio (no transcript,
+//                   audio not analysed): marked and skippable by hand, never automatically.
+// An empty screen with someone speaking is not skippable. Sorted by start.
+function skipStretches(silences, uniform, audioKnown, minSec) {
+  const overlap = (a, b) => {
+    let n = 0;
+    for (const u of uniform) n += Math.max(0, Math.min(b, u.end) - Math.max(a, u.start));
+    return n;
+  };
+  const out = silences.map((x) => ({ start: x.start, end: x.end, kind: overlap(x.start, x.end) >= 0.5 * (x.end - x.start) ? 'blank' : 'silence' }));
+  if (!audioKnown) {
+    for (const u of uniform) if (u.end - u.start >= minSec) out.push({ start: u.start, end: u.end, kind: 'black' });
+  }
+  return out.sort((a, b) => a.start - b.start);
+}
+
+// Where the lecture's content ends: the start of an empty stretch (blank or black) that
+// runs to the end of the recording (within `slack` seconds, one sample), else the duration.
+function contentEndAt(stretches, duration, slack) {
+  const last = stretches[stretches.length - 1];
+  if (last && (last.kind === 'blank' || last.kind === 'black') && last.end >= duration - (slack == null ? 15 : slack)) return last.start;
+  return duration;
+}
+
 function silenceIndexAt(silences, t) {
   let lo = 0;
   let hi = silences.length - 1;
@@ -6008,7 +6354,10 @@ class SilenceAnalyzer {
     this.lesson = opts.lesson;
     this.video = opts.video;
     this.masterUrl = opts.masterUrl;
-    this.onChange = opts.onChange || (() => {});
+    // The listener redraws the player; an error there is a display problem, reported as
+    // such, not a failure of the analysis (which keeps its results and goes on).
+    const onChange = opts.onChange || (() => {});
+    this.onChange = () => { try { onChange(); } catch (e) { reportFeatureError('silence detection (display)', e); } };
     this.d = opts.disposer;
     this.ac = new AbortController();
     this.d.add(() => this.ac.abort());
@@ -6042,14 +6391,17 @@ class SilenceAnalyzer {
     this.source = 'audio';
     this.runAudio().catch((e) => {
       if (this.ac.signal.aborted) return;
-      console.warn(TAG, 'silence analysis stopped:', e && e.message ? e.message : e);
+      log.warn('silence analysis stopped:', e && e.message ? e.message : e);
       this.fail('error');
     });
   }
 
+  // The analysis stopped. Silences already found from the audio are kept (and stay
+  // cached); only when nothing was found is the feature unavailable.
   fail(reason) {
-    this.source = 'unavailable';
     this.reason = reason;
+    if (this.env && this.env.coverage() > 0) { this.recompute(); return; }
+    this.source = 'unavailable';
     this.silences = [];
     this.onChange();
   }
@@ -6079,7 +6431,8 @@ class SilenceAnalyzer {
     await this.gate.wait(cached ? 0 : 8000); // let playback start first
     const track = await new HlsAudioTrack(this.masterUrl).open(signal);
     this.track = track;
-    const data = cached && cached.v === 1 && cached.step === ENV_STEP ? cached.data : null;
+    const data = cacheValid('silence-env', cached) && cached.step === ENV_STEP ? cached.data : null;
+    if (data) cacheTouch(key);
     this.env = new Envelope(track.duration, data);
     this.progress = this.env.coverage();
     this.recompute();
@@ -6090,11 +6443,23 @@ class SilenceAnalyzer {
     const order = [];
     for (let k = 0; k < n; k++) order.push((from + k) % n);
     let sinceSave = 0;
+    let fails = 0;
     for (const i of order) {
       const span = track.chunkSpan(i);
       if (this.env.coverageOf(span.start, span.end) > 0.9) continue;
       await this.gate.turn(2000, 400);
-      const chunk = await track.readChunk(i, signal);
+      // A chunk that cannot be read or decoded is left out (that stretch stays unknown,
+      // never "silent"); only several in a row end the analysis, keeping what was found.
+      let chunk;
+      try {
+        chunk = await track.readChunk(i, signal);
+        fails = 0;
+      } catch (e) {
+        if (signal.aborted) return;
+        if (++fails >= ANALYSIS_MAX_FAILS) { this.save(key); this.recompute(); throw e; }
+        log.warn('silence detection: chunk ' + i + ' skipped:', e);
+        continue;
+      }
       await idle();
       if (signal.aborted) return;
       this.env.fill(chunk.start, chunk.pcm, chunk.rate);
@@ -6111,10 +6476,109 @@ class SilenceAnalyzer {
   }
 
   save(key) {
-    if (this.lesson.mediaId) idbCache.put(key, { v: 1, step: ENV_STEP, data: this.env.data, at: Date.now() });
+    if (this.lesson.mediaId) idbCache.put(key, { v: cacheVersion('silence-env'), used: Date.now(), step: ENV_STEP, data: this.env.data, at: Date.now() });
   }
 
 }
+
+// ---- 55-caches.js ----
+// ===================================================================================
+// Analysis caches in IndexedDB: slide chapters, silence envelopes, text read on screen.
+//
+// - Each kind has a version tied to its algorithm. A stored result with another version
+//   was made by different code and is computed again (bump the number when changing how
+//   results are made, not only their format).
+// - Each record carries `used`, the last time it was used (its own field: records already
+//   use names such as `at` for their data). A minute after a player starts,
+//   records of these kinds that were not used for CACHE_KEEP_DAYS, or are from another
+//   version, are deleted in the background.
+// - Settings menu: how much space they take, and clearing them all.
+// User data (tags, slide files, watched records) is not an analysis cache and is never
+// pruned here.
+// ===================================================================================
+
+const CACHE_KINDS = {
+  slides: 3,          // chapters (2: screen view chosen per recording, tolerant scanning; 3: uniform stretches)
+  'silence-env': 1,   // audio level envelope
+  ocr: 1,             // text read on screen
+};
+const CACHE_KEEP_DAYS = 60;
+
+function cacheKind(key) {
+  const k = String(key).split(':')[0];
+  return Object.prototype.hasOwnProperty.call(CACHE_KINDS, k) ? k : null;
+}
+
+function cacheVersion(kind) {
+  return CACHE_KINDS[kind];
+}
+
+// Whether a stored record of `kind` can be used.
+function cacheValid(kind, rec) {
+  return !!rec && typeof rec === 'object' && rec.v === CACHE_KINDS[kind];
+}
+
+// The record with its last use set to now (nothing else changes).
+function cacheTouched(rec, now) {
+  return rec && typeof rec === 'object' ? Object.assign(rec, { used: now }) : rec;
+}
+
+// When a record was last used or, for records from before `used`, saved (ms, or 0).
+function cacheLastUse(rec) {
+  if (!rec || typeof rec !== 'object') return 0;
+  for (const k of ['used', 'savedAt', 'at']) if (typeof rec[k] === 'number' && isFinite(rec[k])) return rec[k];
+  return 0;
+}
+
+// Marks a record as used now (keeps it from being pruned).
+function cacheTouch(key) {
+  idbCache.update(key, (rec) => cacheTouched(rec, Date.now())).catch(() => {});
+}
+
+// Rough size of a stored value in bytes (Blobs by their size, the rest as JSON).
+function approxSize(v) {
+  if (v instanceof Blob) return v.size;
+  if (ArrayBuffer.isView(v)) return v.byteLength;
+  if (Array.isArray(v)) return v.reduce((s, x) => s + approxSize(x), 0) + 2;
+  if (v && typeof v === 'object') {
+    let s = 2;
+    for (const [k, x] of Object.entries(v)) s += k.length + 3 + approxSize(x);
+    return s;
+  }
+  return String(v).length + 1;
+}
+
+const analysisCaches = {
+  async keys() {
+    return (await idbCache.keys()).filter((k) => cacheKind(k));
+  },
+
+  // { count, bytes } of all analysis caches.
+  async usage() {
+    let bytes = 0;
+    const keys = await this.keys();
+    for (const k of keys) bytes += approxSize(await idbCache.get(k));
+    return { count: keys.length, bytes };
+  },
+
+  async clear() {
+    const keys = await this.keys();
+    for (const k of keys) await idbCache.del(k);
+    return keys.length;
+  },
+
+  // Deletes records unused for CACHE_KEEP_DAYS or from another algorithm version.
+  async prune() {
+    const old = Date.now() - CACHE_KEEP_DAYS * 864e5;
+    let n = 0;
+    for (const k of await this.keys()) {
+      const rec = await idbCache.get(k);
+      if (!cacheValid(cacheKind(k), rec) || !(cacheLastUse(rec) > old)) { await idbCache.del(k); n++; }
+    }
+    if (n) log.info('removed ' + n + ' old analysis results');
+    return n;
+  },
+};
 
 // ---- 56-slides.js ----
 // ===================================================================================
@@ -6154,6 +6618,7 @@ const SCENE_MIN_SEC = 20;                // shorter scenes in a row are one chap
 const SCENE_REVISIT_SEC = 180;           // going back to a view shown this recently is no new chapter
 const SCENE_DETOUR_SEC = 60;             // a shorter excursion that comes back belongs to the chapter
 const SCREEN_CLEARLY = 0.75;             // see findScreen
+const ANALYSIS_MAX_FAILS = 5;            // segments in a row that cannot be read before an analysis gives up
 const CHAPTER_THUMB_W = 192;
 
 // ---- fragmented MP4 ----
@@ -6452,6 +6917,34 @@ function sameViewStrict(a, b) {
   return d.changed < 0.06 || d.mad <= 6;
 }
 
+// A picture of (almost) one colour: a black screen, a "no signal" picture, a blank slide in
+// one colour. Judged by evenness, not darkness, so any kind of empty picture counts: nearly
+// every pixel of the small signature is within noise of the median brightness.
+const UNIFORM_NOISE = 10;     // brightness levels (0-255) of compression noise at 32 x 18
+const UNIFORM_SHARE = 0.985;  // pixels that must be that close (a small logo or a cursor may differ)
+function frameUniform(sig) {
+  const n = sig.length / 3;
+  const l = new Float32Array(n);
+  for (let i = 0, j = 0; i < n; i++, j += 3) l[i] = sig[j] * 0.299 + sig[j + 1] * 0.587 + sig[j + 2] * 0.114;
+  const sorted = Float32Array.from(l).sort();
+  const med = sorted[n >> 1];
+  let close = 0;
+  for (let i = 0; i < n; i++) if (Math.abs(l[i] - med) <= UNIFORM_NOISE) close++;
+  return close >= UNIFORM_SHARE * n;
+}
+
+// Stretches of uniform samples: [{ start, end }] (a stretch ends where the next sample starts).
+function uniformStretches(samples, duration) {
+  const out = [];
+  for (let k = 0; k < samples.length; k++) {
+    if (!samples[k].uniform) continue;
+    const end = k + 1 < samples.length ? samples[k + 1].t : duration;
+    const last = out[out.length - 1];
+    if (last && last.end >= samples[k].t - 0.01) last.end = end; else out.push({ start: samples[k].t, end });
+  }
+  return out;
+}
+
 // Share of pixels that equal their right and lower neighbours: high for slides and code,
 // low for camera pictures.
 function flatShare(img) {
@@ -6571,7 +7064,10 @@ class SlideAnalyzer {
   constructor(opts) {
     this.lesson = opts.lesson;
     this.video = opts.video;
-    this.onChange = opts.onChange || (() => {});
+    // The listener redraws the player; an error there is a display problem, reported as
+    // such, not a failure of the analysis (which keeps its results and goes on).
+    const onChange = opts.onChange || (() => {});
+    this.onChange = () => { try { onChange(); } catch (e) { reportFeatureError('slide chapters (display)', e); } };
     this.d = opts.disposer;
     this.ac = new AbortController();
     this.d.add(() => this.ac.abort());
@@ -6579,17 +7075,18 @@ class SlideAnalyzer {
     this.state = 'pending';   // pending | thumbnails | keyframes | done | unavailable
     this.progress = 0;
     this.chapters = [];
+    this.uniform = [];       // stretches where the screen shows (almost) one colour
     this.screenIndex = null;
     this.guessScreen = null;
     this.reader = null;
     this.urls = [];
-    this.d.add(() => { for (const u of this.urls) URL.revokeObjectURL(u); });
+    this.d.add(() => { for (const u of this.urls) URL.revokeObjectURL(u); this.urlOf = null; });
   }
 
   start() {
     this.run().catch((e) => {
       if (this.ac.signal.aborted) return;
-      console.warn(TAG, 'slide detection stopped:', e && e.message ? e.message : e);
+      log.warn('slide detection stopped:', e && e.message ? e.message : e);
       if (!this.chapters.length) { this.state = 'unavailable'; this.onChange(); }
     });
   }
@@ -6610,11 +7107,25 @@ class SlideAnalyzer {
     return u;
   }
 
+  // Lets go of pictures no chapter shows any more (chapters are rebuilt while scanning).
+  pruneThumbs() {
+    if (!this.urlOf) return;
+    const used = new Set(this.chapters.map((c) => c.blob).filter(Boolean));
+    for (const [blob, u] of this.urlOf) {
+      if (used.has(blob)) continue;
+      URL.revokeObjectURL(u);
+      this.urlOf.delete(blob);
+    }
+    this.urls = [...this.urlOf.values()];
+  }
+
   async run() {
     const signal = this.ac.signal;
     const key = 'slides:' + this.lesson.mediaId;
     const cached = this.lesson.mediaId ? await idbCache.get(key) : undefined;
-    if (cached && cached.v === 1 && Array.isArray(cached.chapters)) {
+    if (cacheValid('slides', cached) && Array.isArray(cached.chapters)) {
+      cacheTouch(key);
+      this.uniform = Array.isArray(cached.uniform) ? cached.uniform : [];
       this.screenIndex = cached.screen;
       this.chapters = cached.chapters.map((c) => Object.assign({}, c, { thumb: c.blob ? this.thumbUrl(c.blob) : c.thumb }));
       this.state = 'done';
@@ -6719,12 +7230,19 @@ class SlideAnalyzer {
   // placed half way between them.
   async fromThumbnailsAsync(set) {
     const samples = [];
+    let fails = 0;
     for (const t of set.timesInSeconds) {
       await this.gate.wait(0);
-      const img = await this.loadThumb(set, t, this.ac.signal);
+      // A preview picture that cannot be read is left out.
+      let img = null;
+      try { img = await this.loadThumb(set, t, this.ac.signal); fails = 0; } catch (e) {
+        if (this.ac.signal.aborted || ++fails >= ANALYSIS_MAX_FAILS) throw e;
+        continue;
+      }
       samples.push({ t, sig: frameSignature(img) });
       img.close();
     }
+    if (samples.length < 2) return;
     const scenes = buildScenes(samples, this.duration(), { minSec: 0 });
     this.chapters = scenes.map((s, i) => {
       const first = chapterSampleStart(samples, s);
@@ -6742,7 +7260,7 @@ class SlideAnalyzer {
   }
 
   fromThumbnails(set) {
-    this.thumbsDone = this.fromThumbnailsAsync(set).catch((e) => { if (!this.ac.signal.aborted) console.warn(TAG, 'thumbnails:', e.message); });
+    this.thumbsDone = this.fromThumbnailsAsync(set).catch((e) => { if (!this.ac.signal.aborted) log.warn('thumbnails:', e.message); });
   }
 
   async fromKeyframes(source, signal) {
@@ -6754,15 +7272,33 @@ class SlideAnalyzer {
     if (store.get('debug', false)) this.samples = samples; // for tuning, development only
     const thumbs = new Map();
     let lastBuild = 0;
+    let fails = 0;
     for (let i = 0; i < n; i++) {
       await this.gate.turn(300, 120, 20);
       let sig = null;
       let pic = null;
-      await reader.keyframe(i, signal, (f) => { sig = frameSignature(f); pic = smallBitmap(f, CHAPTER_THUMB_W); });
-      samples.push({ t: reader.segments[i].start, sig });
+      // One segment that cannot be read (a missing keyframe, a failed request) does not end
+      // the analysis: it counts as "same picture as before"; only several in a row do.
+      try {
+        await reader.keyframe(i, signal, (f) => { sig = frameSignature(f); pic = smallBitmap(f, CHAPTER_THUMB_W); });
+        fails = 0;
+      } catch (e) {
+        if (signal.aborted) throw e;
+        if (++fails >= ANALYSIS_MAX_FAILS) {
+          if (samples.length) this.applyScenes(samples, thumbs, false);
+          throw e;
+        }
+        log.warn('slide chapters: segment ' + i + ' skipped:', e);
+      }
+      const j = samples.length;
+      if (!sig) {
+        if (j) samples.push({ t: reader.segments[i].start, sig: samples[j - 1].sig, uniform: samples[j - 1].uniform });
+        continue;
+      }
+      samples.push({ t: reader.segments[i].start, sig, uniform: frameUniform(sig) });
       // Keep a small picture only for the last frame of each run of identical frames.
-      if (thumbs.has(i - 1) && sameView(samples[i - 1].sig, sig)) thumbs.delete(i - 1);
-      thumbs.set(i, await bitmapToBlob(pic));
+      if (thumbs.has(j - 1) && sameView(samples[j - 1].sig, sig)) thumbs.delete(j - 1);
+      thumbs.set(j, await bitmapToBlob(pic));
       this.progress = ((i + 1) / n) * 0.8;
       if (i - lastBuild >= 30) {
         lastBuild = i;
@@ -6772,6 +7308,7 @@ class SlideAnalyzer {
       }
     }
     this.state = 'keyframes';
+    this.uniform = uniformStretches(samples, this.duration());
     this.applyScenes(samples, thumbs, true);
     // Pin each change to about a second inside the segment where it happened.
     const chs = this.chapters;
@@ -6781,7 +7318,13 @@ class SlideAnalyzer {
       await this.gate.turn(1000, 300, 30);
       const before = samples[k - 1].sig;
       let at = null;
-      await reader.frames(k - 1, 1, signal, (f, t) => { if (at === null && !sameView(before, frameSignature(f))) at = t; });
+      // A segment that cannot be read keeps the coarse (10 s) time.
+      try {
+        await reader.frames(reader.segmentAt(samples[k - 1].t), 1, signal, (f, t) => { if (at === null && !sameView(before, frameSignature(f))) at = t; });
+      } catch (e) {
+        if (signal.aborted) throw e;
+        at = null;
+      }
       // Seeking exactly to a frame's timestamp can still show the frame before it.
       if (at !== null) at = Math.round((at + 0.05) * 100) / 100;
       if (at !== null && at < chs[c].start) {
@@ -6807,13 +7350,16 @@ class SlideAnalyzer {
       for (let k = s.rep; k >= first && !blob; k--) blob = thumbs.get(k) || null;
       return { start: s.start, end: s.end, precise: false, repTime: samples[s.rep].t, firstSample: first, blob, thumb: blob ? this.thumbUrl(blob) : '' };
     });
+    this.pruneThumbs();
     this.onChange();
   }
 
   save(key) {
     if (!this.lesson.mediaId || this.state !== 'done') return;
     idbCache.put(key, {
-      v: 1,
+      used: Date.now(),
+      v: cacheVersion('slides'),
+      uniform: this.uniform,
       screen: this.screenIndex,
       at: Date.now(),
       chapters: this.chapters.map((c) => ({ start: c.start, end: c.end, precise: c.precise, repTime: c.repTime, blob: c.blob || null, thumb: c.blob ? '' : c.thumb })),
@@ -6884,7 +7430,8 @@ class SlideReader {
     return false;
   }
 
-  onInfo(fn) { this.infoListeners.add(fn); }
+  // Returns a function that removes the listener again.
+  onInfo(fn) { this.infoListeners.add(fn); return () => this.infoListeners.delete(fn); }
 
   info() { for (const fn of this.infoListeners) fn(); }
 
@@ -6951,7 +7498,7 @@ class SlideReader {
       requestAnimationFrame(() => c.classList.add('in'));
       const old = [...tg.pages.querySelectorAll('canvas')].filter((x) => x !== c);
       setTimeout(() => { for (const x of old) x.remove(); }, 220);
-    }).catch((e) => console.warn(TAG, 'render page:', e && e.message ? e.message : e));
+    }).catch((e) => log.warn('render page:', e && e.message ? e.message : e));
   }
 
   // "Page 5 of 21 · file" for the page shown.
@@ -6992,7 +7539,7 @@ class SlidesPane {
     this.list = h('div.slist');
     el.append(this.deckBox, this.readerBox, this.chapToggle, this.status, this.list);
     this.buildReader();
-    this.reader.onInfo(() => { if (this.visible) this.renderPageInfo(); });
+    this.d.add(this.reader.onInfo(() => { if (this.visible) this.renderPageInfo(); }));
     this.d.listen(this.list, 'click', (e) => {
       const card = e.target.closest('.scard');
       if (card) this.player.seek(this.chapters[+card.dataset.i].start);
@@ -7041,7 +7588,8 @@ class SlidesPane {
     box.textContent = '';
     if (!deck) return;
     const input = h('input', { type: 'file', accept: '.pdf,application/pdf', multiple: true, hidden: true });
-    input.addEventListener('change', guard(() => { if (input.files.length) deck.addFiles(input.files); }));
+    // Failures are shown in this tab (deck.error).
+    input.addEventListener('change', guard(() => { if (input.files.length) deck.addFiles(input.files).catch(() => {}); }));
     const files = h('div.sfiles');
     for (const f of deck.files) {
       files.append(h('span.sfile', null, h('span.sfname', { text: f.name, title: f.name }),
@@ -7051,7 +7599,7 @@ class SlidesPane {
     let msg = '';
     if (deck.state === 'loading') msg = t('deckLoading');
     else if (deck.state === 'reading') msg = deck.ocr ? t('deckReading', { pct: Math.floor(deck.progress * 100) }) : t('deckWaiting');
-    else if (deck.state === 'error') msg = t('deckError', { msg: deck.error });
+    else if (deck.state === 'error') msg = deck.error;
     else if (!deck.files.length) msg = t('slidesLocal');
     box.append(files);
     if (msg) box.append(h('div.sdmsg', { text: msg }));
@@ -7232,7 +7780,10 @@ class SlideTextReader {
     this.lesson = opts.lesson;
     this.video = opts.video;
     this.source = opts.source;
-    this.onChange = opts.onChange || (() => {});
+    // The listener redraws the player; an error there is a display problem, reported as
+    // such, not a failure of the analysis (which keeps its results and goes on).
+    const onChange = opts.onChange || (() => {});
+    this.onChange = () => { try { onChange(); } catch (e) { reportFeatureError('slide reader (display)', e); } };
     this.ac = new AbortController();
     opts.disposer.add(() => this.stop());
     this.gate = new BackgroundGate(this.video, this.ac.signal);
@@ -7260,7 +7811,7 @@ class SlideTextReader {
   start() {
     this.run().catch((e) => {
       if (this.ac.signal.aborted) return;
-      console.warn(TAG, 'slide text:', e && e.message ? e.message : e);
+      log.warn('slide text:', e && e.message ? e.message : e);
       this.state = 'unavailable';
       this.error = String((e && e.message) || e);
       this.onChange();
@@ -7286,7 +7837,8 @@ class SlideTextReader {
     if (this.probe.segments.length !== this.times.length) this.probe = this.reader;
     const n = this.times.length;
     const cached = this.lesson.mediaId ? await idbCache.get(this.key) : undefined;
-    if (cached && cached.v === 1 && cached.height === this.reader.info.height && Array.isArray(cached.at) && cached.at.length === n) {
+    if (cacheValid('ocr', cached) && cached.height === this.reader.info.height && Array.isArray(cached.at) && cached.at.length === n) {
+      cacheTouch(this.key);
       this.texts = cached.texts;
       this.at = Int32Array.from(cached.at);
       Object.assign(this.stats, cached.stats || {});
@@ -7306,6 +7858,7 @@ class SlideTextReader {
     let ref = null;
     const bytes = () => this.reader.bytes + (this.probe !== this.reader ? this.probe.bytes : 0);
     let unsaved = 0;
+    let fails = 0;
     const t0 = performance.now();
     const wall0 = this.stats.wall;
     for (let i = this.next(); i >= 0; i = this.next()) {
@@ -7333,10 +7886,15 @@ class SlideTextReader {
         this.at[i] = OCR_FAILED;
         this.stats.failed++;
         ref = null;
+        // Several in a row (network gone): stop and keep what was read; the next visit
+        // continues, retrying these.
+        if (++fails >= ANALYSIS_MAX_FAILS) { this.save(); throw new Error('keyframes cannot be read'); }
       } else if (same) {
+        fails = 0;
         this.at[i] = this.at[i - 1];
         this.stats.same++;
       } else {
+        fails = 0;
         const blob = await canvas.convertToBlob({ type: 'image/png' });
         const a = performance.now();
         const text = await this.recognize(blob);
@@ -7396,7 +7954,9 @@ class SlideTextReader {
 
   save() {
     if (!this.lesson.mediaId || !this.at) return;
-    idbCache.put(this.key, { v: 1, screen: this.source.index, height: this.reader.info.height, texts: this.texts, at: Array.from(this.at), stats: this.stats, savedAt: Date.now() });
+    // Samples that could not be read are stored as unread, so the next visit tries them again.
+    const at = Array.from(this.at, (x) => (x === OCR_FAILED ? -1 : x));
+    idbCache.put(this.key, { v: cacheVersion('ocr'), used: Date.now(), screen: this.source.index, height: this.reader.info.height, texts: this.texts, at, stats: this.stats, savedAt: Date.now() });
   }
 }
 
@@ -7831,21 +8391,24 @@ const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.4.299/build/';
 const FOLLOW_MIN_SEC = 15;       // a quick look at another page (shorter than this) does not turn the page
 const FOLLOW_STALE_SEC = 120;    // after this long without a recognised page, say so
 const FOLLOW_UPDATE_MS = 15000;  // while reading, pages are decided again at most this often
-const DECK_RENDER_CACHE = 6;      // rendered pages kept
+const DECK_RENDER_BUDGET = 40e6;  // rendered pages kept, in pixels (about 160 MB at 4 bytes a pixel)
 
 let pdfjsPromise = null;
 function loadPdfJs() {
   if (!pdfjsPromise) {
-    pdfjsPromise = import(PDFJS_BASE + 'pdf.min.mjs').then((lib) => {
-      // A module worker from a blob that imports the pinned worker script: a cross-origin
-      // worker URL cannot be used directly.
-      const url = URL.createObjectURL(new Blob(['import "' + PDFJS_BASE + 'pdf.worker.min.mjs";'], { type: 'text/javascript' }));
-      lib.GlobalWorkerOptions.workerPort = new Worker(url, { type: 'module' });
-      return lib;
-    });
+    pdfjsPromise = import(PDFJS_BASE + 'pdf.min.mjs');
     pdfjsPromise.catch(() => { pdfjsPromise = null; });
   }
   return pdfjsPromise;
+}
+
+// pdf.js's worker for one controller: a module worker from a blob that imports the pinned
+// worker script (a cross-origin worker URL cannot be used directly). Ended by its owner.
+function makePdfWorker(lib) {
+  const url = URL.createObjectURL(new Blob(['import "' + PDFJS_BASE + 'pdf.worker.min.mjs";'], { type: 'text/javascript' }));
+  const port = new Worker(url, { type: 'module' });
+  URL.revokeObjectURL(url);
+  return { port, pdf: new lib.PDFWorker({ port }) };
 }
 
 async function sha256Hex(buf) {
@@ -7908,7 +8471,10 @@ class SlideDeckController {
     this.lesson = opts.lesson;
     this.video = opts.video;
     this.slides = opts.slides;
-    this.onChange = opts.onChange || (() => {});
+    // The listener redraws the player; an error there is a display problem, reported as
+    // such, not a failure of the analysis (which keeps its results and goes on).
+    const onChange = opts.onChange || (() => {});
+    this.onChange = () => { try { onChange(); } catch (e) { reportFeatureError('slide reader (display)', e); } };
     this.d = opts.disposer;
     this.ac = new AbortController();
     this.d.add(() => this.ac.abort());
@@ -7925,7 +8491,8 @@ class SlideDeckController {
     this.state = 'empty';     // empty | loading | reading | ready | error
     this.error = '';
     this.job = null;
-    this.rendered = new Map(); // "index@width" -> canvas
+    this.rendered = new Map(); // page index -> canvas (newest size), least recently used first
+    this.pdfWorker = null;     // pdf.js worker (makePdfWorker), owned here
     this.d.add(() => this.closeDocs());
   }
 
@@ -7933,11 +8500,17 @@ class SlideDeckController {
 
   get progress() { return this.ocr ? this.ocr.progress() : 0; }
 
-  // Closes the open documents (through their loading tasks, which own them in pdf.js).
-  closeDocs() {
+  // Closes the open documents (through their loading tasks, which own them in pdf.js), and
+  // pdf.js's worker when no document is left to use it.
+  closeDocs(keepWorker) {
     for (const task of this.docs) task.destroy().catch(() => {});
     this.docs = [];
     this.rendered.clear();
+    if (!keepWorker && this.pdfWorker) {
+      try { this.pdfWorker.pdf.destroy(); } catch (e) { /* ignore */ }
+      this.pdfWorker.port.terminate();
+      this.pdfWorker = null;
+    }
   }
 
   async restore() {
@@ -7961,9 +8534,19 @@ class SlideDeckController {
       const buf = await f.arrayBuffer();
       const hash = await sha256Hex(buf);
       if (this.files.some((x) => x.hash === hash)) continue;
-      await idbCache.put('deckfile:' + hash, new Blob([buf], { type: 'application/pdf' }));
-      const refs = (await idbCache.get('deckref:' + hash)) || [];
-      if (!refs.includes(this.lesson.mediaId)) await idbCache.put('deckref:' + hash, refs.concat(this.lesson.mediaId));
+      // The file must really be stored (a full disk would otherwise lose it silently on
+      // the next visit); the reference list changes in one transaction (another tab may
+      // add or remove the same file at the same time).
+      try {
+        await idbCache.putStrict('deckfile:' + hash, new Blob([buf], { type: 'application/pdf' }));
+        const mid = this.lesson.mediaId;
+        await idbCache.update('deckref:' + hash, (refs) => (Array.isArray(refs) ? (refs.includes(mid) ? refs : refs.concat(mid)) : [mid]));
+      } catch (e) {
+        this.state = 'error';
+        this.error = t('deckSaveFailed', { name: f.name, msg: (e && e.message) || e });
+        this.onChange();
+        throw e;
+      }
       this.files.push({ hash, name: f.name });
     }
     this.saveRecord();
@@ -7977,9 +8560,18 @@ class SlideDeckController {
     this.fixes = this.fixes.filter((x) => !String(x.page).startsWith(prefix));
     this.saveRecord();
     // The file itself is deleted when no other recording uses it.
-    const refs = ((await idbCache.get('deckref:' + hash)) || []).filter((m) => m !== this.lesson.mediaId);
-    if (refs.length) await idbCache.put('deckref:' + hash, refs);
-    else { await idbCache.del('deckref:' + hash); await idbCache.del('deckfile:' + hash); }
+    // In one transaction: drop this recording from the file's users and, if it was the
+    // last one, the file itself (no other tab can add itself in between).
+    const mid = this.lesson.mediaId;
+    await idbCache.tx('readwrite', (store) => {
+      const req = store.get('deckref:' + hash);
+      req.onsuccess = () => {
+        const refs = (Array.isArray(req.result) ? req.result : []).filter((m) => m !== mid);
+        if (refs.length) store.put(refs, 'deckref:' + hash);
+        else { store.delete('deckref:' + hash); store.delete('deckfile:' + hash); }
+      };
+      return req;
+    }).catch((e) => log.warn('slide file removal:', e));
     await this.reload();
   }
 
@@ -7987,12 +8579,13 @@ class SlideDeckController {
   async reload() {
     const job = {};
     this.job = job;
-    this.closeDocs();
+    this.again = false; // a pending recompute was for the old files
+    this.closeDocs(this.files.length > 0);
     this.pages = [];
     this.decided = null;
     this.shown = null;
     if (!this.files.length) {
-      if (this.ocr) { this.ocr.stop(); this.ocr = null; }
+      this.stopReading();
       this.state = 'empty';
       this.onChange();
       return;
@@ -8005,7 +8598,8 @@ class SlideDeckController {
       for (const f of this.files) {
         const blob = await idbCache.get('deckfile:' + f.hash);
         if (!blob) continue;
-        const task = lib.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) });
+        if (!this.pdfWorker) this.pdfWorker = makePdfWorker(lib);
+        const task = lib.getDocument({ data: new Uint8Array(await blob.arrayBuffer()), worker: this.pdfWorker.pdf });
         const doc = await task.promise;
         // Replaced by a newer load, or the player is gone: this document is not kept.
         if (this.job !== job || this.ac.signal.aborted) { task.destroy().catch(() => {}); return; }
@@ -8029,9 +8623,9 @@ class SlideDeckController {
       this.onChange();
     } catch (e) {
       if (this.ac.signal.aborted || this.job !== job) return;
-      console.warn(TAG, 'slide file:', e && e.message ? e.message : e);
+      log.warn('slide file:', e && e.message ? e.message : e);
       this.state = 'error';
-      this.error = String((e && e.message) || e);
+      this.error = t('deckError', { msg: String((e && e.message) || e) });
       this.onChange();
     }
   }
@@ -8047,11 +8641,20 @@ class SlideDeckController {
     if (idx == null) return;
     const source = sources.find((s) => s.index === idx);
     if (!source) return;
+    // Owned by its own child of the controller: stopping it (files removed) releases it
+    // and its texts, instead of keeping it referenced until the page closes.
+    this.ocrD = this.d.child();
     this.ocr = new SlideTextReader({
-      lesson: this.lesson, video: this.video, source, disposer: this.d,
+      lesson: this.lesson, video: this.video, source, disposer: this.ocrD,
       onChange: () => this.readingChanged(),
     });
     this.ocr.start();
+  }
+
+  stopReading() {
+    if (this.ocrD) this.ocrD.dispose();
+    this.ocrD = null;
+    this.ocr = null;
   }
 
   // Called when the slide analysis changes (the screen view becomes known).
@@ -8093,7 +8696,7 @@ class SlideDeckController {
       if (store.get('debug', false)) this.lastModel = res.model;
       this.onChange();
     }).catch((e) => {
-      if (!this.ac.signal.aborted) console.warn(TAG, 'slide following:', e && e.message ? e.message : e);
+      if (!this.ac.signal.aborted) log.warn('slide following:', e && e.message ? e.message : e);
     }).finally(() => {
       this.deciding = null;
       if (this.again && !this.ac.signal.aborted) { this.again = false; this.decide(true); }
@@ -8116,15 +8719,28 @@ class SlideDeckController {
     this.shown = r && this.decided ? followSamples(r.times, this.decided, FOLLOW_MIN_SEC, this.lesson.duration || undefined) : null;
   }
 
-  // Page i rendered `width` pixels wide (cached).
+  // Page i rendered `width` pixels wide. Kept for reuse within a pixel budget (pages can
+  // be 4096 pixels wide when zoomed in): only the newest size of each page, and the least
+  // recently used pages go first.
   async render(i, width) {
-    const k = i + '@' + Math.round(width);
-    let c = this.rendered.get(k);
-    if (!c) {
-      const page = await this.pages[i].doc.getPage(this.pages[i].num);
-      c = await renderPdfPage(page, width);
-      this.rendered.set(k, c);
-      if (this.rendered.size > DECK_RENDER_CACHE) this.rendered.delete(this.rendered.keys().next().value);
+    const w = Math.round(width);
+    const hit = this.rendered.get(i);
+    if (hit && hit.width === w) {
+      this.rendered.delete(i);
+      this.rendered.set(i, hit);
+      return hit;
+    }
+    const page = await this.pages[i].doc.getPage(this.pages[i].num);
+    const c = await renderPdfPage(page, width);
+    this.rendered.delete(i);
+    this.rendered.set(i, c);
+    let px = 0;
+    for (const x of this.rendered.values()) px += x.width * x.height;
+    for (const [k, x] of this.rendered) {
+      if (px <= DECK_RENDER_BUDGET || k === i) break;
+      px -= x.width * x.height;
+      x.width = 0; // releases the canvas memory now
+      this.rendered.delete(k);
     }
     return c;
   }
@@ -8248,7 +8864,7 @@ const cpuFix = (function () {
   function disable(part, err) {
     if (state.disabled[part]) return;
     state.disabled[part] = true;
-    console.warn(TAG, 'cpu-fix part "' + part + '" disabled after an error', err);
+    log.warn('cpu-fix part "' + part + '" disabled after an error', err);
   }
 
   function patchGlobalStyle(proto) {
@@ -8420,21 +9036,21 @@ const cpuFix = (function () {
     const timer = setInterval(() => {
       const el = document.querySelector('style[data-styled-version]');
       const ver = el && el.getAttribute('data-styled-version');
-      if (ver && !/^4\./.test(ver)) { clearInterval(timer); console.info(TAG, 'cpu-fix inactive: styled-components ' + ver); return; }
+      if (ver && !/^4\./.test(ver)) { clearInterval(timer); log.info('cpu-fix inactive: styled-components ' + ver); return; }
       if (ver) {
         try {
           const { gsProto, csProto } = scan();
           if (gsProto && !state.gs) { patchGlobalStyle(gsProto); state.gs = true; }
           if (csProto && !state.cs) { patchComponentStyle(csProto); state.cs = true; }
-        } catch (e) { clearInterval(timer); console.warn(TAG, 'cpu-fix scan failed', e); return; }
+        } catch (e) { clearInterval(timer); log.warn('cpu-fix scan failed', e); return; }
       }
       if (state.gs && state.cs) {
         state.throttleOn = true;
         clearInterval(timer);
-        console.info(TAG, 'cpu-fix active on the original player');
+        log.info('cpu-fix active on the original player');
       } else if (Date.now() - t0 > 60000) {
         clearInterval(timer);
-        console.info(TAG, 'cpu-fix inactive: player internals not found');
+        log.info('cpu-fix inactive: player internals not found');
       }
     }, 1000);
   }
@@ -8444,13 +9060,16 @@ const cpuFix = (function () {
 
 // ---- 80-course-list.js ----
 // ===================================================================================
-// Course page (/section/<id>/home): a small "watched" mark next to each recording.
+// Course page (/section/<id>/home): a small progress bar next to each recording.
 //
-// Light by design: nothing on the page is moved or replaced, one small label is added to
-// each lesson row (and again if the list is redrawn). The share comes from this device's
-// record (43-watched.js); for recordings opened elsewhere, Echo360's last position is shown
-// instead (one request per such recording, a few at a time, after the page has settled).
-// Anything that fails is skipped without a word.
+// It shows two things at once, each only when known:
+//   - filled stretches: what was watched on this device (43-watched.js), with the share in
+//     words (an empty ending, black screen and silence, does not count);
+//   - a tick: where Echo360 says you stopped last time (any device), from the player's
+//     properties (one request per opened recording, a few at a time).
+// A tooltip says which is which. Light by design: nothing on the page is moved or replaced,
+// one small element is added to each lesson row (again if the list is redrawn). Anything
+// that fails is skipped without a word.
 // ===================================================================================
 
 const courseList = {
@@ -8459,13 +9078,16 @@ const courseList = {
   },
 
   start() {
-    const section = location.pathname.split('/')[2];
+    let section = location.pathname.split('/')[2];
     const known = new Map();   // lessonId -> label info (null while loading)
     let server = null;         // promise of { lessonId: { mediaId, read } } from the syllabus
     const style = document.createElement('style');
-    style.textContent = '.e3l-watch{display:inline-block;margin-left:10px;padding:1px 7px;border-radius:9px;font-size:12px;line-height:18px;'
-      + 'vertical-align:middle;background:#e8f3ee;color:#1d6b4f;white-space:nowrap}.e3l-watch.e3l-last{background:#eef1f6;color:#4a5568}'
-      + '.e3l-watch.e3l-done{background:#1d6b4f;color:#fff}';
+    style.textContent = '.e3l-watch{display:inline-flex;align-items:center;gap:6px;margin-left:12px;font-size:12px;line-height:18px;'
+      + 'vertical-align:middle;color:#1d6b4f;white-space:nowrap}'
+      + '.e3l-bar{position:relative;width:72px;height:6px;border-radius:3px;background:#e2e8f0;overflow:hidden}'
+      + '.e3l-bar i{position:absolute;top:0;bottom:0;background:#2f855a}'
+      + '.e3l-bar b{position:absolute;top:-1px;bottom:-1px;width:2px;margin-left:-1px;background:#2d3748}'
+      + '.e3l-watch.e3l-done{color:#22543d;font-weight:600}.e3l-watch .e3l-last{color:#4a5568}';
 
     const syllabus = () => {
       if (!server) {
@@ -8500,28 +9122,70 @@ const courseList = {
       let el = host.querySelector('.e3l-watch');
       if (!info) { if (el) el.remove(); return; }
       if (!el) { el = document.createElement('span'); host.append(el); }
-      const pct = Math.max(1, Math.round(info.share * 100));  // never "0%" for something watched
-      el.className = 'e3l-watch' + (info.last ? ' e3l-last' : pct >= 95 ? ' e3l-done' : '');
-      el.textContent = info.last ? t('listLastAt', { pct }) : t('listWatched', { pct });
-      el.title = info.last ? t('listLastAtTitle') : t('listWatchedTitle');
+      el.textContent = '';
+      const bar = document.createElement('span');
+      bar.className = 'e3l-bar';
+      const dur = info.dur;
+      const tips = [];
+      if (info.ranges) {
+        for (const [a, b] of info.ranges) {
+          const i = document.createElement('i');
+          i.style.left = ((Math.max(0, a) / dur) * 100).toFixed(2) + '%';
+          i.style.width = (((Math.min(b, dur) - Math.max(0, a)) / dur) * 100).toFixed(2) + '%';
+          bar.append(i);
+        }
+      }
+      if (info.last != null) {
+        const b = document.createElement('b');
+        b.style.left = Math.min(100, (info.last / dur) * 100).toFixed(2) + '%';
+        bar.append(b);
+      }
+      el.append(bar);
+      const txt = document.createElement('span');
+      if (info.ranges) {
+        const pct = Math.max(1, Math.round(info.share * 100)); // never "0%" for something watched
+        txt.textContent = t('listWatched', { pct });
+        tips.push(t('listWatchedTitle', { pct }));
+        el.className = 'e3l-watch' + (pct >= 99 ? ' e3l-done' : '');
+      } else {
+        txt.textContent = t('listLastAt', { time: fmtTime(info.last) });
+        txt.className = 'e3l-last';
+        el.className = 'e3l-watch';
+      }
+      if (info.last != null) tips.push(t('listLastAtTitle', { time: fmtTime(info.last) }));
+      el.append(txt);
+      el.title = tips.join('; ');
     };
 
+    // { dur, ranges, share } from this device and/or { last } from Echo360; null if neither.
     const lookup = async (lid) => {
       const rec = await idbCache.get('watched:' + lid);
-      const share = watchedShare(rec);
-      if (share > 0) return { share, last: false };
+      const out = {};
+      if (rec && rec.d > 0 && Array.isArray(rec.r) && rec.r.length) {
+        out.dur = rec.d;
+        out.ranges = rec.r;
+        out.share = watchedShare(rec);
+      }
       const s = (await syllabus())[lid];
-      if (!s || !s.read) return null;
-      const r = await fetch('/api/ui/echoplayer/lessons/' + encodeURIComponent(lid) + '/media/' + encodeURIComponent(s.mediaId) + '/player-properties',
-        { credentials: 'include', headers: { Accept: 'application/json' } });
-      if (!r.ok) return null;
-      const d = (await r.json()).data || {};
-      const dur = parseIsoDuration(d.playableAudioVideo && d.playableAudioVideo.duration);
-      const pos = d.lastPlayedToSeconds;
-      return dur > 0 && pos > 0 ? { share: Math.min(1, pos / dur), last: true } : null;
+      if (s && s.read) {
+        try {
+          const r = await fetch('/api/ui/echoplayer/lessons/' + encodeURIComponent(lid) + '/media/' + encodeURIComponent(s.mediaId) + '/player-properties',
+            { credentials: 'include', headers: { Accept: 'application/json' } });
+          if (r.ok) {
+            const d = (await r.json()).data || {};
+            const dur = parseIsoDuration(d.playableAudioVideo && d.playableAudioVideo.duration);
+            if (dur > 0 && d.lastPlayedToSeconds > 0) { out.last = d.lastPlayedToSeconds; if (!out.dur) out.dur = dur; }
+          }
+        } catch (e) { /* no tick */ }
+      }
+      return out.dur ? out : null;
     };
 
     const scan = () => {
+      // The site can move to another course without loading a new page: start over.
+      const now = /^\/section\/([^/]+)\/home/.exec(location.pathname);
+      if (!now) return;
+      if (now[1] !== section) { section = now[1]; known.clear(); server = null; }
       for (const row of document.querySelectorAll('.class-row[data-test-lessonid]')) {
         const lid = row.getAttribute('data-test-lessonid');
         // Rows drawn again lose the label; a row that has it is left alone (labelling is
@@ -8779,7 +9443,7 @@ const BACKUP_DB_SHAPES = {
   deck: (v) => v && Array.isArray(v.files) && v.files.every((f) => f && isStr(f.hash) && isStr(f.name))
     && (v.fixes == null || (Array.isArray(v.fixes) && v.fixes.every((x) => x && isNum(x.a) && isNum(x.b) && isStr(String(x.page))))),
   deckref: (v) => Array.isArray(v) && v.every(isStr),
-  watched: (v) => v && isNum(v.d) && Array.isArray(v.r) && v.r.every((x) => Array.isArray(x) && x.length === 2 && isNum(x[0]) && isNum(x[1])),
+  watched: (v) => v && isNum(v.d) && Array.isArray(v.r) && v.r.every((x) => Array.isArray(x) && x.length === 2 && isNum(x[0]) && isNum(x[1])) && (v.e == null || isNum(v.e)),
   deckfile: (v) => v instanceof Blob,
 };
 
@@ -8807,22 +9471,23 @@ async function makeBackup(withPdfs) {
   return out;
 }
 
-// Restores a backup: its entries replace the ones with the same keys. Returns the number
-// of entries written.
+// Restores a backup: its entries replace the ones with the same keys. Everything is checked
+// first; the IndexedDB entries are then written in one transaction (all or none), and only
+// then the settings. Returns the number of entries written.
 async function restoreBackup(data, db = idbCache) {
-  if (!data || data.app !== 'echo360-lite' || data.v !== 1 || typeof data.db !== 'object') throw new Error(t('backupInvalid'));
-  let n = 0;
+  if (!data || data.app !== 'echo360-lite' || data.v !== 1 || !data.db || typeof data.db !== 'object') throw new Error(t('backupInvalid'));
   // Settings and positions: only known keys, each validated like the player does (a
   // damaged value becomes the default instead of breaking every later visit).
+  const local = [];
   for (const [k, v] of Object.entries(data.local && typeof data.local === 'object' ? data.local : {})) {
     const rule = BACKUP_LOCAL.find((x) => x.match(k));
     if (!rule) continue;
     let parsed = null;
     try { parsed = JSON.parse(v); } catch (e) { parsed = null; }
     const clean = rule.clean(parsed);
-    if (clean == null) continue;
-    try { localStorage.setItem(NS + k, JSON.stringify(clean)); n++; } catch (e) { /* storage full */ }
+    if (clean != null) local.push([k, clean]);
   }
+  const entries = [];
   for (const [k, v] of Object.entries(data.db)) {
     if (!BACKUP_KEYS.test(k) && !k.startsWith('deckfile:')) continue;
     let val = v;
@@ -8833,11 +9498,74 @@ async function restoreBackup(data, db = idbCache) {
       val = new Blob([bytes], { type: v.type || 'application/octet-stream' });
     }
     const shape = BACKUP_DB_SHAPES[k.split(':')[0]];
-    if (!shape || !shape(val)) continue;
-    await db.put(k, val);
-    n++;
+    if (shape && shape(val)) entries.push([k, val]);
+  }
+  await db.putMany(entries);
+  let n = entries.length;
+  for (const [k, clean] of local) {
+    try { localStorage.setItem(NS + k, JSON.stringify(clean)); n++; } catch (e) { /* storage full */ }
   }
   return n;
+}
+
+// ---- 86-diagnostics.js ----
+// ===================================================================================
+// "Copy diagnostics": a plain-text summary to paste into a bug report. It names versions,
+// the state of each feature and recent warnings and errors. It never contains credentials,
+// cookies, addresses (all URLs are masked), user names, notes or discussion text; the user
+// sees the exact text before copying it.
+// ===================================================================================
+
+function browserName() {
+  const ua = navigator.userAgent;
+  const m = /(Edg|OPR|Firefox|Chrome|Version)\/(\d+)/.exec(ua);
+  const name = !m ? 'unknown' : m[1] === 'Edg' ? 'Edge' : m[1] === 'OPR' ? 'Opera' : m[1] === 'Version' ? 'Safari' : m[1];
+  return name + (m ? ' ' + m[2] : '') + ' on ' + (/(Windows|Mac OS X|Linux|Android|iPhone|iPad|CrOS)/.exec(ua) || ['', 'unknown'])[1];
+}
+
+function scriptManager() {
+  try {
+    // eslint-disable-next-line no-undef
+    if (typeof GM_info !== 'undefined' && GM_info) return (GM_info.scriptHandler || 'userscript manager') + ' ' + (GM_info.version || '');
+  } catch (e) { /* not available */ }
+  return 'unknown (or development)';
+}
+
+function maskUrls(s) {
+  return String(s).replace(/(https?:)?\/\/[^\s'")]+/g, '<address>').replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, (id) => id.slice(0, 8) + '…');
+}
+
+function diagnosticsText(p) {
+  const v = p.video;
+  const q = (st) => (st && st.hls && st.hls.levels && st.hls.levels.length ? st.height + 'p of ' + Math.max(...st.hls.levels.map((l) => l.height)) + 'p' : '-');
+  const lines = [];
+  const add = (k, val) => lines.push(k + ': ' + val);
+  add('Echo360 Lite', VERSION);
+  add('Browser', browserName());
+  add('Script manager', scriptManager());
+  add('Page', location.hostname + ' (lesson page)');
+  add('Recording', (p.lesson.mediaId ? String(p.lesson.mediaId).slice(0, 8) + '…' : '-') + ', ' + p.sources.length + ' view(s), ' + fmtTime(p.duration(), true));
+  add('Playback', (v.paused ? 'paused' : 'playing') + ' at ' + fmtTime(v.currentTime, true) + ', speed ' + v.playbackRate + ', layout ' + p.layout
+    + (p.pdfMode ? ' (PDF view)' : '') + ', quality ' + q(p.clock) + ' / ' + q(p.follower)
+    + (p.fvideo && !p.fvideo.paused ? ', sync ' + Math.round((p.fvideo.currentTime - v.currentTime) * 1000) + ' ms' : ''));
+  const s = p.silence;
+  if (s) add('Silence detection', (s.source || '-') + (s.reason ? ' (' + s.reason + ')' : '') + ', ' + (s.silences ? s.silences.length : 0) + ' found');
+  const a = p.slides;
+  if (a) add('Slide chapters', a.state + ', ' + a.chapters.length + ' chapters, screen view ' + (a.screenIndex == null ? 'unknown' : a.screenIndex));
+  const d = p.deck;
+  if (d) {
+    const r = d.ocr;
+    add('Slide reader', d.state + ', ' + d.files.length + ' file(s), ' + d.pages.length + ' pages'
+      + (r ? ', text on screen: ' + r.state + ', ' + Math.round(r.progress() * 100) + '% (read ' + r.stats.read + ', same ' + r.stats.same + ', failed ' + r.stats.failed + ')' : ''));
+  }
+  if (p.session) add('Session renewal', p.session.failed ? 'gave up (' + (p.session.failed.login ? 'sign-in expired' : 'failed') + ')' : 'ok, ' + p.session.renewals + ' renewal(s)');
+  add('Notes', p.notesReady ? 'loaded' : 'not available');
+  add('Audio tools', p.audio ? Object.entries(p.audio.settings || {}).filter(([, on]) => on).map(([k]) => k).join(', ') || 'off' : '-');
+  add('Features turned off after an error', [...featureErrors.seen].join(', ') || 'none');
+  lines.push('', 'Recent warnings and errors:');
+  if (!eventLog.length) lines.push('  none');
+  for (const e of eventLog) lines.push('  ' + e.t + ' ' + e.level + ' ' + maskUrls(e.text));
+  return lines.join('\n');
 }
 
 // ---- 90-main.js ----
@@ -8846,6 +9574,13 @@ async function restoreBackup(data, db = idbCache) {
 // ===================================================================================
 
 (function main() {
+  // Rejections nobody handled: logged when they come from this script (the page's own are
+  // not ours to report). Never a fallback.
+  window.addEventListener('unhandledrejection', (ev) => {
+    const r = ev.reason;
+    const stack = String((r && r.stack) || '');
+    if (/echo360[ -]lite/i.test(stack)) { log.warn('unhandled rejection', r); logEvent('warn', 'unhandled rejection: ' + ((r && r.message) || r)); }
+  });
   if (courseList.matches()) { try { courseList.start(); } catch (e) { /* the page works without it */ } return; }
   const adapter = ADAPTERS.find((a) => { try { return a.matches(); } catch (e) { return false; } });
   if (!adapter) return;
@@ -8853,10 +9588,12 @@ async function restoreBackup(data, db = idbCache) {
   let booted = false;
   let player = null;
 
+  // Hands the page to the original player. Each step is protected: an exception here would
+  // otherwise travel into the page's own start-up code.
   function startOriginal(callOriginal, arg, why) {
-    if (player) { player.destroy(); player = null; }
-    callOriginal(arg);
-    cpuFix.start();
+    if (player) { try { player.destroy(); } catch (e) { log.error('cleanup failed:', e); } player = null; }
+    try { callOriginal(arg); } catch (e) { log.error('original player failed to start:', e); }
+    try { cpuFix.start(); } catch (e) { log.warn('cpu fix failed:', e); }
     if (why) notice(why);
   }
 
@@ -8874,7 +9611,7 @@ async function restoreBackup(data, db = idbCache) {
         fetchCues: adapter.fetchCues ? (l) => adapter.fetchCues(l) : null,
         api: adapter.api ? (l) => adapter.api(l) : null,
         onFallback(reason) {
-          console.info(TAG, 'switching to the original player (' + reason + ')');
+          log.info('switching to the original player (' + reason + ')');
           let handoff = arg;
           try { if (player) handoff = adapter.withStartTime(arg, player.video.currentTime); } catch (e) { /* keep original arg */ }
           startOriginal(callOriginal, handoff, null);
@@ -8891,21 +9628,26 @@ async function restoreBackup(data, db = idbCache) {
       console.info(TAG, 'v' + VERSION + ' active (' + adapter.id + ', ' + lesson.sources.length + ' sources, reporting '
         + (lesson.analytics ? 'on' : 'off') + ')');
     } catch (e) {
-      console.warn(TAG, 'could not start, using the original player:', e);
+      log.warn('could not start, using the original player:', e);
       startOriginal(callOriginal, arg, t('fallbackNotice'));
     }
     return undefined;
   });
 
-  // If the page never calls the bootstrap we trapped (e.g. Echo360 changed how it starts),
-  // the original player runs untouched; still try the CPU fix and say so once.
+  // If the page never calls the bootstrap we trapped (Echo360 changed how it starts), the
+  // original player runs untouched: apply the CPU fix and say so once. A slow page may still
+  // start late, so the notice waits until the original player is visibly there (a video on
+  // the page), checking again for up to half a minute.
   window.addEventListener('load', () => {
-    setTimeout(() => {
+    let tries = 0;
+    const check = () => {
       if (booted) return;
-      console.info(TAG, 'player bootstrap not seen; leaving the original player in place');
+      if (!document.querySelector('video') && ++tries < 4) { setTimeout(check, 8000); return; }
+      log.info('player bootstrap not seen; leaving the original player in place');
       cpuFix.start();
       notice(t('fallbackNotice'));
-    }, 8000);
+    };
+    setTimeout(check, 8000);
   });
 })();
 

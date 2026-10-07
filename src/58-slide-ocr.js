@@ -75,7 +75,10 @@ class SlideTextReader {
     this.lesson = opts.lesson;
     this.video = opts.video;
     this.source = opts.source;
-    this.onChange = opts.onChange || (() => {});
+    // The listener redraws the player; an error there is a display problem, reported as
+    // such, not a failure of the analysis (which keeps its results and goes on).
+    const onChange = opts.onChange || (() => {});
+    this.onChange = () => { try { onChange(); } catch (e) { reportFeatureError('slide reader (display)', e); } };
     this.ac = new AbortController();
     opts.disposer.add(() => this.stop());
     this.gate = new BackgroundGate(this.video, this.ac.signal);
@@ -103,7 +106,7 @@ class SlideTextReader {
   start() {
     this.run().catch((e) => {
       if (this.ac.signal.aborted) return;
-      console.warn(TAG, 'slide text:', e && e.message ? e.message : e);
+      log.warn('slide text:', e && e.message ? e.message : e);
       this.state = 'unavailable';
       this.error = String((e && e.message) || e);
       this.onChange();
@@ -129,7 +132,8 @@ class SlideTextReader {
     if (this.probe.segments.length !== this.times.length) this.probe = this.reader;
     const n = this.times.length;
     const cached = this.lesson.mediaId ? await idbCache.get(this.key) : undefined;
-    if (cached && cached.v === 1 && cached.height === this.reader.info.height && Array.isArray(cached.at) && cached.at.length === n) {
+    if (cacheValid('ocr', cached) && cached.height === this.reader.info.height && Array.isArray(cached.at) && cached.at.length === n) {
+      cacheTouch(this.key);
       this.texts = cached.texts;
       this.at = Int32Array.from(cached.at);
       Object.assign(this.stats, cached.stats || {});
@@ -149,6 +153,7 @@ class SlideTextReader {
     let ref = null;
     const bytes = () => this.reader.bytes + (this.probe !== this.reader ? this.probe.bytes : 0);
     let unsaved = 0;
+    let fails = 0;
     const t0 = performance.now();
     const wall0 = this.stats.wall;
     for (let i = this.next(); i >= 0; i = this.next()) {
@@ -176,10 +181,15 @@ class SlideTextReader {
         this.at[i] = OCR_FAILED;
         this.stats.failed++;
         ref = null;
+        // Several in a row (network gone): stop and keep what was read; the next visit
+        // continues, retrying these.
+        if (++fails >= ANALYSIS_MAX_FAILS) { this.save(); throw new Error('keyframes cannot be read'); }
       } else if (same) {
+        fails = 0;
         this.at[i] = this.at[i - 1];
         this.stats.same++;
       } else {
+        fails = 0;
         const blob = await canvas.convertToBlob({ type: 'image/png' });
         const a = performance.now();
         const text = await this.recognize(blob);
@@ -239,6 +249,8 @@ class SlideTextReader {
 
   save() {
     if (!this.lesson.mediaId || !this.at) return;
-    idbCache.put(this.key, { v: 1, screen: this.source.index, height: this.reader.info.height, texts: this.texts, at: Array.from(this.at), stats: this.stats, savedAt: Date.now() });
+    // Samples that could not be read are stored as unread, so the next visit tries them again.
+    const at = Array.from(this.at, (x) => (x === OCR_FAILED ? -1 : x));
+    idbCache.put(this.key, { v: cacheVersion('ocr'), used: Date.now(), screen: this.source.index, height: this.reader.info.height, texts: this.texts, at, stats: this.stats, savedAt: Date.now() });
   }
 }

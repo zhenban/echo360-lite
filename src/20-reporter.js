@@ -46,12 +46,11 @@ class Reporter {
     this.d = disposer;
     const onUnload = () => this.end();
     this.d.listen(window, 'pagehide', onUnload);
-    this.d.listen(window, 'beforeunload', onUnload);
     this.d.add(() => this.detach());
     // The original player validates the session on load; the response may carry a fresh token.
     fetch(info.appUrl + '/api/ui/sessions/' + encodeURIComponent(info.sessionId), { credentials: 'include', headers: this.headers(false) })
       .then((r) => this.saveToken(r))
-      .catch(() => {});
+      .catch((e) => log.info('watch report (session) failed:', e));
   }
 
   headers(withBody) {
@@ -79,7 +78,7 @@ class Reporter {
           .then(() => this.post(path, body, true));
       }
       return r;
-    }).catch(() => {});
+    }).catch((e) => log.info('watch report failed:', e));
   }
 
   mediaState() {

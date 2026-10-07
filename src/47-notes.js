@@ -29,7 +29,7 @@ class NotesPane {
   async load() {
     const [notes, flags] = await Promise.allSettled([this.api.notes(), this.canFlag ? this.api.flags() : Promise.resolve([])]);
     if (notes.status !== 'fulfilled') {
-      console.info(TAG, 'notes unavailable:', notes.reason && notes.reason.message);
+      log.info('notes unavailable:', notes.reason && notes.reason.message);
       return false;
     }
     this.items = notes.value.concat(flags.status === 'fulfilled' ? flags.value : []);
@@ -97,7 +97,7 @@ class NotesPane {
   }
 
   fail(e) {
-    console.warn(TAG, 'write failed', e);
+    log.warn('write failed', e);
     this.showError(t('saveFailed', { error: e.message || e }));
     this.p.toast(t('saveFailed', { error: e.message || e }));
   }
@@ -343,7 +343,11 @@ class NotesPane {
       if (!f) return;
       try {
         const n = await restoreBackup(JSON.parse(await f.text()));
-        this.p.toast(t('backupRestored', { n }), t('reload'), () => location.reload());
+        // From now on this page must not write its older data over the restored one (its
+        // settings on leaving, the watched record): stop all writes and reload at once.
+        storageLock.frozen = true;
+        this.p.toast(t('backupRestored', { n }));
+        setTimeout(() => location.reload(), 1200);
       } catch (e) { this.p.toast(t('exportFailed', { msg: (e && e.message) || e })); }
       file.value = '';
     }));
