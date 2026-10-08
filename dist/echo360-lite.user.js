@@ -581,14 +581,14 @@ function tr(key, vars) {
 // labelled ones are replayed by the unit tests (test/fixtures).
 // ===================================================================================
 
-// ---- background work (53-media-io.js BackgroundGate) ----
+// ---- background work (61-media-io.js BackgroundGate) ----
 // Background downloads wait until playback has this much buffered ahead: two thirds of what
 // the player itself keeps (STREAM_MAX_BUFFER_SEC), so they never take bandwidth playback
 // is waiting for. Pauses between steps are in milliseconds, [while playing, while paused].
 const BG_MIN_BUFFER_SEC = 20;
 const BG_START_DELAY_MS = 5000;        // before an analysis starts its downloads: playback starts first
 
-// ---- slide chapters (56-slides.js) ----
+// ---- slide chapters (64-slides.js) ----
 // Seconds between the keyframes compared. Echo360's segments are 10 s long, so this reads
 // every keyframe there; with shorter segments the cost stays one keyframe per this many
 // seconds, with longer ones every keyframe is read. A resolution choice: refinement pins
@@ -629,14 +629,14 @@ const CHAPTER_THUMB_W = 192;           // width of chapter pictures (the list sh
 // skipped: a dropped request or a damaged segment; several in a row is the network gone).
 const ANALYSIS_MAX_FAILS = 5;
 
-// ---- reading the screen (58-slide-ocr.js) ----
+// ---- reading the screen (66-slide-ocr.js) ----
 // Text recognition reads the smallest rendition at least this tall (or the tallest):
 // slide text in 360p is not readable, 720p reads body text of slides shown full screen.
 const OCR_HEIGHT = 720;
 const OCR_PACE_MS = [200, 0];          // between samples; while playing a reading also rests as long as it took
 const OCR_SAVE_EVERY = 10;             // readings between cache writes
 
-// ---- which slide is on screen (58-slide-text.js) ----
+// ---- which slide is on screen (67-slide-text.js) ----
 // The evidence model (scoreModel) is fitted to each lecture. These only set its numerics:
 // the grid its log-likelihood ratios are tabulated on (scores are 0-1, so a step of 0.01),
 // the smallest spread a fitted distribution may have (one grid step, so a distribution is
@@ -667,7 +667,7 @@ const SLIDE_MOVES = {
   offFile: Math.log(0.03),   // back to the slides in another file
 };
 
-// ---- following the slides (59-slide-deck.js) ----
+// ---- following the slides (68-slide-deck.js) ----
 // A look at another page shorter than this (one sample) between two stretches of the same
 // page does not turn the page.
 const FOLLOW_MIN_SEC = 1.5 * CHAPTER_STEP_SEC;
@@ -677,7 +677,7 @@ const DECK_RENDER_BUDGET = 40e6;       // rendered pages kept, in pixels (about 
 const PAGE_TITLE_TOP = 0.4;            // a page's title is the largest text in this top share of the page
 const PAGE_AR_DEFAULT = 9 / 16;        // height / width of a page not opened yet (slides are mostly 16:9)
 
-// ---- silence (54-silence.js) ----
+// ---- silence (62-silence.js) ----
 // Speech recognisers and loudness measures need nothing above 8 kHz: 16 kHz holds it.
 const AUDIO_RATE = 16000;
 const CHUNK_SEC = 60;                  // audio per request and decode (whole segments, about 350 KB)
@@ -699,7 +699,7 @@ const SILENCE_MIN_CHOICES = [15, 30, 60, 120];   // shortest silence offered for
 const SILENCE_START_DELAY_MS = 8000;   // before the first audio download: playback starts first
 const SILENCE_PACE_MS = [2000, 400];   // between chunks (about 350 KB each)
 
-// ---- audio processing (52-audio.js) ----
+// ---- audio processing (60-audio.js) ----
 // Standard voice processing, set by ear on lecture recordings and checked by measurement:
 // a recording 20 dB too quiet comes out at about -20 dBFS RMS without clipping, normal
 // recordings are nearly unchanged, input above full scale is held about 4 dB below it.
@@ -2231,7 +2231,7 @@ class Stream {
 //   expired, the page answers with a redirect to the login page: that cannot be fixed in
 //   the background, so the keeper gives up and the player asks the user to reload.
 //
-// mediaSession.renew() is what fetchOk() (53-media-io.js) calls for background downloads.
+// mediaSession.renew() is what fetchOk() (61-media-io.js) calls for background downloads.
 // ===================================================================================
 
 
@@ -4214,7 +4214,7 @@ function nextSpeed(current, dir) {
   return SPEEDS[clamp(idx + dir, 0, SPEEDS.length - 1)];
 }
 
-// ---- 41-zoom.js ----
+// ---- 50-zoom.js ----
 // ===================================================================================
 // Zoom and pan inside a view (the screen video, the camera, or the PDF in the picture
 // area): the wheel or a trackpad pinch zooms around the pointer, dragging pans, a double
@@ -4393,7 +4393,7 @@ class Zoomer {
   }
 }
 
-// ---- 42-loop.js ----
+// ---- 51-loop.js ----
 // ===================================================================================
 // A-B loop: play a stretch of the lecture again and again (a derivation, a sentence).
 //
@@ -4556,7 +4556,7 @@ class ABLoop {
   }
 }
 
-// ---- 43-watched.js ----
+// ---- 52-watched.js ----
 // ===================================================================================
 // What has been watched: the stretches of a recording played on this device, kept across
 // visits, shown faintly on the progress bar and as a percentage on the course page
@@ -4625,7 +4625,7 @@ function watchedShare(rec) {
   return Math.min(1, s / end);
 }
 
-// ---- 45-captions.js ----
+// ---- 53-captions.js ----
 // ===================================================================================
 // Captions overlay and transcript panel. Both read one sorted cue list.
 // ===================================================================================
@@ -4923,7 +4923,7 @@ class TranscriptPanel {
   }
 }
 
-// ---- 46-sidebar.js ----
+// ---- 54-sidebar.js ----
 // ===================================================================================
 // Side panel with tabs (transcript, slides, notes, discussion). Each tab is a controller with
 // show(visible); only the active tab of an open panel is visible, so hidden tabs do no work.
@@ -5019,12 +5019,12 @@ class Sidebar {
   }
 }
 
-// ---- 47-notes.js ----
+// ---- 55-notes.js ----
 // ===================================================================================
 // Notes tab: private notes, bookmarks and "didn't understand" flags, sorted by time.
 // Data is loaded once at start (it also feeds the progress-bar markers); the list DOM is
 // only rebuilt while the tab is visible. Notes and bookmarks can carry local tags
-// (47-tags.js).
+// (56-tags.js).
 // ===================================================================================
 
 const NOTE_FILTERS = ['all', 'note', 'bookmark', 'flag'];
@@ -5411,7 +5411,7 @@ class NotesPane {
   }
 }
 
-// ---- 47-tags.js ----
+// ---- 56-tags.js ----
 // ===================================================================================
 // Private tags on notes and bookmarks. Local only: they are kept in IndexedDB and never
 // sent to Echo360, so only the user sees them (and they go with a backup, M8.6).
@@ -5599,7 +5599,7 @@ function tagManager(tagStore, onClose) {
   return box;
 }
 
-// ---- 48-discussion.js ----
+// ---- 57-discussion.js ----
 // ===================================================================================
 // Discussion tab: the lesson's public questions and replies.
 // Loaded once at start (for availability and progress-bar markers) and again when the tab
@@ -5881,7 +5881,7 @@ function formatDate(iso) {
   }
 }
 
-// ---- 49-markers.js ----
+// ---- 58-markers.js ----
 // ===================================================================================
 // Progress-bar markers for timed items (notes, bookmarks, flags, discussion posts).
 // The layer is rebuilt only when the data or the duration changes; hover and click use
@@ -5933,7 +5933,7 @@ class MarkersLayer {
   }
 }
 
-// ---- 50-notice.js ----
+// ---- 59-notice.js ----
 // ===================================================================================
 // Small, dismissible notice shown when we fall back to the original player.
 // ===================================================================================
@@ -5958,7 +5958,7 @@ function notice(text) {
   if (document.body) show(); else document.addEventListener('DOMContentLoaded', show, { once: true });
 }
 
-// ---- 52-audio.js ----
+// ---- 60-audio.js ----
 // ===================================================================================
 // Audio processing for the clock <video>: loudness levelling, voice enhancement, mono.
 //
@@ -6100,7 +6100,7 @@ class AudioChain {
   }
 }
 
-// ---- 53-media-io.js ----
+// ---- 61-media-io.js ----
 // ===================================================================================
 // Shared helpers for background media work: HLS playlist parsing, ranged fetches, an
 // IndexedDB cache, and a gate that keeps background downloads from competing with playback.
@@ -6280,7 +6280,7 @@ function idle() {
   });
 }
 
-// ---- 54-silence.js ----
+// ---- 62-silence.js ----
 // ===================================================================================
 // Silence analysis, and the audio-track reader it is built on.
 //
@@ -6753,7 +6753,7 @@ class SilenceAnalyzer {
 
 }
 
-// ---- 55-caches.js ----
+// ---- 63-caches.js ----
 // ===================================================================================
 // Analysis caches in IndexedDB: slide chapters, silence envelopes, text read on screen.
 //
@@ -6852,7 +6852,7 @@ const analysisCaches = {
   },
 };
 
-// ---- 56-slides.js ----
+// ---- 64-slides.js ----
 // ===================================================================================
 // Slide chapters: find where the screen view changes to a new slide.
 //
@@ -7821,7 +7821,7 @@ class SlideAnalyzer {
   }
 }
 
-// ---- 57-slides-pane.js ----
+// ---- 65-slides-pane.js ----
 // ===================================================================================
 // Reading along with the lecturer's PDF, and the Slides tab of the side panel.
 //
@@ -8175,7 +8175,7 @@ class SlidesPane {
   }
 }
 
-// ---- 58-slide-ocr.js ----
+// ---- 66-slide-ocr.js ----
 // ===================================================================================
 // Reading the text on the screen view, for following the lecturer's slides (M7.5).
 //
@@ -8490,11 +8490,11 @@ class SlideTextReader {
   }
 }
 
-// ---- 58-slide-text.js ----
+// ---- 67-slide-text.js ----
 // ===================================================================================
 // Which page of the lecturer's slide files is on screen, from the text on screen.
 //
-// Pure functions on strings and numbers (the reading of the screen is in 59-slide-ocr.js).
+// Pure functions on strings and numbers (the reading of the screen is in 66-slide-ocr.js).
 //
 //   1. Words. The text recognised in each distinct screen picture is compared with each
 //      page's text (tf-idf cosine). Words on many pages (course name, footer) count little;
@@ -8919,7 +8919,7 @@ class SlideTextWorker {
   }
 }
 
-// ---- 59-slide-deck.js ----
+// ---- 68-slide-deck.js ----
 // ===================================================================================
 // The lecturer's slide files (PDF) for a recording: loading, local storage, following the
 // lecture, and the user's corrections.
@@ -8928,7 +8928,7 @@ class SlideTextWorker {
 // Following the lecture only turns the page for them until they take over.
 //
 // Which page is on screen comes from the text on the screen view, every CHAPTER_STEP_SEC
-// across the lecture: 58-slide-ocr.js reads it, 58-slide-text.js decides the pages (in a Worker).
+// across the lecture: 66-slide-ocr.js reads it, 67-slide-text.js decides the pages (in a Worker).
 //
 // Files never leave the browser: they are kept in IndexedDB (by SHA-256), remembered per
 // recording. pdf.js is loaded from jsDelivr (pinned) only when a recording has slide files.
@@ -9404,7 +9404,7 @@ class SlideDeckController {
   }
 }
 
-// ---- 60-cpufix.js ----
+// ---- 70-cpufix.js ----
 // ===================================================================================
 // Fallback: CPU fix for the original player (styled-components 4.x). Same logic as the
 // standalone "Echo360 player CPU fix" script; only started when the original player runs.
@@ -9624,7 +9624,7 @@ const cpuFix = (function () {
 // Course page (/section/<id>/home): a small progress bar next to each recording.
 //
 // It shows two things at once, each only when known:
-//   - filled stretches: what was watched on this device (43-watched.js), with the share in
+//   - filled stretches: what was watched on this device (52-watched.js), with the share in
 //     words (an empty ending, black screen and silence, does not count);
 //   - a tick: where Echo360 says you stopped last time (any device), from the player's
 //     properties (one request per opened recording, a few at a time).

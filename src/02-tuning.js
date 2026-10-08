@@ -12,14 +12,14 @@
 // labelled ones are replayed by the unit tests (test/fixtures).
 // ===================================================================================
 
-// ---- background work (53-media-io.js BackgroundGate) ----
+// ---- background work (61-media-io.js BackgroundGate) ----
 // Background downloads wait until playback has this much buffered ahead: two thirds of what
 // the player itself keeps (STREAM_MAX_BUFFER_SEC), so they never take bandwidth playback
 // is waiting for. Pauses between steps are in milliseconds, [while playing, while paused].
 const BG_MIN_BUFFER_SEC = 20;
 const BG_START_DELAY_MS = 5000;        // before an analysis starts its downloads: playback starts first
 
-// ---- slide chapters (56-slides.js) ----
+// ---- slide chapters (64-slides.js) ----
 // Seconds between the keyframes compared. Echo360's segments are 10 s long, so this reads
 // every keyframe there; with shorter segments the cost stays one keyframe per this many
 // seconds, with longer ones every keyframe is read. A resolution choice: refinement pins
@@ -60,14 +60,14 @@ const CHAPTER_THUMB_W = 192;           // width of chapter pictures (the list sh
 // skipped: a dropped request or a damaged segment; several in a row is the network gone).
 const ANALYSIS_MAX_FAILS = 5;
 
-// ---- reading the screen (58-slide-ocr.js) ----
+// ---- reading the screen (66-slide-ocr.js) ----
 // Text recognition reads the smallest rendition at least this tall (or the tallest):
 // slide text in 360p is not readable, 720p reads body text of slides shown full screen.
 const OCR_HEIGHT = 720;
 const OCR_PACE_MS = [200, 0];          // between samples; while playing a reading also rests as long as it took
 const OCR_SAVE_EVERY = 10;             // readings between cache writes
 
-// ---- which slide is on screen (58-slide-text.js) ----
+// ---- which slide is on screen (67-slide-text.js) ----
 // The evidence model (scoreModel) is fitted to each lecture. These only set its numerics:
 // the grid its log-likelihood ratios are tabulated on (scores are 0-1, so a step of 0.01),
 // the smallest spread a fitted distribution may have (one grid step, so a distribution is
@@ -98,7 +98,7 @@ const SLIDE_MOVES = {
   offFile: Math.log(0.03),   // back to the slides in another file
 };
 
-// ---- following the slides (59-slide-deck.js) ----
+// ---- following the slides (68-slide-deck.js) ----
 // A look at another page shorter than this (one sample) between two stretches of the same
 // page does not turn the page.
 const FOLLOW_MIN_SEC = 1.5 * CHAPTER_STEP_SEC;
@@ -108,7 +108,7 @@ const DECK_RENDER_BUDGET = 40e6;       // rendered pages kept, in pixels (about 
 const PAGE_TITLE_TOP = 0.4;            // a page's title is the largest text in this top share of the page
 const PAGE_AR_DEFAULT = 9 / 16;        // height / width of a page not opened yet (slides are mostly 16:9)
 
-// ---- silence (54-silence.js) ----
+// ---- silence (62-silence.js) ----
 // Speech recognisers and loudness measures need nothing above 8 kHz: 16 kHz holds it.
 const AUDIO_RATE = 16000;
 const CHUNK_SEC = 60;                  // audio per request and decode (whole segments, about 350 KB)
@@ -130,7 +130,7 @@ const SILENCE_MIN_CHOICES = [15, 30, 60, 120];   // shortest silence offered for
 const SILENCE_START_DELAY_MS = 8000;   // before the first audio download: playback starts first
 const SILENCE_PACE_MS = [2000, 400];   // between chunks (about 350 KB each)
 
-// ---- audio processing (52-audio.js) ----
+// ---- audio processing (60-audio.js) ----
 // Standard voice processing, set by ear on lecture recordings and checked by measurement:
 // a recording 20 dB too quiet comes out at about -20 dBFS RMS without clipping, normal
 // recordings are nearly unchanged, input above full scale is held about 4 dB below it.

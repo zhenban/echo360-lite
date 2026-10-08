@@ -6,7 +6,7 @@
 // Following the lecture only turns the page for them until they take over.
 //
 // Which page is on screen comes from the text on the screen view, every CHAPTER_STEP_SEC
-// across the lecture: 58-slide-ocr.js reads it, 58-slide-text.js decides the pages (in a Worker).
+// across the lecture: 66-slide-ocr.js reads it, 67-slide-text.js decides the pages (in a Worker).
 //
 // Files never leave the browser: they are kept in IndexedDB (by SHA-256), remembered per
 // recording. pdf.js is loaded from jsDelivr (pinned) only when a recording has slide files.

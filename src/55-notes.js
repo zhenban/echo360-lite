@@ -2,7 +2,7 @@
 // Notes tab: private notes, bookmarks and "didn't understand" flags, sorted by time.
 // Data is loaded once at start (it also feeds the progress-bar markers); the list DOM is
 // only rebuilt while the tab is visible. Notes and bookmarks can carry local tags
-// (47-tags.js).
+// (56-tags.js).
 // ===================================================================================
 
 const NOTE_FILTERS = ['all', 'note', 'bookmark', 'flag'];

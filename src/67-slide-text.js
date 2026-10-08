@@ -1,7 +1,7 @@
 // ===================================================================================
 // Which page of the lecturer's slide files is on screen, from the text on screen.
 //
-// Pure functions on strings and numbers (the reading of the screen is in 59-slide-ocr.js).
+// Pure functions on strings and numbers (the reading of the screen is in 66-slide-ocr.js).
 //
 //   1. Words. The text recognised in each distinct screen picture is compared with each
 //      page's text (tf-idf cosine). Words on many pages (course name, footer) count little;

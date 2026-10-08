@@ -206,7 +206,7 @@ test('FollowerSync does not align before the clock has loaded', () => {
 });
 
 test('CueIndex finds the started and active cue, sequentially and after seeks', () => {
-  const m = loadSources(['00-util', '45-captions']);
+  const m = loadSources(['00-util', '53-captions']);
   const cues = [{ start: 1, end: 2 }, { start: 3, end: 5 }, { start: 5, end: 6 }, { start: 10, end: 12 }];
   const ix = new m.CueIndex(cues);
   assert.equal(ix.started(0.5), -1);
@@ -272,7 +272,7 @@ function pathFromSource(edges) {
 }
 
 test('AudioChain wires only the enabled stages (all off = direct)', () => {
-  const m = loadSources(['00-util', '52-audio']);
+  const m = loadSources(['00-util', '60-audio']);
   const { Ctx, edges } = fakeAudio();
   m.window.AudioContext = Ctx;
   const chain = new m.AudioChain({ paused: true });
@@ -293,7 +293,7 @@ test('AudioChain wires only the enabled stages (all off = direct)', () => {
 });
 
 test('AudioChain refuses to build when unsupported', () => {
-  const m = loadSources(['00-util', '52-audio']);
+  const m = loadSources(['00-util', '60-audio']);
   const chain = new m.AudioChain({ paused: true });
   chain.reason = 'nativeHls';
   assert.equal(chain.build(), false);
@@ -317,7 +317,7 @@ test('API paths and thumbnailUri match what the original player sends', () => {
 // ---- silence analysis ----
 
 function silenceMod() {
-  return loadSources(['00-util', '53-media-io', '54-silence']);
+  return loadSources(['00-util', '61-media-io', '62-silence']);
 }
 
 test('audio rendition of the lowest-bandwidth variant; media playlist byte ranges', () => {
@@ -714,7 +714,7 @@ test('T1.4 writes: with a user event they are sent; dry run "public" holds back 
 // ---- slide chapters ----
 
 function slidesMod() {
-  return loadSources(['00-util', '53-media-io', '54-silence', '56-slides']);
+  return loadSources(['00-util', '61-media-io', '62-silence', '64-slides']);
 }
 
 // ISO BMFF box builder for tests.
@@ -752,7 +752,7 @@ test('fragment parsing finds the keyframe bytes and sample times', () => {
 
 test('keyframe reading: a header larger than the first request, a tiny static segment, no guessed sizes', async () => {
   const decoded = [];
-  const m = loadSources(['00-util', '53-media-io', '54-silence', '56-slides'], {
+  const m = loadSources(['00-util', '61-media-io', '62-silence', '64-slides'], {
     EncodedVideoChunk: class { constructor(o) { Object.assign(this, o); } },
     VideoDecoder: class {
       constructor(o) { this.o = o; this.state = 'configured'; }
@@ -921,7 +921,7 @@ test('which view is the screen: still between changes beats a camera, on every m
 // ---- slide following ----
 
 function deckMod() {
-  return loadSources(['00-util', '53-media-io', '56-slides', '58-slide-text', '58-slide-ocr', '59-slide-deck']);
+  return loadSources(['00-util', '61-media-io', '64-slides', '67-slide-text', '66-slide-ocr', '68-slide-deck']);
 }
 
 test('following: not-a-slide and unread parts keep the page, a quick look back does not turn it', () => {
@@ -1098,7 +1098,7 @@ test('session keeper: renews once for concurrent callers, gives up on a login re
 });
 
 test('tags: defaults once per course, create / rename / toggle / delete keeps the item map clean', async () => {
-  const m = loadSources(['00-util', '01-i18n', '53-media-io', '47-tags']);
+  const m = loadSources(['00-util', '01-i18n', '61-media-io', '56-tags']);
   const st = new m.TagStore({ sectionId: 'sec', mediaId: 'med' });
   await st.load();
   assert.equal(st.tags.map((x) => x.id).join(','), 'exam,assignment,confused');
@@ -1116,7 +1116,7 @@ test('tags: defaults once per course, create / rename / toggle / delete keeps th
 });
 
 test('watched share: overlapping-free ranges, clipped to the duration', () => {
-  const m = loadSources(['00-util', '20-reporter', '53-media-io', '43-watched']);
+  const m = loadSources(['00-util', '20-reporter', '61-media-io', '52-watched']);
   assert.equal(m.watchedShare({ d: 100, r: [[0, 10], [50, 70]] }), 0.3);
   assert.equal(m.watchedShare({ d: 100, r: [[90, 130]] }), 0.1);
   assert.equal(m.watchedShare(null), 0);
@@ -1156,7 +1156,7 @@ test('E1: a player that fails half-way through construction releases what it mad
 });
 
 test('E2: settings are validated field by field; damaged values fall back to defaults', () => {
-  const m = loadSources(['00-util', '01-i18n', '39-prefs', '40-player', '45-captions', '46-sidebar', '54-silence']);
+  const m = loadSources(['00-util', '01-i18n', '39-prefs', '40-player', '53-captions', '54-sidebar', '62-silence']);
   const d = m.prefDefaults();
   assert.equal(JSON.stringify(m.sanitizePrefs(null)), JSON.stringify(d));
   assert.equal(JSON.stringify(m.sanitizePrefs('garbage')), JSON.stringify(d));
@@ -1181,7 +1181,7 @@ test('E2: settings are validated field by field; damaged values fall back to def
 test('E2: a backup restore takes only known keys, validated, and skips damaged entries', async () => {
   const local = new Map();
   const db = new Map();
-  const m = loadSources(['00-util', '01-i18n', '39-prefs', '40-player', '45-captions', '46-sidebar', '53-media-io', '54-silence', '11-echo360-api', '10-adapter', '85-export'], {
+  const m = loadSources(['00-util', '01-i18n', '39-prefs', '40-player', '53-captions', '54-sidebar', '61-media-io', '62-silence', '11-echo360-api', '10-adapter', '85-export'], {
     localStorage: { getItem: (k) => (local.has(k) ? local.get(k) : null), setItem: (k, v) => local.set(k, v), key: () => null, length: 0 },
   });
   // In-memory IndexedDB stand-in.
@@ -1210,7 +1210,7 @@ test('T1.5 backup: everything made by a backup comes back from it, through a fil
     ['someone-else', 'x'],
   ]);
   const ls = { getItem: (k) => (local.has(k) ? local.get(k) : null), setItem: (k, v) => local.set(k, v), key: (i) => [...local.keys()][i], get length() { return local.size; } };
-  const m = loadSources(['00-util', '01-i18n', '39-prefs', '40-player', '45-captions', '46-sidebar', '53-media-io', '54-silence', '11-echo360-api', '10-adapter', '85-export'], { localStorage: ls });
+  const m = loadSources(['00-util', '01-i18n', '39-prefs', '40-player', '53-captions', '54-sidebar', '61-media-io', '62-silence', '11-echo360-api', '10-adapter', '85-export'], { localStorage: ls });
   const db = new Map([
     ['tags:s', { tags: [{ id: 'a', name: 'Exam', color: '#fff' }] }],
     ['tagmap:m', { n1: ['a'] }],
@@ -1239,7 +1239,7 @@ test('T1.5 backup: everything made by a backup comes back from it, through a fil
 });
 
 test('S1: every element the player looks up by a single class exists exactly once in its markup', () => {
-  const m = loadSources(['00-util', '01-i18n', '30-ui-assets', '45-captions', '54-silence']);
+  const m = loadSources(['00-util', '01-i18n', '30-ui-assets', '53-captions', '62-silence']);
   const html = m.playerTemplate();
   const count = new Map();
   for (const [, cls] of html.matchAll(/class="([^"]+)"/g)) for (const c of cls.split(/\s+/)) count.set(c, (count.get(c) || 0) + 1);
@@ -1251,7 +1251,7 @@ test('S1: every element the player looks up by a single class exists exactly onc
 });
 
 test('C1: a second write while one is on its way does nothing (discussion and notes)', async () => {
-  const m = loadSources(['00-util', '01-i18n', '46-sidebar', '47-notes', '48-discussion']);
+  const m = loadSources(['00-util', '01-i18n', '54-sidebar', '55-notes', '57-discussion']);
   let calls = 0;
   let release;
   const slow = () => { calls++; return new Promise((r) => { release = r; }); };
@@ -1273,7 +1273,7 @@ test('C1: a second write while one is on its way does nothing (discussion and no
 });
 
 test('C3: when adding the bookmark fails, "tag here" tags nothing', async () => {
-  const m = loadSources(['00-util', '01-i18n', '46-sidebar', '47-notes']);
+  const m = loadSources(['00-util', '01-i18n', '54-sidebar', '55-notes']);
   const far = { id: 'old', type: 'bookmark', time: 100 };
   const pane = {
     items: [far], p: { video: { currentTime: 3000 }, sidebar: { open() {} } },
@@ -1303,7 +1303,7 @@ test('L1: a renewal on its way when the player is disposed does not schedule ano
 });
 
 test('L2: a stopped text reader never starts the recognition engine', async () => {
-  const m = loadSources(['00-util', '53-media-io', '56-slides', '58-slide-ocr']);
+  const m = loadSources(['00-util', '61-media-io', '64-slides', '66-slide-ocr']);
   const ac = new AbortController();
   ac.abort();
   const reader = { ac, engine: null };
@@ -1312,7 +1312,7 @@ test('L2: a stopped text reader never starts the recognition engine', async () =
 });
 
 test('worker wrapper: closed means closed (no new Worker afterwards)', async () => {
-  const m = loadSources(['00-util', '58-slide-text']);
+  const m = loadSources(['00-util', '67-slide-text']);
   const w = new m.SlideTextWorker(new m.Disposer());
   w.close();
   await assert.rejects(w.run({}), /closed/);
@@ -1348,7 +1348,7 @@ test('B1: errors in features are reported, not fatal; core errors hand over; asy
 });
 
 test('B2: silence detection that stops keeps what it already found', () => {
-  const m = loadSources(['00-util', '53-media-io', '54-silence']);
+  const m = loadSources(['00-util', '61-media-io', '62-silence']);
   let recomputed = 0;
   const a = { env: { coverage: () => 0.4 }, recompute() { recomputed++; }, onChange() {}, silences: [{ start: 1, end: 40 }], source: 'audio' };
   m.SilenceAnalyzer.prototype.fail.call(a, 'error');
@@ -1360,7 +1360,7 @@ test('B2: silence detection that stops keeps what it already found', () => {
 });
 
 test('B6: an older discussion load that answers late does not overwrite a newer one', async () => {
-  const m = loadSources(['00-util', '01-i18n', '46-sidebar', '48-discussion']);
+  const m = loadSources(['00-util', '01-i18n', '54-sidebar', '57-discussion']);
   const answers = [];
   const pane = { api: { discussions: () => new Promise((r) => answers.push(r)) }, showError() {}, changed() {} };
   const first = m.DiscussionPane.prototype.load.call(pane);
@@ -1374,7 +1374,7 @@ test('B6: an older discussion load that answers late does not overwrite a newer 
 
 test('B9: a restore that cannot write its entries writes nothing (no settings either)', async () => {
   const local = new Map();
-  const m = loadSources(['00-util', '01-i18n', '39-prefs', '40-player', '45-captions', '46-sidebar', '53-media-io', '54-silence', '11-echo360-api', '10-adapter', '85-export'], {
+  const m = loadSources(['00-util', '01-i18n', '39-prefs', '40-player', '53-captions', '54-sidebar', '61-media-io', '62-silence', '11-echo360-api', '10-adapter', '85-export'], {
     localStorage: { getItem: () => null, setItem: (k, v) => local.set(k, v), key: () => null, length: 0 },
   });
   const failing = { putMany: async () => { throw new Error('disk full'); } };
@@ -1390,7 +1390,7 @@ test('B8: diagnostics mask every address and long id', () => {
 });
 
 test('D1: uniform pictures, skippable stretches and where the content ends', () => {
-  const m = loadSources(['00-util', '53-media-io', '54-silence', '56-slides']);
+  const m = loadSources(['00-util', '61-media-io', '62-silence', '64-slides']);
   const flat = pic(12, []);
   for (let y = 40; y < 44; y++) for (let x = 70; x < 74; x++) flat[y * 160 + x] = 200; // a cursor or a small logo
   const slide = pic(230, [10, 25, 40, 55, 70]);
@@ -1410,13 +1410,13 @@ test('D1: uniform pictures, skippable stretches and where the content ends', () 
 });
 
 test('D1: watched share leaves out an empty ending', () => {
-  const m = loadSources(['00-util', '20-reporter', '53-media-io', '43-watched']);
+  const m = loadSources(['00-util', '20-reporter', '61-media-io', '52-watched']);
   assert.equal(m.watchedShare({ d: 100, e: 80, r: [[0, 80]] }), 1);
   assert.equal(m.watchedShare({ d: 100, r: [[0, 80]] }), 0.8);
 });
 
 test('slide controller: the page-deciding Worker and the pdf.js worker are separate fields', () => {
-  const m = loadSources(['00-util', '01-i18n', '53-media-io', '58-slide-text', '59-slide-deck']);
+  const m = loadSources(['00-util', '01-i18n', '61-media-io', '67-slide-text', '68-slide-deck']);
   const deck = new m.SlideDeckController({ lesson: {}, video: {}, slides: null, disposer: new m.Disposer() });
   assert.ok(deck.worker instanceof m.SlideTextWorker);
   assert.equal(typeof deck.worker.run, 'function');
@@ -1424,7 +1424,7 @@ test('slide controller: the page-deciding Worker and the pdf.js worker are separ
 });
 
 test('caches: marking a record as used never touches its data (OCR records keep their own "at")', () => {
-  const m = loadSources(['00-util', '53-media-io', '55-caches']);
+  const m = loadSources(['00-util', '61-media-io', '63-caches']);
   const rec = { v: 1, at: [3, -1, 4], texts: ['a'], savedAt: 1000 };
   const t = m.cacheTouched(rec, 5000);
   assert.deepEqual(Array.from(t.at), [3, -1, 4]);
@@ -1436,7 +1436,7 @@ test('caches: marking a record as used never touches its data (OCR records keep 
 });
 
 test('caption excerpt: last span in whole sentences', () => {
-  const m = loadSources(['00-util', '45-captions']);
+  const m = loadSources(['00-util', '53-captions']);
   const cues = [
     { start: 0, end: 5, text: 'First sentence.' },
     { start: 5, end: 9, text: 'This one starts here' },

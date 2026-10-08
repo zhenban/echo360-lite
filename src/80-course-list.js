@@ -2,7 +2,7 @@
 // Course page (/section/<id>/home): a small progress bar next to each recording.
 //
 // It shows two things at once, each only when known:
-//   - filled stretches: what was watched on this device (43-watched.js), with the share in
+//   - filled stretches: what was watched on this device (52-watched.js), with the share in
 //     words (an empty ending, black screen and silence, does not count);
 //   - a tick: where Echo360 says you stopped last time (any device), from the player's
 //     properties (one request per opened recording, a few at a time).

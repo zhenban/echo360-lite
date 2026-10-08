@@ -17,7 +17,7 @@
 //   expired, the page answers with a redirect to the login page: that cannot be fixed in
 //   the background, so the keeper gives up and the player asks the user to reload.
 //
-// mediaSession.renew() is what fetchOk() (53-media-io.js) calls for background downloads.
+// mediaSession.renew() is what fetchOk() (61-media-io.js) calls for background downloads.
 // ===================================================================================
 
 
