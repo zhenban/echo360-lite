@@ -46,7 +46,7 @@ class LitePlayer {
     this.lesson = lesson;
     this.opts = opts;
     // A feature that fails is announced once (playback goes on).
-    featureErrors.notify = (name) => { if (!this.destroyed && this.root) this.toast(t('featureFailed', { name })); };
+    featureErrors.notify = (name) => { if (!this.destroyed && this.root) this.toast(tr('featureFailed', { name })); };
     this.d.add(() => { featureErrors.notify = null; });
     this.prefs = sanitizePrefs(store.get('prefs', null));
     this.levelsByRole = {};
@@ -108,7 +108,7 @@ class LitePlayer {
     this.startAt = start;
     this.loadClock(this.clockPos, start, false);
     this.applyLayout();
-    if (start > 1) this.toast(t('resumedAt', { time: fmtTime(start) }), t('startOver'), () => this.seek(0));
+    if (start > 1) this.toast(tr('resumedAt', { time: fmtTime(start) }), tr('startOver'), () => this.seek(0));
   }
 
   // An element of the player's own markup. Each selector must name exactly one element:
@@ -116,14 +116,14 @@ class LitePlayer {
   // once and remembered (the markup is fixed; parts that are redrawn are not looked up
   // this way).
   $(sel) {
-    let el = this.refs.get(sel);
-    if (!el) {
+    let elem = this.refs.get(sel);
+    if (!elem) {
       const all = this.root.querySelectorAll(sel);
       if (all.length !== 1) throw new Error('player markup: "' + sel + '" matches ' + all.length + ' elements');
-      el = all[0];
-      this.refs.set(sel, el);
+      elem = all[0];
+      this.refs.set(sel, elem);
     }
-    return el;
+    return elem;
   }
 
   get secondaryPos() {
@@ -294,7 +294,7 @@ class LitePlayer {
       pdfView.dataset.slot = 'off';
     }
     this.$('.layout').style.display = this.dual || pdf ? '' : 'none';
-    this.setButton('.layout', layout === 'side' ? 'layoutSide' : layout === 'pip' ? 'layoutPip' : 'layoutSingle', t('layout'));
+    this.setButton('.layout', layout === 'side' ? 'layoutSide' : layout === 'pip' ? 'layoutPip' : 'layoutSingle', tr('layout'));
     for (const b of this.root.querySelectorAll('.layoutmenu button')) b.setAttribute('aria-checked', String(b.dataset.layout === layout));
     if (this.reader) {
       this.reader.setActive('main', pdf);
@@ -359,7 +359,7 @@ class LitePlayer {
   // Copies the current picture at the video's own resolution. Must run from a user action.
   copyFrame() {
     const v = this.screenVideo();
-    if (!v.videoWidth) { this.toast(t('copyFailed', { msg: 'no picture yet' })); return; }
+    if (!v.videoWidth) { this.toast(tr('copyFailed', { msg: 'no picture yet' })); return; }
     const c = document.createElement('canvas');
     c.width = v.videoWidth;
     c.height = v.videoHeight;
@@ -367,23 +367,23 @@ class LitePlayer {
     // The clipboard item is created synchronously (within the user action) from a promise.
     const blob = new Promise((resolve) => c.toBlob(resolve, 'image/png'));
     navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
-      .then(() => this.toast(t('copiedFrame', { w: c.width, h: c.height })))
-      .catch((e) => this.toast(t('copyFailed', { msg: (e && e.message) || e })));
+      .then(() => this.toast(tr('copiedFrame', { w: c.width, h: c.height })))
+      .catch((e) => this.toast(tr('copyFailed', { msg: (e && e.message) || e })));
   }
 
   // Copies what was said in the last copySpan seconds, in whole sentences, with the
   // lecture's name and the time range.
   copyCaptions() {
-    if (!this.cues || !this.cues.length) { this.toast(t('copyNoCaptions')); return; }
+    if (!this.cues || !this.cues.length) { this.toast(tr('copyNoCaptions')); return; }
     const x = captionExcerpt(this.cues, this.video.currentTime, this.prefs.copySpan || 60);
-    if (!x) { this.toast(t('copyNoCaptions')); return; }
+    if (!x) { this.toast(tr('copyNoCaptions')); return; }
     const long = this.duration() >= 3600;
     const from = fmtTime(x.start, long);
     const to = fmtTime(x.end, long);
     const text = this.lesson.title + '\n' + from + '–' + to + '\n\n' + x.text + '\n';
     navigator.clipboard.writeText(text)
-      .then(() => this.toast(t('copiedCaptions', { from, to })))
-      .catch((e) => this.toast(t('copyFailed', { msg: (e && e.message) || e })));
+      .then(() => this.toast(tr('copiedCaptions', { from, to })))
+      .catch((e) => this.toast(tr('copyFailed', { msg: (e && e.message) || e })));
   }
 
   // ---- quality ----
@@ -405,11 +405,11 @@ class LitePlayer {
   // only while it is the small picture-in-picture window; the screen is never capped.
   applyQuality() {
     const pairs = [[this.clock, this.video, this.clockPos], [this.follower, this.fvideo, this.followerPos]];
-    for (const [stream, el, pos] of pairs) {
+    for (const [stream, elem, pos] of pairs) {
       if (pos < 0 || !stream.uri) continue;
       let cap = 0;
-      if (this.layout === 'pip' && el.dataset.slot === 'secondary' && this.roleOf(pos) === 'camera') {
-        cap = Math.ceil(el.clientHeight * (window.devicePixelRatio || 1));
+      if (this.layout === 'pip' && elem.dataset.slot === 'secondary' && this.roleOf(pos) === 'camera') {
+        cap = Math.ceil(elem.clientHeight * (window.devicePixelRatio || 1));
       }
       stream.setCap(cap);
       stream.setQuality(this.qualityFor(pos));
@@ -423,27 +423,27 @@ class LitePlayer {
     }
     const shown = this.layout === 'single' || this.clockPos === this.primaryPos ? this.clock : this.follower;
     const h = shown.height;
-    this.$('.qbtn').textContent = h ? h + 'p' : t('qualityAuto');
+    this.$('.qbtn').textContent = h ? h + 'p' : tr('qualityAuto');
     if (!this.$('.qualitymenu').hidden) this.renderQualityMenu();
   }
 
   renderQualityMenu() {
     const menu = this.$('.qualitymenu');
     menu.textContent = '';
-    menu.append(h('div.head', { text: t('quality') }));
+    menu.append(el('div.head', { text: tr('quality') }));
     const roles = this.dual ? ['screen', 'camera'] : [this.roleOf(0)];
     for (const role of roles) {
       const pos = this.sources.findIndex((s, i) => this.roleOf(i) === role);
       if (pos < 0) continue;
       const stream = pos === this.clockPos ? this.clock : pos === this.followerPos ? this.follower : null;
       const playing = stream && stream.height ? stream.height + 'p' : '';
-      if (this.dual) menu.append(h('div.sub', { text: t(role === 'screen' ? 'qualityScreen' : 'qualityCamera') + (playing ? ' \u00b7 ' + t('qualityNow', { q: playing }) : '') }));
-      else if (playing) menu.append(h('div.sub', { text: t('qualityNow', { q: playing }) }));
+      if (this.dual) menu.append(el('div.sub', { text: tr(role === 'screen' ? 'qualityScreen' : 'qualityCamera') + (playing ? ' \u00b7 ' + tr('qualityNow', { q: playing }) : '') }));
+      else if (playing) menu.append(el('div.sub', { text: tr('qualityNow', { q: playing }) }));
       const want = this.prefs.quality[role];
       const heights = (this.levelsByRole[role] || []).slice().sort((a, b) => b - a);
-      const opts = [['auto', t('qualityAutoBest')]].concat(heights.map((x) => [x, x + 'p']));
+      const opts = [['auto', tr('qualityAutoBest')]].concat(heights.map((x) => [x, x + 'p']));
       for (const [val, label] of opts) {
-        menu.append(h('button', { role: 'menuitemradio', 'aria-checked': String(want === val), 'data-role': role, 'data-q': String(val), text: label }));
+        menu.append(el('button', { role: 'menuitemradio', 'aria-checked': String(want === val), 'data-role': role, 'data-q': String(val), text: label }));
       }
     }
   }
@@ -482,9 +482,9 @@ class LitePlayer {
       this.recoverAccess(this.clock, () => this.showAuthError());
       return;
     }
-    this.showError(t('playbackFailedTitle'), t('playbackFailedText', { detail: f.details }),
-      [[t('retry'), () => { this.hideError(); this.loadClock(this.clockPos, this.clock.position(), true); }, true],
-        [t('useOriginal'), () => this.opts.onFallback('error')]]);
+    this.showError(tr('playbackFailedTitle'), tr('playbackFailedText', { detail: f.details }),
+      [[tr('retry'), () => { this.hideError(); this.loadClock(this.clockPos, this.clock.position(), true); }, true],
+        [tr('useOriginal'), () => this.opts.onFallback('error')]]);
   }
 
   // The video files were refused: renew the access in the background and carry on from
@@ -505,8 +505,8 @@ class LitePlayer {
 
   showAuthError() {
     const login = this.session.failed && this.session.failed.login;
-    this.showError(t('authExpiredTitle'), t(login ? 'authLoginExpiredText' : 'authExpiredText'),
-      [[t('reload'), () => { this.savePosition(); location.reload(); }, true], [t('useOriginal'), () => this.opts.onFallback('auth')]]);
+    this.showError(tr('authExpiredTitle'), tr(login ? 'authLoginExpiredText' : 'authExpiredText'),
+      [[tr('reload'), () => { this.savePosition(); location.reload(); }, true], [tr('useOriginal'), () => this.opts.onFallback('auth')]]);
   }
 
   onFollowerFatal() {
@@ -514,7 +514,7 @@ class LitePlayer {
     // Keep watching with the clock alone; the layout preference is kept for next time.
     this.followerFailed = true;
     this.applyLayout();
-    this.toast(t('secondViewLost'), t('retry'), () => this.setLayout(this.prefs.layout));
+    this.toast(tr('secondViewLost'), tr('retry'), () => this.setLayout(this.prefs.layout));
   }
 
   // ---- video events ----
@@ -531,14 +531,14 @@ class LitePlayer {
       // Play is normally user-initiated; also recovers a context the browser suspended.
       if (this.audio) { this.audio.resume(); this.audio.syncTimer(); }
       stage.classList.remove('paused');
-      this.setButton('.play', 'pause', t('pause'));
+      this.setButton('.play', 'pause', tr('pause'));
       if (this.reporter) this.reporter.onPlay();
       this.armIdle();
     });
     on('pause', () => {
       if (this.audio) this.audio.syncTimer();
       stage.classList.add('paused');
-      this.setButton('.play', 'play', t('play'));
+      this.setButton('.play', 'play', tr('play'));
       if (this.reporter) this.reporter.onPause();
       this.savePosition();
       this.wake();
@@ -710,14 +710,14 @@ class LitePlayer {
     try {
       pip = await window.documentPictureInPicture.requestWindow({ width: Math.round(Math.min(960, r.width * 0.6)), height: Math.round(Math.min(600, r.height * 0.6)) });
     } catch (e) {
-      this.toast(t('popoutFailed', { msg: (e && e.message) || e }));
+      this.toast(tr('popoutFailed', { msg: (e && e.message) || e }));
       return;
     }
     if (this.destroyed) { pip.close(); return; }
     const playing = !this.video.paused;
-    const holder = h('div.e3l-holder', { style: 'display:flex;align-items:center;justify-content:center;gap:12px;width:100%;height:' + Math.round(r.height) + 'px;background:#111;color:#ccc;font:14px system-ui,sans-serif' },
-      h('span', { text: t('popoutHere') }),
-      h('button', { text: t('popoutBack'), style: 'padding:6px 12px;border-radius:8px;border:0;cursor:pointer', onclick: () => pip.close() }));
+    const holder = el('div.e3l-holder', { style: 'display:flex;align-items:center;justify-content:center;gap:12px;width:100%;height:' + Math.round(r.height) + 'px;background:#111;color:#ccc;font:14px system-ui,sans-serif' },
+      el('span', { text: tr('popoutHere') }),
+      el('button', { text: tr('popoutBack'), style: 'padding:6px 12px;border-radius:8px;border:0;cursor:pointer', onclick: () => pip.close() }));
     const doc = pip.document;
     const css = this.host.style.cssText;
     const keys = (e) => this.onKey(e);
@@ -794,7 +794,7 @@ class LitePlayer {
     this.d.listen(this.$('.diagcopy'), 'click', (e) => {
       e.stopPropagation();
       navigator.clipboard.writeText(this.$('.diagtext').textContent)
-        .then(() => this.toast(t('diagCopied')), (err) => this.toast(t('copyFailed', { msg: (err && err.message) || err })));
+        .then(() => this.toast(tr('diagCopied')), (err) => this.toast(tr('copyFailed', { msg: (err && err.message) || err })));
     });
     // Old analysis results are cleaned up in the background, once the page has settled.
     this.d.timeout(() => analysisCaches.prune().catch(() => {}), 60000);
@@ -820,7 +820,7 @@ class LitePlayer {
     d.listen($('.swap'), 'click', () => this.swapViews());
     d.listen($('.orig'), 'click', () => this.opts.onFallback('user'));
     d.listen(document, 'fullscreenchange', () => {
-      this.setButton('.fs', document.fullscreenElement ? 'exitFullscreen' : 'fullscreen', t('fullscreen'));
+      this.setButton('.fs', document.fullscreenElement ? 'exitFullscreen' : 'fullscreen', tr('fullscreen'));
     });
 
     // Menus (speed, layout): one open at a time, closed by any click elsewhere.
@@ -912,7 +912,7 @@ class LitePlayer {
         }), 250);
       },
       // Not the small picture-in-picture window.
-      canZoom: (el) => !(this.layout === 'pip' && (el.closest('[data-slot]') || el).dataset.slot === 'secondary'),
+      canZoom: (elem) => !(this.layout === 'pip' && (elem.closest('[data-slot]') || elem).dataset.slot === 'secondary'),
     });
     d.listen(views, 'click', (e) => {
       if (e.target.tagName !== 'VIDEO') return;
@@ -953,7 +953,7 @@ class LitePlayer {
       const sil = nearMarker ? null : this.skips[silenceIndexAt(this.skips, f * dur)];
       tipText.textContent = nearMarker
         ? fmtTime(nearMarker.time, dur >= 3600) + ' \u00b7 ' + (nearMarker.label.length > 70 ? nearMarker.label.slice(0, 67) + '\u2026' : nearMarker.label)
-        : fmtTime(f * dur, dur >= 3600) + (sil ? ' \u00b7 ' + t(sil.kind + 'Tip', { time: fmtTime(sil.end - sil.start) }) : '');
+        : fmtTime(f * dur, dur >= 3600) + (sil ? ' \u00b7 ' + tr(sil.kind + 'Tip', { time: fmtTime(sil.end - sil.start) }) : '');
       const pv = this.previewAt(nearMarker ? nearMarker.time : f * dur);
       if (pv) { if (tipImg.getAttribute('src') !== pv) tipImg.src = pv; tipImg.hidden = false; } else tipImg.hidden = true;
       const half = pv ? 96 : 24;
@@ -1066,7 +1066,7 @@ class LitePlayer {
         this.prefs.pipw = clamp(w / drag.stage.width, 0.15, 0.6);
         st.style.setProperty('--pipw', this.prefs.pipw.toFixed(4));
       } else {
-        for (const el of pipEls()) el.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+        for (const elem of pipEls()) elem.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
       }
     });
     const endPip = (e) => {
@@ -1084,7 +1084,7 @@ class LitePlayer {
         const right = cx > was.stage.left + was.stage.width / 2;
         const bottom = cy > was.stage.top + was.stage.height / 2;
         this.prefs.corner = (bottom ? 'b' : 't') + (right ? 'r' : 'l');
-        for (const el of pipEls()) el.style.transform = '';
+        for (const elem of pipEls()) elem.style.transform = '';
         for (const c of CORNERS) st.classList.toggle('c-' + c, c === this.prefs.corner);
       }
       this.savePrefs();
@@ -1183,11 +1183,11 @@ class LitePlayer {
     const on = this.cc.on;
     const toggle = this.$('.cctoggle');
     toggle.setAttribute('aria-checked', String(on));
-    toggle.querySelector('.state').textContent = on ? t('on') : t('off');
+    toggle.querySelector('.state').textContent = on ? tr('on') : tr('off');
     for (const b of this.root.querySelectorAll('.ccmenu .sizes button')) b.setAttribute('aria-checked', String(b.dataset.size === this.prefs.capSize));
     const hide = this.$('.cchidepaused');
     hide.setAttribute('aria-checked', String(!!this.prefs.capHidePaused));
-    hide.querySelector('.state').textContent = this.prefs.capHidePaused ? t('on') : t('off');
+    hide.querySelector('.state').textContent = this.prefs.capHidePaused ? tr('on') : tr('off');
     this.stage.classList.toggle('hidecc-paused', !!this.prefs.capHidePaused);
   }
 
@@ -1230,12 +1230,12 @@ class LitePlayer {
     const a = this.audio;
     const why = this.$('.audiomenu .why');
     why.hidden = !a.reason;
-    why.textContent = a.reason === 'noWebAudio' ? t('audioNoWebAudio') : a.reason ? t('audioNativeHls') : '';
+    why.textContent = a.reason === 'noWebAudio' ? tr('audioNoWebAudio') : a.reason ? tr('audioNativeHls') : '';
     for (const b of this.root.querySelectorAll('.audiomenu [data-audio]')) {
       const on = !!a.settings[b.dataset.audio];
       b.setAttribute('aria-checked', String(on));
       b.setAttribute('aria-disabled', String(!!a.reason));
-      b.querySelector('.state').textContent = on ? t('on') : t('off');
+      b.querySelector('.state').textContent = on ? tr('on') : tr('off');
     }
     this.$('.audiobtn').classList.toggle('active', a.anyOn() && !a.reason);
   }
@@ -1273,9 +1273,9 @@ class LitePlayer {
       this.registerTab('slides', this.slidesPane);
     }
     const pct = Math.floor(a.progress * 100);
-    const status = !a.chapters.length && (a.state === 'done' || a.state === 'unavailable') ? t('slidesNone')
-      : a.state === 'done' ? t('slidesFound', { n: a.chapters.length })
-        : a.state === 'thumbnails' ? t('slidesRough', { pct }) : t('slidesFinding', { pct });
+    const status = !a.chapters.length && (a.state === 'done' || a.state === 'unavailable') ? tr('slidesNone')
+      : a.state === 'done' ? tr('slidesFound', { n: a.chapters.length })
+        : a.state === 'thumbnails' ? tr('slidesRough', { pct }) : tr('slidesFinding', { pct });
     this.slidesPane.setChapters(a.chapters, status);
   }
 
@@ -1317,15 +1317,15 @@ class LitePlayer {
       if (!hasFiles(e)) return;
       e.preventDefault();
       this.deck.addFiles(e.dataTransfer.files).then((n) => {
-        if (!n) { this.toast(t('dropNotPdf')); return; }
+        if (!n) { this.toast(tr('dropNotPdf')); return; }
         if (this.sidebar.has('slides')) this.sidebar.open('slides');
-      }).catch((err) => this.toast(this.deck.state === 'error' && this.deck.error ? this.deck.error : t('deckError', { msg: String((err && err.message) || err) })));
+      }).catch((err) => this.toast(this.deck.state === 'error' && this.deck.error ? this.deck.error : tr('deckError', { msg: String((err && err.message) || err) })));
     });
   }
 
   renderChapterMarks() {
-    const el = this.$('.chaps');
-    el.textContent = '';
+    const elem = this.$('.chaps');
+    elem.textContent = '';
     const dur = this.duration();
     if (!dur || !this.slides) return;
     const frag = document.createDocumentFragment();
@@ -1335,7 +1335,7 @@ class LitePlayer {
       i.style.left = ((c.start / dur) * 100).toFixed(3) + '%';
       frag.appendChild(i);
     }
-    el.appendChild(frag);
+    elem.appendChild(frag);
   }
 
   // Picture for the seek-bar preview: the slide shown at t if chapters are known,
@@ -1431,8 +1431,8 @@ class LitePlayer {
   }
 
   renderSilences() {
-    const el = this.$('.sils');
-    el.textContent = '';
+    const elem = this.$('.sils');
+    elem.textContent = '';
     const dur = this.duration();
     if (!dur) return;
     const frag = document.createDocumentFragment();
@@ -1443,7 +1443,7 @@ class LitePlayer {
       i.style.width = (((Math.min(s.end, dur) - s.start) / dur) * 100).toFixed(3) + '%';
       frag.appendChild(i);
     }
-    el.appendChild(frag);
+    elem.appendChild(frag);
     // New results (the analysis refines them as it goes) must not pop the button up again.
     this.silIdx = silenceIndexAt(this.skips, this.video.currentTime);
   }
@@ -1453,18 +1453,18 @@ class LitePlayer {
     const p = this.prefs.silence;
     const total = a.silences.reduce((n, s) => n + s.end - s.start, 0);
     const found = a.silences.length
-      ? t(a.source === 'transcript' ? 'silenceFromTranscript' : 'silenceFound', { n: a.silences.length, time: fmtTime(total) })
-      : t('silenceNone', { min: p.min < 60 ? p.min + ' s' : p.min / 60 + ' min' });
+      ? tr(a.source === 'transcript' ? 'silenceFromTranscript' : 'silenceFound', { n: a.silences.length, time: fmtTime(total) })
+      : tr('silenceNone', { min: p.min < 60 ? p.min + ' s' : p.min / 60 + ' min' });
     let status;
-    if (a.source === 'pending') status = t('silenceWaiting');
-    else if (a.source === 'unavailable') status = t(a.reason === 'saveData' ? 'silenceSaveData' : 'silenceUnavailable');
-    else if (a.source === 'audio' && a.progress < 1) status = t('silenceAnalysing', { pct: Math.floor(a.progress * 100) }) + (a.silences.length ? ' ' + found : '');
+    if (a.source === 'pending') status = tr('silenceWaiting');
+    else if (a.source === 'unavailable') status = tr(a.reason === 'saveData' ? 'silenceSaveData' : 'silenceUnavailable');
+    else if (a.source === 'audio' && a.progress < 1) status = tr('silenceAnalysing', { pct: Math.floor(a.progress * 100) }) + (a.silences.length ? ' ' + found : '');
     else status = found;
     const menu = this.$('.audiomenu');
     menu.querySelector('.silstatus').textContent = status;
     const auto = menu.querySelector('[data-sil=auto]');
     auto.setAttribute('aria-checked', String(p.auto));
-    auto.querySelector('.state').textContent = p.auto ? t('on') : t('off');
+    auto.querySelector('.state').textContent = p.auto ? tr('on') : tr('off');
     for (const b of menu.querySelectorAll('.silmin button')) b.setAttribute('aria-checked', String(+b.dataset.min === p.min));
     for (const b of menu.querySelectorAll('.silsens button')) b.setAttribute('aria-checked', String(b.dataset.sens === p.sens));
     // Sensitivity only matters when the audio itself is measured.
@@ -1493,7 +1493,7 @@ class LitePlayer {
       const from = ct;
       this.hideSkip();
       this.seek(s.end);
-      this.toast(t(s.kind === 'blank' ? 'skippedBlank' : 'skippedSilence', { time: fmtTime(s.end - from) }), t('undo'), () => this.seek(from));
+      this.toast(tr(s.kind === 'blank' ? 'skippedBlank' : 'skippedSilence', { time: fmtTime(s.end - from) }), tr('undo'), () => this.seek(from));
       return;
     }
     this.showSkip(s, ct);
@@ -1501,7 +1501,7 @@ class LitePlayer {
 
   showSkip(s, ct) {
     const btn = this.$('.skipsil');
-    btn.textContent = t(s.kind === 'silence' ? 'skipSilence' : 'skipBlank', { time: fmtTime(s.end - ct) });
+    btn.textContent = tr(s.kind === 'silence' ? 'skipSilence' : 'skipBlank', { time: fmtTime(s.end - ct) });
     btn.classList.remove('fade');
     btn.tabIndex = 0;
     clearTimeout(this.skipTimer);
@@ -1579,7 +1579,7 @@ class LitePlayer {
     const items = [];
     // Where Echo360 says playback stopped last time (any device), as it was when the page opened.
     const last = this.lesson.resumeAt;
-    if (last > 1 && last < this.duration() - 1) items.push({ time: last, kind: 'laststop', label: t('lastStopped') });
+    if (last > 1 && last < this.duration() - 1) items.push({ time: last, kind: 'laststop', label: tr('lastStopped') });
     if (this.notes) items.push(...this.notes.markers());
     if (this.discussion && this.sidebar.has('discussion')) items.push(...this.discussion.markers());
     this.markers.set(items, this.duration());
@@ -1596,10 +1596,10 @@ class LitePlayer {
 
   renderExtras() {
     const x = this.lesson.extras || {};
-    const what = [x.polls && t('extraPolls'), x.slides && t('extraSlides'), x.audioDescription && t('extraAudioDescription')].filter(Boolean);
+    const what = [x.polls && tr('extraPolls'), x.slides && tr('extraSlides'), x.audioDescription && tr('extraAudioDescription')].filter(Boolean);
     const box = this.$('.pextras');
     box.hidden = !what.length;
-    if (what.length) box.querySelector('.msg').textContent = t('extrasNotice', { what: what.join(', ') });
+    if (what.length) box.querySelector('.msg').textContent = tr('extrasNotice', { what: what.join(', ') });
   }
 
   bindPanelResize() {
@@ -1624,9 +1624,9 @@ class LitePlayer {
   // Stretches watched on this device (earlier visits and this one), faint on the rail.
   renderWatched() {
     const dur = this.duration();
-    const el = this.$('.wat');
+    const elem = this.$('.wat');
     if (!dur || !this.watched.ready) return;
-    el.textContent = '';
+    elem.textContent = '';
     const frag = document.createDocumentFragment();
     for (const [a, b] of this.watched.ranges()) {
       const i = document.createElement('i');
@@ -1634,37 +1634,37 @@ class LitePlayer {
       i.style.width = (((Math.min(b, dur) - a) / dur) * 100).toFixed(3) + '%';
       frag.appendChild(i);
     }
-    el.appendChild(frag);
+    elem.appendChild(frag);
   }
 
   // Keyboard zoom on the main picture (the primary slot), around its centre; 0 resets.
   zoomMain(factor) {
     const slot = this.root.querySelector('.views [data-slot=primary]');
-    const el = slot && (slot.tagName === 'VIDEO' ? slot : slot.querySelector('.rpages'));
-    if (!el) return;
-    if (!factor) { this.zoom.reset(el); return; }
-    this.zoom.zoomAt(el, factor, 0.5, 0.5);
+    const elem = slot && (slot.tagName === 'VIDEO' ? slot : slot.querySelector('.rpages'));
+    if (!elem) return;
+    if (!factor) { this.zoom.reset(elem); return; }
+    this.zoom.zoomAt(elem, factor, 0.5, 0.5);
   }
 
   // The ⋯ menu: analysis results stored on this device (size, clear), diagnostics, keys.
   renderMoreMenu() {
     const m = this.$('.moremenu');
     m.textContent = '';
-    const size = h('span.grow', { text: t('cachesMeasuring') });
-    const clear = h('button', { text: t('cachesClear') });
+    const size = el('span.grow', { text: tr('cachesMeasuring') });
+    const clear = el('button', { text: tr('cachesClear') });
     clear.addEventListener('click', guard(async (e) => {
       e.stopPropagation();
       clear.disabled = true;
       const n = await analysisCaches.clear();
-      size.textContent = t('cachesCleared', { n });
+      size.textContent = tr('cachesCleared', { n });
     }));
-    m.append(h('div.head', { text: 'Echo360 Lite ' + VERSION }),
-      h('div.row', { title: t('cachesInfo') }, size, clear),
-      h('button', { text: t('diagMenu'), onclick: (e) => { e.stopPropagation(); m.hidden = true; this.showDiagnostics(); } }),
-      h('button', { text: t('keysTitle') + ' (?)', onclick: (e) => { e.stopPropagation(); m.hidden = true; this.showKeys(true); } }));
+    m.append(el('div.head', { text: 'Echo360 Lite ' + VERSION }),
+      el('div.row', { title: tr('cachesInfo') }, size, clear),
+      el('button', { text: tr('diagMenu'), onclick: (e) => { e.stopPropagation(); m.hidden = true; this.showDiagnostics(); } }),
+      el('button', { text: tr('keysTitle') + ' (?)', onclick: (e) => { e.stopPropagation(); m.hidden = true; this.showKeys(true); } }));
     analysisCaches.usage().then((u) => {
-      size.textContent = t('cachesSize', { mb: (u.bytes / 1e6).toFixed(u.bytes < 1e7 ? 1 : 0), n: u.count });
-    }).catch(() => { size.textContent = t('cachesUnknown'); });
+      size.textContent = tr('cachesSize', { mb: (u.bytes / 1e6).toFixed(u.bytes < 1e7 ? 1 : 0), n: u.count });
+    }).catch(() => { size.textContent = tr('cachesUnknown'); });
   }
 
   showDiagnostics() {
@@ -1679,7 +1679,7 @@ class LitePlayer {
       const list = box.querySelector('.khlist');
       list.textContent = '';
       for (const [keys, label] of KEY_HELP) {
-        list.append(h('div', null, ...keys.map((k) => h('kbd', { text: k }))), h('div', { text: t(label) }));
+        list.append(el('div', null, ...keys.map((k) => el('kbd', { text: k }))), el('div', { text: tr(label) }));
       }
     }
     box.hidden = !on;
@@ -1687,15 +1687,15 @@ class LitePlayer {
   }
 
   toast(msg, action, fn) {
-    const el = this.$('.toast');
-    el.querySelector('.msg').textContent = msg;
-    const btn = el.querySelector('.act');
+    const elem = this.$('.toast');
+    elem.querySelector('.msg').textContent = msg;
+    const btn = elem.querySelector('.act');
     btn.hidden = !action;
     btn.textContent = action || '';
-    btn.onclick = guard((ev) => { el.hidden = true; if (fn) fn(ev); });
-    el.hidden = false;
+    btn.onclick = guard((ev) => { elem.hidden = true; if (fn) fn(ev); });
+    elem.hidden = false;
     clearTimeout(this.toastTimer);
-    this.toastTimer = setTimeout(() => { el.hidden = true; }, 8000);
+    this.toastTimer = setTimeout(() => { elem.hidden = true; }, 8000);
   }
 
   showError(title, text, actions) {

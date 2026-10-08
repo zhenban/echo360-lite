@@ -49,32 +49,32 @@ class NotesPane {
   }
 
   build() {
-    const timeLabel = h('span');
+    const timeLabel = el('span');
     this.composerTime = timeLabel;
-    this.textarea = h('textarea.input', { rows: 3, maxLength: 5000, 'aria-label': t('addNote') });
-    this.addBtn = h('button.pbtn.primary', { text: t('addNote'), onclick: (e) => this.addNote(e) });
+    this.textarea = el('textarea.input', { rows: 3, maxLength: 5000, 'aria-label': tr('addNote') });
+    this.addBtn = el('button.pbtn.primary', { text: tr('addNote'), onclick: (e) => this.addNote(e) });
     this.d.listen(this.textarea, 'keydown', (e) => {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); this.addNote(e); }
     });
     this.d.listen(this.textarea, 'focus', () => this.updatePlaceholder());
-    this.select = h('select.input.small', { 'aria-label': t('filterAll') });
+    this.select = el('select.input.small', { 'aria-label': tr('filterAll') });
     for (const f of NOTE_FILTERS) {
-      const label = { all: t('filterAll'), note: t('filterNotes'), bookmark: t('filterBookmarks'), flag: t('filterFlags') }[f];
+      const label = { all: tr('filterAll'), note: tr('filterNotes'), bookmark: tr('filterBookmarks'), flag: tr('filterFlags') }[f];
       if (f === 'flag' && !this.canFlag) continue;
-      this.select.append(h('option', { value: f, text: label }));
+      this.select.append(el('option', { value: f, text: label }));
     }
     this.d.listen(this.select, 'change', () => { this.filter = this.select.value; this.render(); });
-    this.tagSelect = h('select.input.small', { 'aria-label': t('filterTags') });
+    this.tagSelect = el('select.input.small', { 'aria-label': tr('filterTags') });
     this.d.listen(this.tagSelect, 'change', () => { this.tagFilter = this.tagSelect.value; this.render(); });
-    this.manageBtn = h('button.link', { text: t('manageTags'), onclick: () => { this.managing = !this.managing; this.exporting = false; this.render(); } });
-    this.exportBtn = h('button.link', { text: t('exportMenu'), onclick: () => { this.exporting = !this.exporting; this.managing = false; this.render(); } });
-    this.manageBox = h('div');
-    this.errorEl = h('div.perror', { hidden: true });
-    this.list = h('div.plist');
+    this.manageBtn = el('button.link', { text: tr('manageTags'), onclick: () => { this.managing = !this.managing; this.exporting = false; this.render(); } });
+    this.exportBtn = el('button.link', { text: tr('exportMenu'), onclick: () => { this.exporting = !this.exporting; this.managing = false; this.render(); } });
+    this.manageBox = el('div');
+    this.errorEl = el('div.perror', { hidden: true });
+    this.list = el('div.plist');
     this.pane.append(
-      h('div.pinfo', { text: t('notesPrivate') }),
-      h('div.composer', null, this.textarea, h('div.crow', null, timeLabel, h('span.grow'), this.addBtn)),
-      h('div.ptools', null, this.select, this.tagSelect, h('span.grow'), this.manageBtn, this.exportBtn),
+      el('div.pinfo', { text: tr('notesPrivate') }),
+      el('div.composer', null, this.textarea, el('div.crow', null, timeLabel, el('span.grow'), this.addBtn)),
+      el('div.ptools', null, this.select, this.tagSelect, el('span.grow'), this.manageBtn, this.exportBtn),
       this.manageBox,
       this.errorEl,
       this.list,
@@ -83,7 +83,7 @@ class NotesPane {
 
   updatePlaceholder() {
     const at = fmtTime(this.p.video.currentTime, this.p.duration() >= 3600);
-    this.textarea.placeholder = t('addNotePlaceholder', { time: at });
+    this.textarea.placeholder = tr('addNotePlaceholder', { time: at });
   }
 
   show(on) {
@@ -98,17 +98,17 @@ class NotesPane {
 
   fail(e) {
     log.warn('write failed', e);
-    this.showError(t('saveFailed', { error: e.message || e }));
-    this.p.toast(t('saveFailed', { error: e.message || e }));
+    this.showError(tr('saveFailed', { error: e.message || e }));
+    this.p.toast(tr('saveFailed', { error: e.message || e }));
   }
 
   renderTagFilter() {
     const sel = this.tagSelect;
     const keep = this.tagFilter;
     sel.textContent = '';
-    sel.append(h('option', { value: '', text: t('allTags') }));
-    for (const tag of this.tags.tags) sel.append(h('option', { value: tag.id, text: tag.name }));
-    sel.append(h('option', { value: '-', text: t('untagged') }));
+    sel.append(el('option', { value: '', text: tr('allTags') }));
+    for (const tag of this.tags.tags) sel.append(el('option', { value: tag.id, text: tag.name }));
+    sel.append(el('option', { value: '-', text: tr('untagged') }));
     this.tagFilter = keep && (keep === '-' || this.tags.byId(keep)) ? keep : '';
     sel.value = this.tagFilter;
   }
@@ -129,41 +129,41 @@ class NotesPane {
     if (this.exporting) this.manageBox.append(this.exportPanel());
     const shown = this.items.filter((x) => (this.filter === 'all' || x.type === this.filter) && this.tagMatch(x));
     const frag = document.createDocumentFragment();
-    if (!shown.length) frag.append(h('div.pempty', { text: t('noNotes') }));
+    if (!shown.length) frag.append(el('div.pempty', { text: tr('noNotes') }));
     for (const item of shown) frag.append(this.renderItem(item, long));
     this.list.textContent = '';
     this.list.append(frag);
   }
 
   renderItem(item, long) {
-    const label = { note: t('markerNote'), bookmark: t('markerBookmark'), flag: t('markerFlag') }[item.type];
+    const label = { note: tr('markerNote'), bookmark: tr('markerBookmark'), flag: tr('markerFlag') }[item.type];
     const time = item.time != null
-      ? h('button.chiptime', { text: fmtTime(item.time, long), title: label, onclick: () => this.p.seek(item.time) })
+      ? el('button.chiptime', { text: fmtTime(item.time, long), title: label, onclick: () => this.p.seek(item.time) })
       : null;
-    const head = h('div.ihead', null, h('span.kind.k-' + item.type, { text: label }), time, h('span.grow'));
-    const body = item.type === 'note' ? h('div.ibody', { text: item.text }) : null;
+    const head = el('div.ihead', null, el('span.kind.k-' + item.type, { text: label }), time, el('span.grow'));
+    const body = item.type === 'note' ? el('div.ibody', { text: item.text }) : null;
     let tags = null;
     if (item.type !== 'flag') {
       const open = () => { this.picking = this.picking === item.id ? null : item.id; this.render(); };
-      tags = h('div.itags', null, ...this.tags.of(item.id).map((tag) => tagChip(tag, open)),
-        h('button.link.addtag', { text: t('addTagShort'), title: t('tagsFor'), onclick: open }));
+      tags = el('div.itags', null, ...this.tags.of(item.id).map((tag) => tagChip(tag, open)),
+        el('button.link.addtag', { text: tr('addTagShort'), title: tr('tagsFor'), onclick: open }));
       if (this.picking === item.id) tags.append(tagPicker(this.tags, item.id, () => { this.picking = null; this.render(); }));
     }
-    const actions = h('div.iactions');
-    if (item.type === 'note') actions.append(h('button.link', { text: t('edit'), onclick: () => this.startEdit(item, card) }));
+    const actions = el('div.iactions');
+    if (item.type === 'note') actions.append(el('button.link', { text: tr('edit'), onclick: () => this.startEdit(item, card) }));
     actions.append(this.deleteButton(item));
-    const card = h('div.card.k-' + item.type, { 'data-id': item.id }, head, body, tags, actions);
+    const card = el('div.card.k-' + item.type, { 'data-id': item.id }, head, body, tags, actions);
     return card;
   }
 
   // Two clicks within 3 s delete; the second click is the user action sent with the write.
   deleteButton(item) {
-    const label = item.type === 'flag' ? t('remove') : t('delete');
+    const label = item.type === 'flag' ? tr('remove') : tr('delete');
     let armed = 0;
-    const b = h('button.link.danger', { text: label });
+    const b = el('button.link.danger', { text: label });
     b.addEventListener('click', guard((e) => {
       if (!armed) {
-        b.textContent = t('confirmDelete');
+        b.textContent = tr('confirmDelete');
         armed = setTimeout(() => { armed = 0; b.textContent = label; }, 3000);
         return;
       }
@@ -175,10 +175,10 @@ class NotesPane {
   }
 
   startEdit(item, card) {
-    const area = h('textarea.input', { rows: 3, maxLength: 5000 });
+    const area = el('textarea.input', { rows: 3, maxLength: 5000 });
     area.value = item.text;
-    const save = h('button.pbtn.primary', { text: t('save') });
-    const cancel = h('button.pbtn', { text: t('cancel'), onclick: () => this.render() });
+    const save = el('button.pbtn.primary', { text: tr('save') });
+    const cancel = el('button.pbtn', { text: tr('cancel'), onclick: () => this.render() });
     save.addEventListener('click', guard((e) => this.once(async () => {
       const text = area.value.trim();
       if (!text) return;
@@ -190,7 +190,7 @@ class NotesPane {
         this.changed();
       } catch (err) { save.disabled = false; this.fail(err); }
     })));
-    card.querySelector('.ibody').replaceWith(h('div.composer', null, area, h('div.crow', null, h('span.grow'), cancel, save)));
+    card.querySelector('.ibody').replaceWith(el('div.composer', null, area, el('div.crow', null, el('span.grow'), cancel, save)));
     card.querySelector('.iactions').hidden = true;
     area.focus();
   }
@@ -237,7 +237,7 @@ class NotesPane {
         this.items.push(note);
         this.sort();
         this.changed();
-        this.p.toast(t('bookmarkedAt', { time: fmtTime(time) }), t('undo'), (ev) => this.remove(ev, note));
+        this.p.toast(tr('bookmarkedAt', { time: fmtTime(time) }), tr('undo'), (ev) => this.remove(ev, note));
         return note;
       } catch (err) { this.fail(err); return null; }
     }).then((x) => x || null);
@@ -260,13 +260,13 @@ class NotesPane {
       if (existing) {
         await this.api.removeFlag(e, existing);
         this.items = this.items.filter((x) => x !== existing);
-        this.p.toast(t('flagRemoved', { time: fmtTime(existing.time) }));
+        this.p.toast(tr('flagRemoved', { time: fmtTime(existing.time) }));
       } else {
         await this.api.addFlag(e, time);
         const scene = Math.floor(time / FLAG_SCENE_SECONDS) * FLAG_SCENE_SECONDS;
         this.items.push({ id: 'flag-' + scene / FLAG_SCENE_SECONDS, type: 'flag', time: scene, createdAt: new Date().toISOString() });
         this.sort();
-        this.p.toast(t('flagAdded', { time: fmtTime(scene) }));
+        this.p.toast(tr('flagAdded', { time: fmtTime(scene) }));
       }
       this.changed();
       this.p.renderFlagButton();
@@ -292,7 +292,7 @@ class NotesPane {
   markers() {
     return this.items.filter((x) => x.time != null).map((x) => {
       const tags = x.type === 'flag' ? [] : this.tags.of(x.id);
-      const base = x.type === 'note' ? t('markerNote') + ': ' + x.text : x.type === 'bookmark' ? t('markerBookmark') : t('markerFlag');
+      const base = x.type === 'note' ? tr('markerNote') + ': ' + x.text : x.type === 'bookmark' ? tr('markerBookmark') : tr('markerFlag');
       return {
         time: x.time,
         kind: x.type,
@@ -313,31 +313,31 @@ class NotesPane {
   exportPanel() {
     const ex = new Exporter(this.p);
     const hasPdf = !!(this.p.deck && this.p.deck.pages.length);
-    const pics = h('input', { type: 'checkbox', checked: hasPdf, disabled: !hasPdf });
-    const pdfs = h('input', { type: 'checkbox' });
+    const pics = el('input', { type: 'checkbox', checked: hasPdf, disabled: !hasPdf });
+    const pdfs = el('input', { type: 'checkbox' });
     const busy = async (btn, fn) => {
       btn.disabled = true;
-      try { await fn(); } catch (e) { this.p.toast(t('exportFailed', { msg: (e && e.message) || e })); } finally { btn.disabled = false; }
+      try { await fn(); } catch (e) { this.p.toast(tr('exportFailed', { msg: (e && e.message) || e })); } finally { btn.disabled = false; }
     };
-    const one = h('button.pbtn.primary', { text: t('exportLecture') });
+    const one = el('button.pbtn.primary', { text: tr('exportLecture') });
     one.addEventListener('click', guard(() => busy(one, async () => {
       const r = await ex.lecture(pics.checked);
-      this.p.toast(t('exportedLecture', { n: r.notes, p: r.pictures }));
+      this.p.toast(tr('exportedLecture', { n: r.notes, p: r.pictures }));
     })));
-    const all = h('button.pbtn', { text: t('exportCourse') });
+    const all = el('button.pbtn', { text: tr('exportCourse') });
     all.addEventListener('click', guard(() => busy(all, async () => {
-      const n = await ex.course((k, total) => { all.textContent = t('exportCourseProgress', { k: k + 1, n: total }); });
-      all.textContent = t('exportCourse');
-      this.p.toast(n ? t('exportedCourse', { n }) : t('exportedNothing'));
+      const n = await ex.course((k, total) => { all.textContent = tr('exportCourseProgress', { k: k + 1, n: total }); });
+      all.textContent = tr('exportCourse');
+      this.p.toast(n ? tr('exportedCourse', { n }) : tr('exportedNothing'));
     })));
-    const backup = h('button.pbtn', { text: t('backupMake') });
+    const backup = el('button.pbtn', { text: tr('backupMake') });
     backup.addEventListener('click', guard(() => busy(backup, async () => {
       const data = await makeBackup(pdfs.checked);
       const name = 'echo360-lite-backup-' + new Date().toISOString().slice(0, 10) + '.json';
       downloadBlob(new Blob([JSON.stringify(data)], { type: 'application/json' }), name);
-      this.p.toast(t('backupMade', { n: Object.keys(data.db).length }));
+      this.p.toast(tr('backupMade', { n: Object.keys(data.db).length }));
     })));
-    const file = h('input', { type: 'file', accept: '.json,application/json', hidden: true });
+    const file = el('input', { type: 'file', accept: '.json,application/json', hidden: true });
     file.addEventListener('change', guard(async () => {
       const f = file.files[0];
       if (!f) return;
@@ -346,20 +346,20 @@ class NotesPane {
         // From now on this page must not write its older data over the restored one (its
         // settings on leaving, the watched record): stop all writes and reload at once.
         storageLock.frozen = true;
-        this.p.toast(t('backupRestored', { n }));
+        this.p.toast(tr('backupRestored', { n }));
         setTimeout(() => location.reload(), 1200);
-      } catch (e) { this.p.toast(t('exportFailed', { msg: (e && e.message) || e })); }
+      } catch (e) { this.p.toast(tr('exportFailed', { msg: (e && e.message) || e })); }
       file.value = '';
     }));
-    const restore = h('button.pbtn', { text: t('backupRestore'), onclick: () => file.click() });
-    return h('div.tagman', null,
-      h('div.pinfo', { text: t('exportInfo') }),
-      h('label.crow', null, pics, h('span', { text: hasPdf ? t('exportPictures') : t('exportPicturesNoPdf') })),
-      h('div.crow', null, one, all),
-      h('div.pinfo', { text: t('backupInfo') }),
-      h('label.crow', null, pdfs, h('span', { text: t('backupPdfs') })),
-      h('div.crow', null, backup, restore, file),
-      h('div.crow', null, h('span.grow'), h('button.link', { text: t('done'), onclick: () => { this.exporting = false; this.render(); } })));
+    const restore = el('button.pbtn', { text: tr('backupRestore'), onclick: () => file.click() });
+    return el('div.tagman', null,
+      el('div.pinfo', { text: tr('exportInfo') }),
+      el('label.crow', null, pics, el('span', { text: hasPdf ? tr('exportPictures') : tr('exportPicturesNoPdf') })),
+      el('div.crow', null, one, all),
+      el('div.pinfo', { text: tr('backupInfo') }),
+      el('label.crow', null, pdfs, el('span', { text: tr('backupPdfs') })),
+      el('div.crow', null, backup, restore, file),
+      el('div.crow', null, el('span.grow'), el('button.link', { text: tr('done'), onclick: () => { this.exporting = false; this.render(); } })));
   }
 
   // `G`: tags the note or bookmark at the current time (within the last 30 s, or just

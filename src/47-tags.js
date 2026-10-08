@@ -27,9 +27,9 @@ class TagStore {
     } else {
       // First use in this course: a few suggestions, which the user may delete.
       this.tags = [
-        { id: 'exam', name: t('tagExam'), color: TAG_COLORS[0] },
-        { id: 'assignment', name: t('tagAssignment'), color: TAG_COLORS[1] },
-        { id: 'confused', name: t('tagConfused'), color: TAG_COLORS[2] },
+        { id: 'exam', name: tr('tagExam'), color: TAG_COLORS[0] },
+        { id: 'assignment', name: tr('tagAssignment'), color: TAG_COLORS[1] },
+        { id: 'confused', name: tr('tagConfused'), color: TAG_COLORS[2] },
       ];
       this.saveTags();
     }
@@ -119,67 +119,67 @@ class TagStore {
 
 // A tag as a small coloured chip.
 function tagChip(tag, onclick) {
-  const el = h(onclick ? 'button.tagchip' : 'span.tagchip', { onclick: onclick || null, title: tag.name },
-    h('i', { style: 'background:' + tag.color }), h('span', { text: tag.name }));
-  return el;
+  const elem = el(onclick ? 'button.tagchip' : 'span.tagchip', { onclick: onclick || null, title: tag.name },
+    el('i', { style: 'background:' + tag.color }), el('span', { text: tag.name }));
+  return elem;
 }
 
 // The picker for one item: every tag as a toggle, and a field for a new tag.
-function tagPicker(store, itemId, onDone) {
-  const box = h('div.tagpick', { role: 'group', 'aria-label': t('tagsFor') });
+function tagPicker(tagStore, itemId, onDone) {
+  const box = el('div.tagpick', { role: 'group', 'aria-label': tr('tagsFor') });
   const render = () => {
     box.textContent = '';
-    for (const tag of store.tags) {
-      const on = store.has(itemId, tag.id);
-      box.append(h('button.tagopt' + (on ? '.on' : ''), { 'aria-pressed': String(on), onclick: () => { store.toggle(itemId, tag.id); render(); } },
-        h('i', { style: 'background:' + tag.color }), h('span', { text: tag.name })));
+    for (const tag of tagStore.tags) {
+      const on = tagStore.has(itemId, tag.id);
+      box.append(el('button.tagopt' + (on ? '.on' : ''), { 'aria-pressed': String(on), onclick: () => { tagStore.toggle(itemId, tag.id); render(); } },
+        el('i', { style: 'background:' + tag.color }), el('span', { text: tag.name })));
     }
-    const input = h('input.input.small', { placeholder: t('newTag'), maxLength: 40, 'aria-label': t('newTag') });
+    const input = el('input.input.small', { placeholder: tr('newTag'), maxLength: 40, 'aria-label': tr('newTag') });
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Enter' && input.value.trim()) {
-        const tag = store.create(input.value);
-        if (tag && !store.has(itemId, tag.id)) store.toggle(itemId, tag.id);
+        const tag = tagStore.create(input.value);
+        if (tag && !tagStore.has(itemId, tag.id)) tagStore.toggle(itemId, tag.id);
         render();
         box.querySelector('input').focus();
       } else if (e.key === 'Escape') onDone();
     });
-    box.append(h('div.tagnew', null, input, h('button.link', { text: t('done'), onclick: onDone })));
+    box.append(el('div.tagnew', null, input, el('button.link', { text: tr('done'), onclick: onDone })));
   };
   render();
   return box;
 }
 
 // Managing the course's tags: rename, colour, delete (two clicks), add.
-function tagManager(store, onClose) {
-  const box = h('div.tagman');
+function tagManager(tagStore, onClose) {
+  const box = el('div.tagman');
   const render = () => {
     box.textContent = '';
-    box.append(h('div.pinfo', { text: t('tagsPrivate') }));
-    for (const tag of store.tags) {
-      const swatch = h('button.tagswatch', { title: t('tagColor'), 'aria-label': t('tagColor'), style: 'background:' + tag.color });
+    box.append(el('div.pinfo', { text: tr('tagsPrivate') }));
+    for (const tag of tagStore.tags) {
+      const swatch = el('button.tagswatch', { title: tr('tagColor'), 'aria-label': tr('tagColor'), style: 'background:' + tag.color });
       swatch.addEventListener('click', () => {
         const i = TAG_COLORS.indexOf(tag.color);
-        store.recolor(tag.id, TAG_COLORS[(i + 1) % TAG_COLORS.length]);
+        tagStore.recolor(tag.id, TAG_COLORS[(i + 1) % TAG_COLORS.length]);
         render();
       });
-      const name = h('input.input.small', { value: tag.name, maxLength: 40, 'aria-label': t('tagName') });
+      const name = el('input.input.small', { value: tag.name, maxLength: 40, 'aria-label': tr('tagName') });
       name.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') name.blur(); });
-      name.addEventListener('change', () => store.rename(tag.id, name.value));
+      name.addEventListener('change', () => tagStore.rename(tag.id, name.value));
       let armed = 0;
-      const del = h('button.link.danger', { text: t('delete') });
+      const del = el('button.link.danger', { text: tr('delete') });
       del.addEventListener('click', () => {
-        if (!armed) { del.textContent = t('confirmDelete'); armed = setTimeout(() => { armed = 0; del.textContent = t('delete'); }, 3000); return; }
+        if (!armed) { del.textContent = tr('confirmDelete'); armed = setTimeout(() => { armed = 0; del.textContent = tr('delete'); }, 3000); return; }
         clearTimeout(armed);
-        store.remove(tag.id);
+        tagStore.remove(tag.id);
         render();
       });
-      box.append(h('div.tagrow', null, swatch, name, del));
+      box.append(el('div.tagrow', null, swatch, name, del));
     }
-    const input = h('input.input.small', { placeholder: t('newTag'), maxLength: 40, 'aria-label': t('newTag') });
-    input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter' && store.create(input.value)) render(); });
-    box.append(h('div.tagrow', null, input, h('button.pbtn', { text: t('addTag'), onclick: () => { if (store.create(input.value)) render(); } })),
-      h('div.crow', null, h('span.grow'), h('button.link', { text: t('done'), onclick: onClose })));
+    const input = el('input.input.small', { placeholder: tr('newTag'), maxLength: 40, 'aria-label': tr('newTag') });
+    input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter' && tagStore.create(input.value)) render(); });
+    box.append(el('div.tagrow', null, input, el('button.pbtn', { text: tr('addTag'), onclick: () => { if (tagStore.create(input.value)) render(); } })),
+      el('div.crow', null, el('span.grow'), el('button.link', { text: tr('done'), onclick: onClose })));
   };
   render();
   return box;

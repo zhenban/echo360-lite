@@ -33,8 +33,8 @@ class SlideReader {
   addTarget(name, stage) {
     // The pages go in their own box (which the picture-area view can zoom), the
     // "not recognised" note stays over it at its own size.
-    const pages = h('div.rpages');
-    stage.append(pages, h('div.rstale', { text: t('pageNotRecognised') }));
+    const pages = el('div.rpages');
+    stage.append(pages, el('div.rstale', { text: tr('pageNotRecognised') }));
     this.targets.set(name, { stage, pages, active: false, token: 0 });
   }
 
@@ -129,7 +129,7 @@ class SlideReader {
     const deck = this.deck;
     const p = deck.pages[this.view];
     if (!p) return '';
-    return t('pageOfN', { n: p.num, total: deck.pages.filter((x) => x.file === p.file).length })
+    return tr('pageOfN', { n: p.num, total: deck.pages.filter((x) => x.file === p.file).length })
       + (deck.files.length > 1 ? ' · ' + p.file.replace(/\.pdf$/i, '') : '');
   }
 
@@ -137,16 +137,16 @@ class SlideReader {
   // `compact` gives the short wording for the toolbar over the PDF view.
   followElement(compact) {
     const now = this.player.video.currentTime;
-    if (!this.follow) return h('button.rback', { text: compact ? t('backToLectureShort') : t('backToLecture'), onclick: () => this.resumeFollow() });
+    if (!this.follow) return el('button.rback', { text: compact ? tr('backToLectureShort') : tr('backToLecture'), onclick: () => this.resumeFollow() });
     const state = this.stale ? 'Stale' : this.deck.knownAt(now) ? '' : 'Unsure';
-    return h('span.rfollowing', { text: t('following' + state + (compact ? 'Short' : '')) });
+    return el('span.rfollowing', { text: tr('following' + state + (compact ? 'Short' : '')) });
   }
 }
 
 class SlidesPane {
-  constructor(player, el) {
+  constructor(player, elem) {
     this.player = player;
-    this.el = el;
+    this.el = elem;
     this.visible = false;
     this.chapters = [];
     this.dirty = true;
@@ -155,13 +155,13 @@ class SlidesPane {
     this.showChapters = false;
     this.d = new Disposer();
     this.reader = player.reader;
-    this.deckBox = h('div.sdeck');
-    this.readerBox = h('div.reader', { hidden: true });
-    this.status = h('div.sstatus', { 'aria-live': 'polite' });
-    this.chapToggle = h('button.chaptoggle', { hidden: true, onclick: () => { this.showChapters = !this.showChapters; this.render(); } });
-    this.list = h('div.slist');
-    this.screenBox = h('div.sscreen');
-    el.append(this.deckBox, this.readerBox, this.chapToggle, this.status, this.screenBox, this.list);
+    this.deckBox = el('div.sdeck');
+    this.readerBox = el('div.reader', { hidden: true });
+    this.status = el('div.sstatus', { 'aria-live': 'polite' });
+    this.chapToggle = el('button.chaptoggle', { hidden: true, onclick: () => { this.showChapters = !this.showChapters; this.render(); } });
+    this.list = el('div.slist');
+    this.screenBox = el('div.sscreen');
+    elem.append(this.deckBox, this.readerBox, this.chapToggle, this.status, this.screenBox, this.list);
     this.buildReader();
     this.d.add(this.reader.onInfo(() => { if (this.visible) this.renderPageInfo(); }));
     this.d.listen(this.list, 'click', (e) => {
@@ -174,17 +174,17 @@ class SlidesPane {
 
   buildReader() {
     const r = this.readerBox;
-    const stage = h('div.rstage');
+    const stage = el('div.rstage');
     this.reader.addTarget('side', stage);
     this.stage = stage;
-    this.prevBtn = h('button.rnav', { 'aria-label': t('prevPage'), title: t('prevPage'), text: '‹', onclick: () => this.reader.turn(-1) });
-    this.nextBtn = h('button.rnav', { 'aria-label': t('nextPage'), title: t('nextPage'), text: '›', onclick: () => this.reader.turn(1) });
-    this.pageLabel = h('span.rlabel');
-    this.mainBtn = h('button.rmain', { onclick: () => this.player.setPdfMain(!this.player.prefs.pdfMain) });
-    this.followBox = h('div.rfollow');
-    this.timesBox = h('div.rtimes');
-    this.fixBox = h('details.rfix');
-    r.append(stage, h('div.rbar', null, this.prevBtn, this.pageLabel, this.nextBtn), this.mainBtn, this.followBox, this.timesBox, this.fixBox);
+    this.prevBtn = el('button.rnav', { 'aria-label': tr('prevPage'), title: tr('prevPage'), text: '‹', onclick: () => this.reader.turn(-1) });
+    this.nextBtn = el('button.rnav', { 'aria-label': tr('nextPage'), title: tr('nextPage'), text: '›', onclick: () => this.reader.turn(1) });
+    this.pageLabel = el('span.rlabel');
+    this.mainBtn = el('button.rmain', { onclick: () => this.player.setPdfMain(!this.player.prefs.pdfMain) });
+    this.followBox = el('div.rfollow');
+    this.timesBox = el('div.rtimes');
+    this.fixBox = el('details.rfix');
+    r.append(stage, el('div.rbar', null, this.prevBtn, this.pageLabel, this.nextBtn), this.mainBtn, this.followBox, this.timesBox, this.fixBox);
   }
 
   setChapters(chapters, statusText) {
@@ -214,15 +214,15 @@ class SlidesPane {
     const a = this.player.slides;
     const sources = this.player.lesson.sources;
     if (!a || sources.length < 2) return;
-    const how = a.manualScreen != null ? t('screenChosen') : a.screenIndex == null ? '' : a.screenSure ? t('screenFound') : t('screenGuessed');
-    box.append(h('span', { text: t('screenView') }));
+    const how = a.manualScreen != null ? tr('screenChosen') : a.screenIndex == null ? '' : a.screenSure ? tr('screenFound') : tr('screenGuessed');
+    box.append(el('span', { text: tr('screenView') }));
     sources.forEach((src, i) => {
       const on = src.index === a.screenIndex;
-      box.append(h('button.sview' + (on ? '.on' : ''), { text: t('viewN', { n: i + 1 }), 'aria-pressed': String(on), title: t('screenUse', { n: i + 1 }),
+      box.append(el('button.sview' + (on ? '.on' : ''), { text: tr('viewN', { n: i + 1 }), 'aria-pressed': String(on), title: tr('screenUse', { n: i + 1 }),
         onclick: () => { if (!on || a.manualScreen == null) a.chooseScreen(src.index).catch((e) => log.warn('screen choice:', e)); } }));
     });
-    if (how) box.append(h('span.sviewhow', { text: how }));
-    if (a.manualScreen != null) box.append(h('button.link', { text: t('screenAuto'), onclick: () => a.chooseScreen(null).catch((e) => log.warn('screen choice:', e)) }));
+    if (how) box.append(el('span.sviewhow', { text: how }));
+    if (a.manualScreen != null) box.append(el('button.link', { text: tr('screenAuto'), onclick: () => a.chooseScreen(null).catch((e) => log.warn('screen choice:', e)) }));
   }
 
   renderDeck() {
@@ -230,27 +230,27 @@ class SlidesPane {
     const box = this.deckBox;
     box.textContent = '';
     if (!deck) return;
-    const input = h('input', { type: 'file', accept: '.pdf,application/pdf', multiple: true, hidden: true });
+    const input = el('input', { type: 'file', accept: '.pdf,application/pdf', multiple: true, hidden: true });
     // Failures are shown in this tab (deck.error).
     input.addEventListener('change', guard(() => { if (input.files.length) deck.addFiles(input.files).catch(() => {}); }));
-    const files = h('div.sfiles');
+    const files = el('div.sfiles');
     for (const f of deck.files) {
-      files.append(h('span.sfile', null, h('span.sfname', { text: f.name, title: f.name }),
-        h('button.sfremove', { title: t('removeFile', { name: f.name }), 'aria-label': t('removeFile', { name: f.name }), text: '✕', onclick: () => deck.removeFile(f.hash) })));
+      files.append(el('span.sfile', null, el('span.sfname', { text: f.name, title: f.name }),
+        el('button.sfremove', { title: tr('removeFile', { name: f.name }), 'aria-label': tr('removeFile', { name: f.name }), text: '✕', onclick: () => deck.removeFile(f.hash) })));
     }
-    files.append(h('button.sfadd', { text: deck.files.length ? t('addMoreSlides') : t('addSlides'), onclick: () => input.click() }), input);
+    files.append(el('button.sfadd', { text: deck.files.length ? tr('addMoreSlides') : tr('addSlides'), onclick: () => input.click() }), input);
     let msg = '';
-    if (deck.state === 'loading') msg = t('deckLoading');
+    if (deck.state === 'loading') msg = tr('deckLoading');
     else if (deck.state === 'reading') {
       const r = deck.ocr;
-      msg = !r ? t('deckWaiting')
-        : r.state === 'reading' && !r.engineReady && r.stats.read === 0 ? t('deckLangLoading', { lang: languageName(r.lang), mb: (TESS_LANGS[r.lang].bytes / 1e6).toFixed(1) })
-          : t('deckReading', { pct: Math.floor(deck.progress * 100) });
+      msg = !r ? tr('deckWaiting')
+        : r.state === 'reading' && !r.engineReady && r.stats.read === 0 ? tr('deckLangLoading', { lang: languageName(r.lang), mb: (TESS_LANGS[r.lang].bytes / 1e6).toFixed(1) })
+          : tr('deckReading', { pct: Math.floor(deck.progress * 100) });
     }
     else if (deck.state === 'error') msg = deck.error;
-    else if (!deck.files.length) msg = t('slidesLocal');
+    else if (!deck.files.length) msg = tr('slidesLocal');
     box.append(files);
-    if (msg) box.append(h('div.sdmsg', { text: msg }));
+    if (msg) box.append(el('div.sdmsg', { text: msg }));
   }
 
   render() {
@@ -261,7 +261,7 @@ class SlidesPane {
     this.readerBox.hidden = !deck;
     this.reader.setActive('side', this.visible && !!deck);
     this.chapToggle.hidden = !deck || !this.chapters.length;
-    this.chapToggle.textContent = this.showChapters ? t('hideChapters') : t('showChapters', { n: this.chapters.length });
+    this.chapToggle.textContent = this.showChapters ? tr('hideChapters') : tr('showChapters', { n: this.chapters.length });
     const listShown = !deck || this.showChapters;
     this.list.hidden = !listShown;
     this.status.hidden = !listShown;
@@ -281,12 +281,12 @@ class SlidesPane {
         const cue = k >= 0 && cues[k].end > c.start ? cues[k] : cues[k + 1];
         if (cue && cue.start < c.end) said = cue.text;
       }
-      const img = c.thumb ? h('img', { src: c.thumb, alt: '', loading: 'lazy', decoding: 'async' }) : h('div.noimg');
-      const card = h('button.scard', { 'data-i': String(i) },
+      const img = c.thumb ? el('img', { src: c.thumb, alt: '', loading: 'lazy', decoding: 'async' }) : el('div.noimg');
+      const card = el('button.scard', { 'data-i': String(i) },
         img,
-        h('div.smeta', null,
-          h('div.stitle', null, h('span.sn', { text: t('slideN', { n: i + 1 }) }), h('span.st', { text: fmtTime(c.start, long) + (c.precise ? '' : ' ~') })),
-          said ? h('div.ssaid', { text: said }) : null));
+        el('div.smeta', null,
+          el('div.stitle', null, el('span.sn', { text: tr('slideN', { n: i + 1 }) }), el('span.st', { text: fmtTime(c.start, long) + (c.precise ? '' : ' ~') })),
+          said ? el('div.ssaid', { text: said }) : null));
       frag.appendChild(card);
       return card;
     });
@@ -319,7 +319,7 @@ class SlidesPane {
     this.pageLabel.title = p.title || '';
     this.prevBtn.disabled = i <= 0;
     this.nextBtn.disabled = i >= deck.pages.length - 1;
-    this.mainBtn.textContent = this.player.prefs.pdfMain ? t('pdfMainClose') : t('pdfMainOpen');
+    this.mainBtn.textContent = this.player.prefs.pdfMain ? tr('pdfMainClose') : tr('pdfMainOpen');
 
     this.followBox.textContent = '';
     this.followBox.append(rd.followElement());
@@ -328,20 +328,20 @@ class SlidesPane {
     const times = deck.timesOf(i);
     this.timesBox.textContent = '';
     if (times.length) {
-      this.timesBox.append(h('span.rtl', { text: t('shownAt') }));
-      for (const r of times) this.timesBox.append(h('button.rtime', { text: fmtTime(r.start, long), onclick: () => { this.player.seek(r.start); rd.resumeFollow(); } }));
+      this.timesBox.append(el('span.rtl', { text: tr('shownAt') }));
+      for (const r of times) this.timesBox.append(el('button.rtime', { text: fmtTime(r.start, long), onclick: () => { this.player.seek(r.start); rd.resumeFollow(); } }));
     } else if (deck.state === 'ready') {
-      this.timesBox.append(h('span.rtl', { text: t('notFoundInRecording') }));
+      this.timesBox.append(el('span.rtl', { text: tr('notFoundInRecording') }));
     }
 
     // Correction for the part being played.
     const fixed = deck.correctionAt(this.player.video.currentTime);
     this.fixBox.textContent = '';
-    this.fixBox.append(h('summary', { text: t('wrongPage') }),
-      h('button.rfixbtn', { text: t('useThisPage', { n: p.num }), onclick: () => { deck.correct(this.player.video.currentTime, i); this.fixBox.open = false; rd.resumeFollow(); } }),
-      h('button.rfixbtn', { text: t('markNotSlide'), onclick: () => { deck.correct(this.player.video.currentTime, 'none'); this.fixBox.open = false; rd.resumeFollow(); } }));
+    this.fixBox.append(el('summary', { text: tr('wrongPage') }),
+      el('button.rfixbtn', { text: tr('useThisPage', { n: p.num }), onclick: () => { deck.correct(this.player.video.currentTime, i); this.fixBox.open = false; rd.resumeFollow(); } }),
+      el('button.rfixbtn', { text: tr('markNotSlide'), onclick: () => { deck.correct(this.player.video.currentTime, 'none'); this.fixBox.open = false; rd.resumeFollow(); } }));
     if (fixed) {
-      this.fixBox.append(h('button.rfixbtn', { text: t('undoCorrection'), onclick: () => { deck.correct(this.player.video.currentTime, null); this.fixBox.open = false; rd.resumeFollow(); } }));
+      this.fixBox.append(el('button.rfixbtn', { text: tr('undoCorrection'), onclick: () => { deck.correct(this.player.video.currentTime, null); this.fixBox.open = false; rd.resumeFollow(); } }));
     }
   }
 

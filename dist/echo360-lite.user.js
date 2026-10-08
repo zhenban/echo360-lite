@@ -560,7 +560,7 @@ const STRINGS = {
 
 const LANG = 'en';
 
-function t(key, vars) {
+function tr(key, vars) {
   let s = (STRINGS[LANG] && STRINGS[LANG][key]) || STRINGS.en[key] || key;
   if (vars) s = s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
   return s;
@@ -1802,33 +1802,33 @@ function playerTemplate() {
     <div class="pdfview" data-slot="off">
       <div class="pstage"></div>
       <div class="pbar">
-        <button class="pnav pprev" title="${t('prevPage')}" aria-label="${t('prevPage')}">‹</button>
+        <button class="pnav pprev" title="${tr('prevPage')}" aria-label="${tr('prevPage')}">‹</button>
         <span class="plabel"></span>
-        <button class="pnav pnext" title="${t('nextPage')}" aria-label="${t('nextPage')}">›</button>
+        <button class="pnav pnext" title="${tr('nextPage')}" aria-label="${tr('nextPage')}">›</button>
         <span class="pfollow"></span>
-        <button class="pnav pswap" title="${t('pdfSwap')}" aria-label="${t('pdfSwap')}">⇄</button>
-        <button class="pnav pdfclose" title="${t('pdfMainClose')}" aria-label="${t('pdfMainClose')}">✕</button>
+        <button class="pnav pswap" title="${tr('pdfSwap')}" aria-label="${tr('pdfSwap')}">⇄</button>
+        <button class="pnav pdfclose" title="${tr('pdfMainClose')}" aria-label="${tr('pdfMainClose')}">✕</button>
       </div>
     </div>
-    <div class="divider" role="separator" aria-orientation="vertical" aria-label="${t('resizeViews')}" tabindex="0"></div>
-    <div class="pipframe" title="${t('pipHint')}"><div class="grip" title="${t('resizePip')}"></div></div>
+    <div class="divider" role="separator" aria-orientation="vertical" aria-label="${tr('resizeViews')}" tabindex="0"></div>
+    <div class="pipframe" title="${tr('pipHint')}"><div class="grip" title="${tr('resizePip')}"></div></div>
   </div>
   <div class="captions" hidden><span></span></div>
   <div class="center"><div class="spinner"></div></div>
-  <div class="sessionhint" role="status" hidden><i></i><span>${t('sessionRenewing')}</span></div>
+  <div class="sessionhint" role="status" hidden><i></i><span>${tr('sessionRenewing')}</span></div>
   <div class="top">
-    <a class="back" title="${t('back')}" aria-label="${t('back')}">${svg('back')}</a>
+    <a class="back" title="${tr('back')}" aria-label="${tr('back')}">${svg('back')}</a>
     <div class="title"></div>
-    <span class="pausehint" aria-hidden="true">${svg('pause')}<span>${t('pausedHint')}</span></span>
- <button class="chip tbtn" data-open="transcript" hidden aria-pressed="false" title="${t('transcriptKey')}">${svg('transcript')}<span class="lbl">${t('transcript')}</span></button>
-    <button class="chip tbtn" data-open="slides" hidden aria-pressed="false" title="${t('slidesKey')}">${svg('slides')}<span class="lbl">${t('slides')}</span></button>
-    <button class="chip tbtn" data-open="notes" hidden aria-pressed="false" title="${t('notes')}">${svg('notes')}<span class="lbl">${t('notes')}</span></button>
-    <button class="chip tbtn" data-open="discussion" hidden aria-pressed="false" title="${t('discussion')}">${svg('discussion')}<span class="lbl">${t('discussion')}</span></button>
-    <button class="chip kbtn" title="${t('keysTitle')} (?)" aria-label="${t('keysTitle')}">?</button>
-    <button class="chip orig" title="${t('originalPlayerTitle')}">${t('originalPlayer')}</button>
+    <span class="pausehint" aria-hidden="true">${svg('pause')}<span>${tr('pausedHint')}</span></span>
+ <button class="chip tbtn" data-open="transcript" hidden aria-pressed="false" title="${tr('transcriptKey')}">${svg('transcript')}<span class="lbl">${tr('transcript')}</span></button>
+    <button class="chip tbtn" data-open="slides" hidden aria-pressed="false" title="${tr('slidesKey')}">${svg('slides')}<span class="lbl">${tr('slides')}</span></button>
+    <button class="chip tbtn" data-open="notes" hidden aria-pressed="false" title="${tr('notes')}">${svg('notes')}<span class="lbl">${tr('notes')}</span></button>
+    <button class="chip tbtn" data-open="discussion" hidden aria-pressed="false" title="${tr('discussion')}">${svg('discussion')}<span class="lbl">${tr('discussion')}</span></button>
+    <button class="chip kbtn" title="${tr('keysTitle')} (?)" aria-label="${tr('keysTitle')}">?</button>
+    <button class="chip orig" title="${tr('originalPlayerTitle')}">${tr('originalPlayer')}</button>
   </div>
   <div class="bottom">
-    <div class="seek" role="slider" aria-label="${t('seek')}" tabindex="0">
+    <div class="seek" role="slider" aria-label="${tr('seek')}" tabindex="0">
       <div class="rail"><div class="wat"></div><div class="bar buf"></div><div class="sils"></div><div class="chaps"></div><div class="bar hov"></div><div class="bar fill"></div></div>
       <div class="imarks"></div>
       <div class="marks"></div>
@@ -1836,99 +1836,99 @@ function playerTemplate() {
       <div class="tip"><img class="pv" alt="" hidden><span class="tt">0:00</span></div>
     </div>
     <div class="row">
-      <button class="btn play" title="${t('play')}" aria-label="${t('play')}">${svg('play')}</button>
-      <button class="btn rew hide-sm" title="${t('rewind')}" aria-label="${t('rewind')}">${svg('back10')}</button>
-      <button class="btn fwd hide-sm" title="${t('forward')}" aria-label="${t('forward')}">${svg('fwd10')}</button>
+      <button class="btn play" title="${tr('play')}" aria-label="${tr('play')}">${svg('play')}</button>
+      <button class="btn rew hide-sm" title="${tr('rewind')}" aria-label="${tr('rewind')}">${svg('back10')}</button>
+      <button class="btn fwd hide-sm" title="${tr('forward')}" aria-label="${tr('forward')}">${svg('fwd10')}</button>
       <div class="vol">
-        <button class="btn mute" title="${t('mute')}" aria-label="${t('mute')}">${svg('volume')}</button>
-        <input class="volume hide-sm" type="range" min="0" max="1" step="0.01" aria-label="${t('volume')}">
+        <button class="btn mute" title="${tr('mute')}" aria-label="${tr('mute')}">${svg('volume')}</button>
+        <input class="volume hide-sm" type="range" min="0" max="1" step="0.01" aria-label="${tr('volume')}">
       </div>
       <div class="time"><span class="cur">0:00</span> / <span class="dur">0:00</span></div>
       <div class="spacer"></div>
-      <button class="btn bmbtn hide-sm" hidden title="${t('bookmarkKey')}" aria-label="${t('bookmark')}">${svg('bookmark')}</button>
-      <button class="btn flagbtn hide-sm" hidden title="${t('flagKey')}" aria-label="${t('flag')}" aria-pressed="false">${svg('flag')}</button>
-      <button class="btn copybtn" title="${t('copy')}" aria-label="${t('copy')}" aria-haspopup="menu">${svg('copy')}</button>
-      <button class="btn audiobtn hide-sm" title="${t('audio')}" aria-label="${t('audio')}" aria-haspopup="menu">${svg('audio')}</button>
-      <button class="btn ccbtn" hidden title="${t('captionsKey')}" aria-label="${t('captions')}" aria-haspopup="menu">${svg('cc')}</button>
-      <button class="btn swap" title="${t('swapViews')}" aria-label="${t('swapViews')}">${svg('swap')}</button>
-      <button class="btn layout" title="${t('layout')}" aria-label="${t('layout')}" aria-haspopup="menu">${svg('layoutSide')}</button>
-      <button class="qbtn hide-sm" title="${t('quality')}" aria-label="${t('quality')}" aria-haspopup="menu"></button>
-      <button class="speed" title="${t('speed')}" aria-label="${t('speed')}">1x</button>
-      <button class="btn popbtn" hidden aria-pressed="false" title="${t('popout')} (W)" aria-label="${t('popout')}">${svg('popout')}</button>
-      <button class="btn fs" title="${t('fullscreen')}" aria-label="${t('fullscreen')}">${svg('fullscreen')}</button>
-      <button class="btn morebtn" title="${t('moreMenu')}" aria-label="${t('moreMenu')}" aria-haspopup="menu">${svg('more')}</button>
+      <button class="btn bmbtn hide-sm" hidden title="${tr('bookmarkKey')}" aria-label="${tr('bookmark')}">${svg('bookmark')}</button>
+      <button class="btn flagbtn hide-sm" hidden title="${tr('flagKey')}" aria-label="${tr('flag')}" aria-pressed="false">${svg('flag')}</button>
+      <button class="btn copybtn" title="${tr('copy')}" aria-label="${tr('copy')}" aria-haspopup="menu">${svg('copy')}</button>
+      <button class="btn audiobtn hide-sm" title="${tr('audio')}" aria-label="${tr('audio')}" aria-haspopup="menu">${svg('audio')}</button>
+      <button class="btn ccbtn" hidden title="${tr('captionsKey')}" aria-label="${tr('captions')}" aria-haspopup="menu">${svg('cc')}</button>
+      <button class="btn swap" title="${tr('swapViews')}" aria-label="${tr('swapViews')}">${svg('swap')}</button>
+      <button class="btn layout" title="${tr('layout')}" aria-label="${tr('layout')}" aria-haspopup="menu">${svg('layoutSide')}</button>
+      <button class="qbtn hide-sm" title="${tr('quality')}" aria-label="${tr('quality')}" aria-haspopup="menu"></button>
+      <button class="speed" title="${tr('speed')}" aria-label="${tr('speed')}">1x</button>
+      <button class="btn popbtn" hidden aria-pressed="false" title="${tr('popout')} (W)" aria-label="${tr('popout')}">${svg('popout')}</button>
+      <button class="btn fs" title="${tr('fullscreen')}" aria-label="${tr('fullscreen')}">${svg('fullscreen')}</button>
+      <button class="btn morebtn" title="${tr('moreMenu')}" aria-label="${tr('moreMenu')}" aria-haspopup="menu">${svg('more')}</button>
     </div>
   </div>
   <div class="menu qualitymenu" hidden role="menu"></div>
-  <div class="menu speedmenu" hidden role="menu"><div class="head">${t('speed')}</div></div>
-  <div class="menu layoutmenu" hidden role="menu"><div class="head">${t('layout')}</div>
-    <button role="menuitemradio" data-layout="side">${svg('layoutSide')}${t('layoutSide')}</button>
-    <button role="menuitemradio" data-layout="pip">${svg('layoutPip')}${t('layoutPip')}</button>
-    <button role="menuitemradio" data-layout="single">${svg('layoutSingle')}${t('layoutSingle')}</button>
+  <div class="menu speedmenu" hidden role="menu"><div class="head">${tr('speed')}</div></div>
+  <div class="menu layoutmenu" hidden role="menu"><div class="head">${tr('layout')}</div>
+    <button role="menuitemradio" data-layout="side">${svg('layoutSide')}${tr('layoutSide')}</button>
+    <button role="menuitemradio" data-layout="pip">${svg('layoutPip')}${tr('layoutPip')}</button>
+    <button role="menuitemradio" data-layout="single">${svg('layoutSingle')}${tr('layoutSingle')}</button>
   </div>
-  <div class="menu ccmenu" hidden role="menu"><div class="head">${t('captions')}</div>
-    <button class="opt cctoggle" role="menuitemcheckbox" aria-checked="false"><span>${t('showCaptions')}</span><span class="state"></span></button>
-    <button class="opt cchidepaused" role="menuitemcheckbox" aria-checked="true"><span>${t('hideCaptionsPaused')}</span><span class="state"></span></button>
-    <div class="head">${t('captionSize')}</div>
+  <div class="menu ccmenu" hidden role="menu"><div class="head">${tr('captions')}</div>
+    <button class="opt cctoggle" role="menuitemcheckbox" aria-checked="false"><span>${tr('showCaptions')}</span><span class="state"></span></button>
+    <button class="opt cchidepaused" role="menuitemcheckbox" aria-checked="true"><span>${tr('hideCaptionsPaused')}</span><span class="state"></span></button>
+    <div class="head">${tr('captionSize')}</div>
     <div class="sizes">
       <button role="menuitemradio" data-size="s">S</button><button role="menuitemradio" data-size="m">M</button><button role="menuitemradio" data-size="l">L</button><button role="menuitemradio" data-size="xl">XL</button>
     </div>
   </div>
-  <div class="menu copymenu" hidden role="menu"><div class="head">${t('copy')}</div>
-    <button class="opt" role="menuitem" data-copy="frame"><span class="row1"><span>${t('copyFrame')}</span><span class="key">P</span></span><span class="desc">${t('copyFrameDesc')}</span></button>
-    <button class="opt" role="menuitem" data-copy="captions"><span class="row1"><span>${t('copyCaptions')}</span><span class="key">A</span></span><span class="desc">${t('copyCaptionsDesc')}</span></button>
-    <div class="sub">${t('copyCaptionsSpan')}</div>
+  <div class="menu copymenu" hidden role="menu"><div class="head">${tr('copy')}</div>
+    <button class="opt" role="menuitem" data-copy="frame"><span class="row1"><span>${tr('copyFrame')}</span><span class="key">P</span></span><span class="desc">${tr('copyFrameDesc')}</span></button>
+    <button class="opt" role="menuitem" data-copy="captions"><span class="row1"><span>${tr('copyCaptions')}</span><span class="key">A</span></span><span class="desc">${tr('copyCaptionsDesc')}</span></button>
+    <div class="sub">${tr('copyCaptionsSpan')}</div>
     <div class="choices copyspan">${[30, 60, 120, 300].map((s) => `<button role="menuitemradio" data-span="${s}">${s < 60 ? s + 's' : s / 60 + 'm'}</button>`).join('')}</div>
   </div>
   <div class="menu moremenu" hidden role="menu"></div>
-  <div class="diagbox" hidden role="dialog" aria-label="${t('diagTitle')}"><div class="khcard"><h2>${t('diagTitle')}</h2>
-    <p class="diaginfo">${t('diagInfo')}</p><pre class="diagtext"></pre>
-    <div class="actions"><button class="pbtn diagcopy">${t('diagCopy')}</button><button class="pbtn diagclose">${t('close')}</button></div></div></div>
-  <div class="menu audiomenu" hidden role="menu"><div class="head">${t('audio')}</div>
+  <div class="diagbox" hidden role="dialog" aria-label="${tr('diagTitle')}"><div class="khcard"><h2>${tr('diagTitle')}</h2>
+    <p class="diaginfo">${tr('diagInfo')}</p><pre class="diagtext"></pre>
+    <div class="actions"><button class="pbtn diagcopy">${tr('diagCopy')}</button><button class="pbtn diagclose">${tr('close')}</button></div></div></div>
+  <div class="menu audiomenu" hidden role="menu"><div class="head">${tr('audio')}</div>
     <div class="why" hidden></div>
-    <button class="opt" role="menuitemcheckbox" data-audio="level" aria-checked="false"><span class="row1"><span>${t('audioLevel')}</span><span class="state"></span></span><span class="desc">${t('audioLevelDesc')}</span></button>
-    <button class="opt" role="menuitemcheckbox" data-audio="voice" aria-checked="false"><span class="row1"><span>${t('audioVoice')}</span><span class="state"></span></span><span class="desc">${t('audioVoiceDesc')}</span></button>
-    <button class="opt" role="menuitemcheckbox" data-audio="mono" aria-checked="false"><span class="row1"><span>${t('audioMono')}</span><span class="state"></span></span><span class="desc">${t('audioMonoDesc')}</span></button>
+    <button class="opt" role="menuitemcheckbox" data-audio="level" aria-checked="false"><span class="row1"><span>${tr('audioLevel')}</span><span class="state"></span></span><span class="desc">${tr('audioLevelDesc')}</span></button>
+    <button class="opt" role="menuitemcheckbox" data-audio="voice" aria-checked="false"><span class="row1"><span>${tr('audioVoice')}</span><span class="state"></span></span><span class="desc">${tr('audioVoiceDesc')}</span></button>
+    <button class="opt" role="menuitemcheckbox" data-audio="mono" aria-checked="false"><span class="row1"><span>${tr('audioMono')}</span><span class="state"></span></span><span class="desc">${tr('audioMonoDesc')}</span></button>
     <div class="sep"></div>
-    <div class="head">${t('silence')}</div>
+    <div class="head">${tr('silence')}</div>
     <div class="silstatus"></div>
-    <button class="opt" role="menuitemcheckbox" data-sil="auto" aria-checked="false"><span class="row1"><span>${t('silenceAuto')}</span><span class="state"></span></span><span class="desc">${t('silenceAutoDesc')}</span></button>
-    <div class="sub">${t('silenceMin')}</div>
+    <button class="opt" role="menuitemcheckbox" data-sil="auto" aria-checked="false"><span class="row1"><span>${tr('silenceAuto')}</span><span class="state"></span></span><span class="desc">${tr('silenceAutoDesc')}</span></button>
+    <div class="sub">${tr('silenceMin')}</div>
     <div class="choices silmin">${SILENCE_MIN_CHOICES.map((s) => `<button role="menuitemradio" data-min="${s}">${s < 60 ? s + 's' : s / 60 + 'm'}</button>`).join('')}</div>
-    <div class="sens"><div class="sub">${t('silenceSensitivity')}</div>
-    <div class="choices silsens"><button role="menuitemradio" data-sens="low">${t('low')}</button><button role="menuitemradio" data-sens="normal">${t('normal')}</button><button role="menuitemradio" data-sens="high">${t('high')}</button></div></div>
+    <div class="sens"><div class="sub">${tr('silenceSensitivity')}</div>
+    <div class="choices silsens"><button role="menuitemradio" data-sens="low">${tr('low')}</button><button role="menuitemradio" data-sens="normal">${tr('normal')}</button><button role="menuitemradio" data-sens="high">${tr('high')}</button></div></div>
   </div>
   <button class="skipsil fade" tabindex="-1"></button>
-  <div class="endnote" hidden role="status"><span>${t('contentEnded')}</span>
-    <button class="endskip">${t('contentEndSkip')}</button><button class="endstop">${t('contentEndStop')}</button>
-    <button class="endclose" aria-label="${t('close')}">✕</button></div>
+  <div class="endnote" hidden role="status"><span>${tr('contentEnded')}</span>
+    <button class="endskip">${tr('contentEndSkip')}</button><button class="endstop">${tr('contentEndStop')}</button>
+    <button class="endclose" aria-label="${tr('close')}">✕</button></div>
   <div class="toast" hidden><span class="msg"></span><button class="act"></button></div>
-  <div class="dropzone" hidden>${t('dropSlides')}</div>
+  <div class="dropzone" hidden>${tr('dropSlides')}</div>
   <div class="error" hidden><div class="card"><h2></h2><p></p><div class="actions"></div></div></div>
-  <div class="keyhelp" hidden role="dialog" aria-label="${t('keysTitle')}"><div class="khcard"><h2>${t('keysTitle')}</h2><div class="khlist"></div>
-    <div class="actions"><button class="pbtn khclose">${t('close')}</button></div></div></div>
+  <div class="keyhelp" hidden role="dialog" aria-label="${tr('keysTitle')}"><div class="khcard"><h2>${tr('keysTitle')}</h2><div class="khlist"></div>
+    <div class="actions"><button class="pbtn khclose">${tr('close')}</button></div></div></div>
 </div>
-<aside class="panel" hidden aria-label="${t('sidebarTabs')}">
-  <div class="presize" title="${t('resizePanel')}"></div>
+<aside class="panel" hidden aria-label="${tr('sidebarTabs')}">
+  <div class="presize" title="${tr('resizePanel')}"></div>
   <div class="phead">
     <div class="tabs" role="tablist">
-      <button role="tab" data-tab="transcript" hidden>${t('transcript')}</button>
-      <button role="tab" data-tab="slides" hidden>${t('slides')}</button>
-      <button role="tab" data-tab="notes" hidden>${t('notes')}</button>
-      <button role="tab" data-tab="discussion" hidden>${t('discussion')}</button>
+      <button role="tab" data-tab="transcript" hidden>${tr('transcript')}</button>
+      <button role="tab" data-tab="slides" hidden>${tr('slides')}</button>
+      <button role="tab" data-tab="notes" hidden>${tr('notes')}</button>
+      <button role="tab" data-tab="discussion" hidden>${tr('discussion')}</button>
     </div>
-    <button class="btn panelclose" title="${t('closePanel')}" aria-label="${t('closePanel')}">${svg('close')}</button>
+    <button class="btn panelclose" title="${tr('closePanel')}" aria-label="${tr('closePanel')}">${svg('close')}</button>
   </div>
-  <div class="pextras" hidden><div class="msg"></div><button class="link">${t('openInOriginal')}</button></div>
+  <div class="pextras" hidden><div class="msg"></div><button class="link">${tr('openInOriginal')}</button></div>
   <section class="pane" data-pane="transcript" hidden>
     <div class="psearch">
-      <input class="tsearch" type="search" placeholder="${t('searchTranscript')}" aria-label="${t('searchTranscript')}">
+      <input class="tsearch" type="search" placeholder="${tr('searchTranscript')}" aria-label="${tr('searchTranscript')}">
       <span class="tcount" aria-live="polite"></span>
-      <button class="btn tprev" title="${t('prevMatch')}" aria-label="${t('prevMatch')}">${svg('up')}</button>
-      <button class="btn tnext" title="${t('nextMatch')}" aria-label="${t('nextMatch')}">${svg('down')}</button>
+      <button class="btn tprev" title="${tr('prevMatch')}" aria-label="${tr('prevMatch')}">${svg('up')}</button>
+      <button class="btn tnext" title="${tr('nextMatch')}" aria-label="${tr('nextMatch')}">${svg('down')}</button>
     </div>
     <div class="tlist" tabindex="0"></div>
-    <button class="tback" hidden>${t('backToCurrent')}</button>
+    <button class="tback" hidden>${tr('backToCurrent')}</button>
   </section>
   <section class="pane" data-pane="slides" hidden></section>
   <section class="pane" data-pane="notes" hidden></section>
@@ -2504,7 +2504,7 @@ class LitePlayer {
     this.lesson = lesson;
     this.opts = opts;
     // A feature that fails is announced once (playback goes on).
-    featureErrors.notify = (name) => { if (!this.destroyed && this.root) this.toast(t('featureFailed', { name })); };
+    featureErrors.notify = (name) => { if (!this.destroyed && this.root) this.toast(tr('featureFailed', { name })); };
     this.d.add(() => { featureErrors.notify = null; });
     this.prefs = sanitizePrefs(store.get('prefs', null));
     this.levelsByRole = {};
@@ -2566,7 +2566,7 @@ class LitePlayer {
     this.startAt = start;
     this.loadClock(this.clockPos, start, false);
     this.applyLayout();
-    if (start > 1) this.toast(t('resumedAt', { time: fmtTime(start) }), t('startOver'), () => this.seek(0));
+    if (start > 1) this.toast(tr('resumedAt', { time: fmtTime(start) }), tr('startOver'), () => this.seek(0));
   }
 
   // An element of the player's own markup. Each selector must name exactly one element:
@@ -2574,14 +2574,14 @@ class LitePlayer {
   // once and remembered (the markup is fixed; parts that are redrawn are not looked up
   // this way).
   $(sel) {
-    let el = this.refs.get(sel);
-    if (!el) {
+    let elem = this.refs.get(sel);
+    if (!elem) {
       const all = this.root.querySelectorAll(sel);
       if (all.length !== 1) throw new Error('player markup: "' + sel + '" matches ' + all.length + ' elements');
-      el = all[0];
-      this.refs.set(sel, el);
+      elem = all[0];
+      this.refs.set(sel, elem);
     }
-    return el;
+    return elem;
   }
 
   get secondaryPos() {
@@ -2752,7 +2752,7 @@ class LitePlayer {
       pdfView.dataset.slot = 'off';
     }
     this.$('.layout').style.display = this.dual || pdf ? '' : 'none';
-    this.setButton('.layout', layout === 'side' ? 'layoutSide' : layout === 'pip' ? 'layoutPip' : 'layoutSingle', t('layout'));
+    this.setButton('.layout', layout === 'side' ? 'layoutSide' : layout === 'pip' ? 'layoutPip' : 'layoutSingle', tr('layout'));
     for (const b of this.root.querySelectorAll('.layoutmenu button')) b.setAttribute('aria-checked', String(b.dataset.layout === layout));
     if (this.reader) {
       this.reader.setActive('main', pdf);
@@ -2817,7 +2817,7 @@ class LitePlayer {
   // Copies the current picture at the video's own resolution. Must run from a user action.
   copyFrame() {
     const v = this.screenVideo();
-    if (!v.videoWidth) { this.toast(t('copyFailed', { msg: 'no picture yet' })); return; }
+    if (!v.videoWidth) { this.toast(tr('copyFailed', { msg: 'no picture yet' })); return; }
     const c = document.createElement('canvas');
     c.width = v.videoWidth;
     c.height = v.videoHeight;
@@ -2825,23 +2825,23 @@ class LitePlayer {
     // The clipboard item is created synchronously (within the user action) from a promise.
     const blob = new Promise((resolve) => c.toBlob(resolve, 'image/png'));
     navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
-      .then(() => this.toast(t('copiedFrame', { w: c.width, h: c.height })))
-      .catch((e) => this.toast(t('copyFailed', { msg: (e && e.message) || e })));
+      .then(() => this.toast(tr('copiedFrame', { w: c.width, h: c.height })))
+      .catch((e) => this.toast(tr('copyFailed', { msg: (e && e.message) || e })));
   }
 
   // Copies what was said in the last copySpan seconds, in whole sentences, with the
   // lecture's name and the time range.
   copyCaptions() {
-    if (!this.cues || !this.cues.length) { this.toast(t('copyNoCaptions')); return; }
+    if (!this.cues || !this.cues.length) { this.toast(tr('copyNoCaptions')); return; }
     const x = captionExcerpt(this.cues, this.video.currentTime, this.prefs.copySpan || 60);
-    if (!x) { this.toast(t('copyNoCaptions')); return; }
+    if (!x) { this.toast(tr('copyNoCaptions')); return; }
     const long = this.duration() >= 3600;
     const from = fmtTime(x.start, long);
     const to = fmtTime(x.end, long);
     const text = this.lesson.title + '\n' + from + '–' + to + '\n\n' + x.text + '\n';
     navigator.clipboard.writeText(text)
-      .then(() => this.toast(t('copiedCaptions', { from, to })))
-      .catch((e) => this.toast(t('copyFailed', { msg: (e && e.message) || e })));
+      .then(() => this.toast(tr('copiedCaptions', { from, to })))
+      .catch((e) => this.toast(tr('copyFailed', { msg: (e && e.message) || e })));
   }
 
   // ---- quality ----
@@ -2863,11 +2863,11 @@ class LitePlayer {
   // only while it is the small picture-in-picture window; the screen is never capped.
   applyQuality() {
     const pairs = [[this.clock, this.video, this.clockPos], [this.follower, this.fvideo, this.followerPos]];
-    for (const [stream, el, pos] of pairs) {
+    for (const [stream, elem, pos] of pairs) {
       if (pos < 0 || !stream.uri) continue;
       let cap = 0;
-      if (this.layout === 'pip' && el.dataset.slot === 'secondary' && this.roleOf(pos) === 'camera') {
-        cap = Math.ceil(el.clientHeight * (window.devicePixelRatio || 1));
+      if (this.layout === 'pip' && elem.dataset.slot === 'secondary' && this.roleOf(pos) === 'camera') {
+        cap = Math.ceil(elem.clientHeight * (window.devicePixelRatio || 1));
       }
       stream.setCap(cap);
       stream.setQuality(this.qualityFor(pos));
@@ -2881,27 +2881,27 @@ class LitePlayer {
     }
     const shown = this.layout === 'single' || this.clockPos === this.primaryPos ? this.clock : this.follower;
     const h = shown.height;
-    this.$('.qbtn').textContent = h ? h + 'p' : t('qualityAuto');
+    this.$('.qbtn').textContent = h ? h + 'p' : tr('qualityAuto');
     if (!this.$('.qualitymenu').hidden) this.renderQualityMenu();
   }
 
   renderQualityMenu() {
     const menu = this.$('.qualitymenu');
     menu.textContent = '';
-    menu.append(h('div.head', { text: t('quality') }));
+    menu.append(el('div.head', { text: tr('quality') }));
     const roles = this.dual ? ['screen', 'camera'] : [this.roleOf(0)];
     for (const role of roles) {
       const pos = this.sources.findIndex((s, i) => this.roleOf(i) === role);
       if (pos < 0) continue;
       const stream = pos === this.clockPos ? this.clock : pos === this.followerPos ? this.follower : null;
       const playing = stream && stream.height ? stream.height + 'p' : '';
-      if (this.dual) menu.append(h('div.sub', { text: t(role === 'screen' ? 'qualityScreen' : 'qualityCamera') + (playing ? ' \u00b7 ' + t('qualityNow', { q: playing }) : '') }));
-      else if (playing) menu.append(h('div.sub', { text: t('qualityNow', { q: playing }) }));
+      if (this.dual) menu.append(el('div.sub', { text: tr(role === 'screen' ? 'qualityScreen' : 'qualityCamera') + (playing ? ' \u00b7 ' + tr('qualityNow', { q: playing }) : '') }));
+      else if (playing) menu.append(el('div.sub', { text: tr('qualityNow', { q: playing }) }));
       const want = this.prefs.quality[role];
       const heights = (this.levelsByRole[role] || []).slice().sort((a, b) => b - a);
-      const opts = [['auto', t('qualityAutoBest')]].concat(heights.map((x) => [x, x + 'p']));
+      const opts = [['auto', tr('qualityAutoBest')]].concat(heights.map((x) => [x, x + 'p']));
       for (const [val, label] of opts) {
-        menu.append(h('button', { role: 'menuitemradio', 'aria-checked': String(want === val), 'data-role': role, 'data-q': String(val), text: label }));
+        menu.append(el('button', { role: 'menuitemradio', 'aria-checked': String(want === val), 'data-role': role, 'data-q': String(val), text: label }));
       }
     }
   }
@@ -2940,9 +2940,9 @@ class LitePlayer {
       this.recoverAccess(this.clock, () => this.showAuthError());
       return;
     }
-    this.showError(t('playbackFailedTitle'), t('playbackFailedText', { detail: f.details }),
-      [[t('retry'), () => { this.hideError(); this.loadClock(this.clockPos, this.clock.position(), true); }, true],
-        [t('useOriginal'), () => this.opts.onFallback('error')]]);
+    this.showError(tr('playbackFailedTitle'), tr('playbackFailedText', { detail: f.details }),
+      [[tr('retry'), () => { this.hideError(); this.loadClock(this.clockPos, this.clock.position(), true); }, true],
+        [tr('useOriginal'), () => this.opts.onFallback('error')]]);
   }
 
   // The video files were refused: renew the access in the background and carry on from
@@ -2963,8 +2963,8 @@ class LitePlayer {
 
   showAuthError() {
     const login = this.session.failed && this.session.failed.login;
-    this.showError(t('authExpiredTitle'), t(login ? 'authLoginExpiredText' : 'authExpiredText'),
-      [[t('reload'), () => { this.savePosition(); location.reload(); }, true], [t('useOriginal'), () => this.opts.onFallback('auth')]]);
+    this.showError(tr('authExpiredTitle'), tr(login ? 'authLoginExpiredText' : 'authExpiredText'),
+      [[tr('reload'), () => { this.savePosition(); location.reload(); }, true], [tr('useOriginal'), () => this.opts.onFallback('auth')]]);
   }
 
   onFollowerFatal() {
@@ -2972,7 +2972,7 @@ class LitePlayer {
     // Keep watching with the clock alone; the layout preference is kept for next time.
     this.followerFailed = true;
     this.applyLayout();
-    this.toast(t('secondViewLost'), t('retry'), () => this.setLayout(this.prefs.layout));
+    this.toast(tr('secondViewLost'), tr('retry'), () => this.setLayout(this.prefs.layout));
   }
 
   // ---- video events ----
@@ -2989,14 +2989,14 @@ class LitePlayer {
       // Play is normally user-initiated; also recovers a context the browser suspended.
       if (this.audio) { this.audio.resume(); this.audio.syncTimer(); }
       stage.classList.remove('paused');
-      this.setButton('.play', 'pause', t('pause'));
+      this.setButton('.play', 'pause', tr('pause'));
       if (this.reporter) this.reporter.onPlay();
       this.armIdle();
     });
     on('pause', () => {
       if (this.audio) this.audio.syncTimer();
       stage.classList.add('paused');
-      this.setButton('.play', 'play', t('play'));
+      this.setButton('.play', 'play', tr('play'));
       if (this.reporter) this.reporter.onPause();
       this.savePosition();
       this.wake();
@@ -3168,14 +3168,14 @@ class LitePlayer {
     try {
       pip = await window.documentPictureInPicture.requestWindow({ width: Math.round(Math.min(960, r.width * 0.6)), height: Math.round(Math.min(600, r.height * 0.6)) });
     } catch (e) {
-      this.toast(t('popoutFailed', { msg: (e && e.message) || e }));
+      this.toast(tr('popoutFailed', { msg: (e && e.message) || e }));
       return;
     }
     if (this.destroyed) { pip.close(); return; }
     const playing = !this.video.paused;
-    const holder = h('div.e3l-holder', { style: 'display:flex;align-items:center;justify-content:center;gap:12px;width:100%;height:' + Math.round(r.height) + 'px;background:#111;color:#ccc;font:14px system-ui,sans-serif' },
-      h('span', { text: t('popoutHere') }),
-      h('button', { text: t('popoutBack'), style: 'padding:6px 12px;border-radius:8px;border:0;cursor:pointer', onclick: () => pip.close() }));
+    const holder = el('div.e3l-holder', { style: 'display:flex;align-items:center;justify-content:center;gap:12px;width:100%;height:' + Math.round(r.height) + 'px;background:#111;color:#ccc;font:14px system-ui,sans-serif' },
+      el('span', { text: tr('popoutHere') }),
+      el('button', { text: tr('popoutBack'), style: 'padding:6px 12px;border-radius:8px;border:0;cursor:pointer', onclick: () => pip.close() }));
     const doc = pip.document;
     const css = this.host.style.cssText;
     const keys = (e) => this.onKey(e);
@@ -3252,7 +3252,7 @@ class LitePlayer {
     this.d.listen(this.$('.diagcopy'), 'click', (e) => {
       e.stopPropagation();
       navigator.clipboard.writeText(this.$('.diagtext').textContent)
-        .then(() => this.toast(t('diagCopied')), (err) => this.toast(t('copyFailed', { msg: (err && err.message) || err })));
+        .then(() => this.toast(tr('diagCopied')), (err) => this.toast(tr('copyFailed', { msg: (err && err.message) || err })));
     });
     // Old analysis results are cleaned up in the background, once the page has settled.
     this.d.timeout(() => analysisCaches.prune().catch(() => {}), 60000);
@@ -3278,7 +3278,7 @@ class LitePlayer {
     d.listen($('.swap'), 'click', () => this.swapViews());
     d.listen($('.orig'), 'click', () => this.opts.onFallback('user'));
     d.listen(document, 'fullscreenchange', () => {
-      this.setButton('.fs', document.fullscreenElement ? 'exitFullscreen' : 'fullscreen', t('fullscreen'));
+      this.setButton('.fs', document.fullscreenElement ? 'exitFullscreen' : 'fullscreen', tr('fullscreen'));
     });
 
     // Menus (speed, layout): one open at a time, closed by any click elsewhere.
@@ -3370,7 +3370,7 @@ class LitePlayer {
         }), 250);
       },
       // Not the small picture-in-picture window.
-      canZoom: (el) => !(this.layout === 'pip' && (el.closest('[data-slot]') || el).dataset.slot === 'secondary'),
+      canZoom: (elem) => !(this.layout === 'pip' && (elem.closest('[data-slot]') || elem).dataset.slot === 'secondary'),
     });
     d.listen(views, 'click', (e) => {
       if (e.target.tagName !== 'VIDEO') return;
@@ -3411,7 +3411,7 @@ class LitePlayer {
       const sil = nearMarker ? null : this.skips[silenceIndexAt(this.skips, f * dur)];
       tipText.textContent = nearMarker
         ? fmtTime(nearMarker.time, dur >= 3600) + ' \u00b7 ' + (nearMarker.label.length > 70 ? nearMarker.label.slice(0, 67) + '\u2026' : nearMarker.label)
-        : fmtTime(f * dur, dur >= 3600) + (sil ? ' \u00b7 ' + t(sil.kind + 'Tip', { time: fmtTime(sil.end - sil.start) }) : '');
+        : fmtTime(f * dur, dur >= 3600) + (sil ? ' \u00b7 ' + tr(sil.kind + 'Tip', { time: fmtTime(sil.end - sil.start) }) : '');
       const pv = this.previewAt(nearMarker ? nearMarker.time : f * dur);
       if (pv) { if (tipImg.getAttribute('src') !== pv) tipImg.src = pv; tipImg.hidden = false; } else tipImg.hidden = true;
       const half = pv ? 96 : 24;
@@ -3524,7 +3524,7 @@ class LitePlayer {
         this.prefs.pipw = clamp(w / drag.stage.width, 0.15, 0.6);
         st.style.setProperty('--pipw', this.prefs.pipw.toFixed(4));
       } else {
-        for (const el of pipEls()) el.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+        for (const elem of pipEls()) elem.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
       }
     });
     const endPip = (e) => {
@@ -3542,7 +3542,7 @@ class LitePlayer {
         const right = cx > was.stage.left + was.stage.width / 2;
         const bottom = cy > was.stage.top + was.stage.height / 2;
         this.prefs.corner = (bottom ? 'b' : 't') + (right ? 'r' : 'l');
-        for (const el of pipEls()) el.style.transform = '';
+        for (const elem of pipEls()) elem.style.transform = '';
         for (const c of CORNERS) st.classList.toggle('c-' + c, c === this.prefs.corner);
       }
       this.savePrefs();
@@ -3641,11 +3641,11 @@ class LitePlayer {
     const on = this.cc.on;
     const toggle = this.$('.cctoggle');
     toggle.setAttribute('aria-checked', String(on));
-    toggle.querySelector('.state').textContent = on ? t('on') : t('off');
+    toggle.querySelector('.state').textContent = on ? tr('on') : tr('off');
     for (const b of this.root.querySelectorAll('.ccmenu .sizes button')) b.setAttribute('aria-checked', String(b.dataset.size === this.prefs.capSize));
     const hide = this.$('.cchidepaused');
     hide.setAttribute('aria-checked', String(!!this.prefs.capHidePaused));
-    hide.querySelector('.state').textContent = this.prefs.capHidePaused ? t('on') : t('off');
+    hide.querySelector('.state').textContent = this.prefs.capHidePaused ? tr('on') : tr('off');
     this.stage.classList.toggle('hidecc-paused', !!this.prefs.capHidePaused);
   }
 
@@ -3688,12 +3688,12 @@ class LitePlayer {
     const a = this.audio;
     const why = this.$('.audiomenu .why');
     why.hidden = !a.reason;
-    why.textContent = a.reason === 'noWebAudio' ? t('audioNoWebAudio') : a.reason ? t('audioNativeHls') : '';
+    why.textContent = a.reason === 'noWebAudio' ? tr('audioNoWebAudio') : a.reason ? tr('audioNativeHls') : '';
     for (const b of this.root.querySelectorAll('.audiomenu [data-audio]')) {
       const on = !!a.settings[b.dataset.audio];
       b.setAttribute('aria-checked', String(on));
       b.setAttribute('aria-disabled', String(!!a.reason));
-      b.querySelector('.state').textContent = on ? t('on') : t('off');
+      b.querySelector('.state').textContent = on ? tr('on') : tr('off');
     }
     this.$('.audiobtn').classList.toggle('active', a.anyOn() && !a.reason);
   }
@@ -3731,9 +3731,9 @@ class LitePlayer {
       this.registerTab('slides', this.slidesPane);
     }
     const pct = Math.floor(a.progress * 100);
-    const status = !a.chapters.length && (a.state === 'done' || a.state === 'unavailable') ? t('slidesNone')
-      : a.state === 'done' ? t('slidesFound', { n: a.chapters.length })
-        : a.state === 'thumbnails' ? t('slidesRough', { pct }) : t('slidesFinding', { pct });
+    const status = !a.chapters.length && (a.state === 'done' || a.state === 'unavailable') ? tr('slidesNone')
+      : a.state === 'done' ? tr('slidesFound', { n: a.chapters.length })
+        : a.state === 'thumbnails' ? tr('slidesRough', { pct }) : tr('slidesFinding', { pct });
     this.slidesPane.setChapters(a.chapters, status);
   }
 
@@ -3775,15 +3775,15 @@ class LitePlayer {
       if (!hasFiles(e)) return;
       e.preventDefault();
       this.deck.addFiles(e.dataTransfer.files).then((n) => {
-        if (!n) { this.toast(t('dropNotPdf')); return; }
+        if (!n) { this.toast(tr('dropNotPdf')); return; }
         if (this.sidebar.has('slides')) this.sidebar.open('slides');
-      }).catch((err) => this.toast(this.deck.state === 'error' && this.deck.error ? this.deck.error : t('deckError', { msg: String((err && err.message) || err) })));
+      }).catch((err) => this.toast(this.deck.state === 'error' && this.deck.error ? this.deck.error : tr('deckError', { msg: String((err && err.message) || err) })));
     });
   }
 
   renderChapterMarks() {
-    const el = this.$('.chaps');
-    el.textContent = '';
+    const elem = this.$('.chaps');
+    elem.textContent = '';
     const dur = this.duration();
     if (!dur || !this.slides) return;
     const frag = document.createDocumentFragment();
@@ -3793,7 +3793,7 @@ class LitePlayer {
       i.style.left = ((c.start / dur) * 100).toFixed(3) + '%';
       frag.appendChild(i);
     }
-    el.appendChild(frag);
+    elem.appendChild(frag);
   }
 
   // Picture for the seek-bar preview: the slide shown at t if chapters are known,
@@ -3889,8 +3889,8 @@ class LitePlayer {
   }
 
   renderSilences() {
-    const el = this.$('.sils');
-    el.textContent = '';
+    const elem = this.$('.sils');
+    elem.textContent = '';
     const dur = this.duration();
     if (!dur) return;
     const frag = document.createDocumentFragment();
@@ -3901,7 +3901,7 @@ class LitePlayer {
       i.style.width = (((Math.min(s.end, dur) - s.start) / dur) * 100).toFixed(3) + '%';
       frag.appendChild(i);
     }
-    el.appendChild(frag);
+    elem.appendChild(frag);
     // New results (the analysis refines them as it goes) must not pop the button up again.
     this.silIdx = silenceIndexAt(this.skips, this.video.currentTime);
   }
@@ -3911,18 +3911,18 @@ class LitePlayer {
     const p = this.prefs.silence;
     const total = a.silences.reduce((n, s) => n + s.end - s.start, 0);
     const found = a.silences.length
-      ? t(a.source === 'transcript' ? 'silenceFromTranscript' : 'silenceFound', { n: a.silences.length, time: fmtTime(total) })
-      : t('silenceNone', { min: p.min < 60 ? p.min + ' s' : p.min / 60 + ' min' });
+      ? tr(a.source === 'transcript' ? 'silenceFromTranscript' : 'silenceFound', { n: a.silences.length, time: fmtTime(total) })
+      : tr('silenceNone', { min: p.min < 60 ? p.min + ' s' : p.min / 60 + ' min' });
     let status;
-    if (a.source === 'pending') status = t('silenceWaiting');
-    else if (a.source === 'unavailable') status = t(a.reason === 'saveData' ? 'silenceSaveData' : 'silenceUnavailable');
-    else if (a.source === 'audio' && a.progress < 1) status = t('silenceAnalysing', { pct: Math.floor(a.progress * 100) }) + (a.silences.length ? ' ' + found : '');
+    if (a.source === 'pending') status = tr('silenceWaiting');
+    else if (a.source === 'unavailable') status = tr(a.reason === 'saveData' ? 'silenceSaveData' : 'silenceUnavailable');
+    else if (a.source === 'audio' && a.progress < 1) status = tr('silenceAnalysing', { pct: Math.floor(a.progress * 100) }) + (a.silences.length ? ' ' + found : '');
     else status = found;
     const menu = this.$('.audiomenu');
     menu.querySelector('.silstatus').textContent = status;
     const auto = menu.querySelector('[data-sil=auto]');
     auto.setAttribute('aria-checked', String(p.auto));
-    auto.querySelector('.state').textContent = p.auto ? t('on') : t('off');
+    auto.querySelector('.state').textContent = p.auto ? tr('on') : tr('off');
     for (const b of menu.querySelectorAll('.silmin button')) b.setAttribute('aria-checked', String(+b.dataset.min === p.min));
     for (const b of menu.querySelectorAll('.silsens button')) b.setAttribute('aria-checked', String(b.dataset.sens === p.sens));
     // Sensitivity only matters when the audio itself is measured.
@@ -3951,7 +3951,7 @@ class LitePlayer {
       const from = ct;
       this.hideSkip();
       this.seek(s.end);
-      this.toast(t(s.kind === 'blank' ? 'skippedBlank' : 'skippedSilence', { time: fmtTime(s.end - from) }), t('undo'), () => this.seek(from));
+      this.toast(tr(s.kind === 'blank' ? 'skippedBlank' : 'skippedSilence', { time: fmtTime(s.end - from) }), tr('undo'), () => this.seek(from));
       return;
     }
     this.showSkip(s, ct);
@@ -3959,7 +3959,7 @@ class LitePlayer {
 
   showSkip(s, ct) {
     const btn = this.$('.skipsil');
-    btn.textContent = t(s.kind === 'silence' ? 'skipSilence' : 'skipBlank', { time: fmtTime(s.end - ct) });
+    btn.textContent = tr(s.kind === 'silence' ? 'skipSilence' : 'skipBlank', { time: fmtTime(s.end - ct) });
     btn.classList.remove('fade');
     btn.tabIndex = 0;
     clearTimeout(this.skipTimer);
@@ -4037,7 +4037,7 @@ class LitePlayer {
     const items = [];
     // Where Echo360 says playback stopped last time (any device), as it was when the page opened.
     const last = this.lesson.resumeAt;
-    if (last > 1 && last < this.duration() - 1) items.push({ time: last, kind: 'laststop', label: t('lastStopped') });
+    if (last > 1 && last < this.duration() - 1) items.push({ time: last, kind: 'laststop', label: tr('lastStopped') });
     if (this.notes) items.push(...this.notes.markers());
     if (this.discussion && this.sidebar.has('discussion')) items.push(...this.discussion.markers());
     this.markers.set(items, this.duration());
@@ -4054,10 +4054,10 @@ class LitePlayer {
 
   renderExtras() {
     const x = this.lesson.extras || {};
-    const what = [x.polls && t('extraPolls'), x.slides && t('extraSlides'), x.audioDescription && t('extraAudioDescription')].filter(Boolean);
+    const what = [x.polls && tr('extraPolls'), x.slides && tr('extraSlides'), x.audioDescription && tr('extraAudioDescription')].filter(Boolean);
     const box = this.$('.pextras');
     box.hidden = !what.length;
-    if (what.length) box.querySelector('.msg').textContent = t('extrasNotice', { what: what.join(', ') });
+    if (what.length) box.querySelector('.msg').textContent = tr('extrasNotice', { what: what.join(', ') });
   }
 
   bindPanelResize() {
@@ -4082,9 +4082,9 @@ class LitePlayer {
   // Stretches watched on this device (earlier visits and this one), faint on the rail.
   renderWatched() {
     const dur = this.duration();
-    const el = this.$('.wat');
+    const elem = this.$('.wat');
     if (!dur || !this.watched.ready) return;
-    el.textContent = '';
+    elem.textContent = '';
     const frag = document.createDocumentFragment();
     for (const [a, b] of this.watched.ranges()) {
       const i = document.createElement('i');
@@ -4092,37 +4092,37 @@ class LitePlayer {
       i.style.width = (((Math.min(b, dur) - a) / dur) * 100).toFixed(3) + '%';
       frag.appendChild(i);
     }
-    el.appendChild(frag);
+    elem.appendChild(frag);
   }
 
   // Keyboard zoom on the main picture (the primary slot), around its centre; 0 resets.
   zoomMain(factor) {
     const slot = this.root.querySelector('.views [data-slot=primary]');
-    const el = slot && (slot.tagName === 'VIDEO' ? slot : slot.querySelector('.rpages'));
-    if (!el) return;
-    if (!factor) { this.zoom.reset(el); return; }
-    this.zoom.zoomAt(el, factor, 0.5, 0.5);
+    const elem = slot && (slot.tagName === 'VIDEO' ? slot : slot.querySelector('.rpages'));
+    if (!elem) return;
+    if (!factor) { this.zoom.reset(elem); return; }
+    this.zoom.zoomAt(elem, factor, 0.5, 0.5);
   }
 
   // The ⋯ menu: analysis results stored on this device (size, clear), diagnostics, keys.
   renderMoreMenu() {
     const m = this.$('.moremenu');
     m.textContent = '';
-    const size = h('span.grow', { text: t('cachesMeasuring') });
-    const clear = h('button', { text: t('cachesClear') });
+    const size = el('span.grow', { text: tr('cachesMeasuring') });
+    const clear = el('button', { text: tr('cachesClear') });
     clear.addEventListener('click', guard(async (e) => {
       e.stopPropagation();
       clear.disabled = true;
       const n = await analysisCaches.clear();
-      size.textContent = t('cachesCleared', { n });
+      size.textContent = tr('cachesCleared', { n });
     }));
-    m.append(h('div.head', { text: 'Echo360 Lite ' + VERSION }),
-      h('div.row', { title: t('cachesInfo') }, size, clear),
-      h('button', { text: t('diagMenu'), onclick: (e) => { e.stopPropagation(); m.hidden = true; this.showDiagnostics(); } }),
-      h('button', { text: t('keysTitle') + ' (?)', onclick: (e) => { e.stopPropagation(); m.hidden = true; this.showKeys(true); } }));
+    m.append(el('div.head', { text: 'Echo360 Lite ' + VERSION }),
+      el('div.row', { title: tr('cachesInfo') }, size, clear),
+      el('button', { text: tr('diagMenu'), onclick: (e) => { e.stopPropagation(); m.hidden = true; this.showDiagnostics(); } }),
+      el('button', { text: tr('keysTitle') + ' (?)', onclick: (e) => { e.stopPropagation(); m.hidden = true; this.showKeys(true); } }));
     analysisCaches.usage().then((u) => {
-      size.textContent = t('cachesSize', { mb: (u.bytes / 1e6).toFixed(u.bytes < 1e7 ? 1 : 0), n: u.count });
-    }).catch(() => { size.textContent = t('cachesUnknown'); });
+      size.textContent = tr('cachesSize', { mb: (u.bytes / 1e6).toFixed(u.bytes < 1e7 ? 1 : 0), n: u.count });
+    }).catch(() => { size.textContent = tr('cachesUnknown'); });
   }
 
   showDiagnostics() {
@@ -4137,7 +4137,7 @@ class LitePlayer {
       const list = box.querySelector('.khlist');
       list.textContent = '';
       for (const [keys, label] of KEY_HELP) {
-        list.append(h('div', null, ...keys.map((k) => h('kbd', { text: k }))), h('div', { text: t(label) }));
+        list.append(el('div', null, ...keys.map((k) => el('kbd', { text: k }))), el('div', { text: tr(label) }));
       }
     }
     box.hidden = !on;
@@ -4145,15 +4145,15 @@ class LitePlayer {
   }
 
   toast(msg, action, fn) {
-    const el = this.$('.toast');
-    el.querySelector('.msg').textContent = msg;
-    const btn = el.querySelector('.act');
+    const elem = this.$('.toast');
+    elem.querySelector('.msg').textContent = msg;
+    const btn = elem.querySelector('.act');
     btn.hidden = !action;
     btn.textContent = action || '';
-    btn.onclick = guard((ev) => { el.hidden = true; if (fn) fn(ev); });
-    el.hidden = false;
+    btn.onclick = guard((ev) => { elem.hidden = true; if (fn) fn(ev); });
+    elem.hidden = false;
     clearTimeout(this.toastTimer);
-    this.toastTimer = setTimeout(() => { el.hidden = true; }, 8000);
+    this.toastTimer = setTimeout(() => { elem.hidden = true; }, 8000);
   }
 
   showError(title, text, actions) {
@@ -4210,7 +4210,7 @@ class Zoomer {
     this.state = new Map();     // element -> { s, cx, cy }
     this.drag = null;
     this.dragged = false;       // a pan just ended (the click that follows is not a play toggle)
-    this.map = h('div.zmap', { hidden: true, 'aria-hidden': 'true' }, h('i'));
+    this.map = el('div.zmap', { hidden: true, 'aria-hidden': 'true' }, el('i'));
     this.mapFor = null;
     host.append(this.map);
     this.bind();
@@ -4223,81 +4223,81 @@ class Zoomer {
   }
 
   // The zoomable element at an event's target (a video or the PDF stage).
-  targetOf(el) {
-    if (!el || !el.closest) return null;
-    const stage = el.tagName === 'VIDEO' ? null : el.closest('.pstage');
-    const t = el.tagName === 'VIDEO' ? el : stage && stage.querySelector('.rpages');
+  targetOf(elem) {
+    if (!elem || !elem.closest) return null;
+    const stage = elem.tagName === 'VIDEO' ? null : elem.closest('.pstage');
+    const t = elem.tagName === 'VIDEO' ? elem : stage && stage.querySelector('.rpages');
     return t && this.host.contains(t) && this.canZoom(t) ? t : null;
   }
 
-  get(el) { return this.state.get(el) || { s: 1, cx: 0.5, cy: 0.5 }; }
+  get(elem) { return this.state.get(elem) || { s: 1, cx: 0.5, cy: 0.5 }; }
 
-  zoomed(el) { return this.get(el).s > 1.001; }
+  zoomed(elem) { return this.get(elem).s > 1.001; }
 
   // Zooms `el` by `factor` keeping the point at (fx, fy) (fractions of the element) still.
-  zoomAt(el, factor, fx, fy) {
-    const z = this.get(el);
+  zoomAt(elem, factor, fx, fy) {
+    const z = this.get(elem);
     const s = clamp(z.s * factor, 1, ZOOM_MAX);
     // The content point under the pointer before, and where it must stay.
     const px = z.cx + (fx - 0.5) / z.s;
     const py = z.cy + (fy - 0.5) / z.s;
-    this.set(el, s, px - (fx - 0.5) / s, py - (fy - 0.5) / s);
+    this.set(elem, s, px - (fx - 0.5) / s, py - (fy - 0.5) / s);
   }
 
-  set(el, s, cx, cy) {
+  set(elem, s, cx, cy) {
     const half = 0.5 / s;
     const z = { s, cx: clamp(cx, half, 1 - half), cy: clamp(cy, half, 1 - half) };
-    if (s <= 1.001) this.state.delete(el); else this.state.set(el, z);
-    this.apply(el);
+    if (s <= 1.001) this.state.delete(elem); else this.state.set(elem, z);
+    this.apply(elem);
     this.onChange();
   }
 
-  reset(el) { if (this.state.has(el)) this.set(el, 1, 0.5, 0.5); }
+  reset(elem) { if (this.state.has(elem)) this.set(elem, 1, 0.5, 0.5); }
 
-  resetAll() { for (const el of [...this.state.keys()]) this.reset(el); }
+  resetAll() { for (const elem of [...this.state.keys()]) this.reset(elem); }
 
-  apply(el) {
-    const z = this.get(el);
+  apply(elem) {
+    const z = this.get(elem);
     if (z.s <= 1.001) {
-      el.style.transform = '';
-      el.style.clipPath = '';
-      el.style.transformOrigin = '';
-      el.classList.remove('zoomed');
+      elem.style.transform = '';
+      elem.style.clipPath = '';
+      elem.style.transformOrigin = '';
+      elem.classList.remove('zoomed');
     } else {
-      const W = el.offsetWidth;
-      const H = el.offsetHeight;
+      const W = elem.offsetWidth;
+      const H = elem.offsetHeight;
       const tx = W / 2 - z.s * z.cx * W;
       const ty = H / 2 - z.s * z.cy * H;
-      el.style.transformOrigin = '0 0';
-      el.style.transform = 'translate(' + tx.toFixed(1) + 'px,' + ty.toFixed(1) + 'px) scale(' + z.s.toFixed(4) + ')';
+      elem.style.transformOrigin = '0 0';
+      elem.style.transform = 'translate(' + tx.toFixed(1) + 'px,' + ty.toFixed(1) + 'px) scale(' + z.s.toFixed(4) + ')';
       // The clip is in the element's own (unscaled) coordinates: the visible part only.
       const l = -tx / z.s;
       const tp = -ty / z.s;
-      el.style.clipPath = 'inset(' + tp.toFixed(1) + 'px ' + (W - l - W / z.s).toFixed(1) + 'px ' + (H - tp - H / z.s).toFixed(1) + 'px ' + l.toFixed(1) + 'px)';
-      el.classList.add('zoomed');
+      elem.style.clipPath = 'inset(' + tp.toFixed(1) + 'px ' + (W - l - W / z.s).toFixed(1) + 'px ' + (H - tp - H / z.s).toFixed(1) + 'px ' + l.toFixed(1) + 'px)';
+      elem.classList.add('zoomed');
     }
-    this.renderMap(el);
+    this.renderMap(elem);
   }
 
   // Re-applies after the element was resized (layout change, divider, window).
-  refresh() { for (const el of this.state.keys()) this.apply(el); }
+  refresh() { for (const elem of this.state.keys()) this.apply(elem); }
 
-  renderMap(el) {
+  renderMap(elem) {
     const m = this.map;
-    if (!this.zoomed(el)) {
-      if (this.mapFor === el) { m.hidden = true; this.mapFor = null; }
+    if (!this.zoomed(elem)) {
+      if (this.mapFor === elem) { m.hidden = true; this.mapFor = null; }
       return;
     }
-    this.mapFor = el;
-    const z = this.get(el);
-    const W = el.offsetWidth;
-    const H = el.offsetHeight;
+    this.mapFor = elem;
+    const z = this.get(elem);
+    const W = elem.offsetWidth;
+    const H = elem.offsetHeight;
     // Where the view is inside the host, without the zoom transform (a video is placed in
     // the host directly; the PDF pages inside an untransformed stage).
-    let x = el.offsetLeft;
-    let y = el.offsetTop;
-    if (el.tagName !== 'VIDEO') {
-      const r = el.parentElement.getBoundingClientRect();
+    let x = elem.offsetLeft;
+    let y = elem.offsetTop;
+    if (elem.tagName !== 'VIDEO') {
+      const r = elem.parentElement.getBoundingClientRect();
       const hr = this.host.getBoundingClientRect();
       x = r.left - hr.left;
       y = r.top - hr.top;
@@ -4320,23 +4320,23 @@ class Zoomer {
   bind() {
     const d = this.d;
     d.listen(this.host, 'wheel', (e) => {
-      const el = this.targetOf(e.target);
-      if (!el) return;
+      const elem = this.targetOf(e.target);
+      if (!elem) return;
       e.preventDefault();
-      const r = el.getBoundingClientRect();
+      const r = elem.getBoundingClientRect();
       // Pixel deltas from trackpads, line deltas from some mice.
       const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
       // The rect spans the whole scaled content: the pointer's position in the content,
       // then in the visible window.
-      const z = this.get(el);
+      const z = this.get(elem);
       const wx = 0.5 + ((e.clientX - r.left) / r.width - z.cx) * z.s;
       const wy = 0.5 + ((e.clientY - r.top) / r.height - z.cy) * z.s;
-      this.zoomAt(el, Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.002)), clamp(wx, 0, 1), clamp(wy, 0, 1));
+      this.zoomAt(elem, Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.002)), clamp(wx, 0, 1), clamp(wy, 0, 1));
     }, { passive: false });
     d.listen(this.host, 'pointerdown', (e) => {
-      const el = this.targetOf(e.target);
-      if (!el || e.button !== 0 || !this.zoomed(el)) return;
-      this.drag = { el, x: e.clientX, y: e.clientY, z: this.get(el), id: e.pointerId };
+      const elem = this.targetOf(e.target);
+      if (!elem || e.button !== 0 || !this.zoomed(elem)) return;
+      this.drag = { el: elem, x: e.clientX, y: e.clientY, z: this.get(elem), id: e.pointerId };
       this.dragged = false;
     });
     d.listen(this.host, 'pointermove', (e) => {
@@ -4397,14 +4397,14 @@ class ABLoop {
 
   build() {
     const seek = this.p.$('.seek');
-    this.band = h('div.loopband', { hidden: true },
-      h('i.lh.la', { title: t('loopStart') }), h('i.lh.lb', { title: t('loopEnd') }),
-      h('button.lx', { title: t('loopClear') + ' (X)', 'aria-label': t('loopClear'), text: '✕' }));
+    this.band = el('div.loopband', { hidden: true },
+      el('i.lh.la', { title: tr('loopStart') }), el('i.lh.lb', { title: tr('loopEnd') }),
+      el('button.lx', { title: tr('loopClear') + ' (X)', 'aria-label': tr('loopClear'), text: '✕' }));
     seek.append(this.band);
-    this.menu = h('div.menu.loopmenu', { hidden: true, role: 'menu' },
-      h('button', { 'data-loop': 'a', text: t('loopFromHere') }),
-      h('button', { 'data-loop': 'b', text: t('loopToHere') }),
-      h('button', { 'data-loop': 'x', text: t('loopClear') }));
+    this.menu = el('div.menu.loopmenu', { hidden: true, role: 'menu' },
+      el('button', { 'data-loop': 'a', text: tr('loopFromHere') }),
+      el('button', { 'data-loop': 'b', text: tr('loopToHere') }),
+      el('button', { 'data-loop': 'x', text: tr('loopClear') }));
     const host = this.p.$('.speedmenu').parentElement;  // where the other menus live
     host.append(this.menu);
     const d = this.d;
@@ -4465,7 +4465,7 @@ class ABLoop {
     this.a = clamp(tm, 0, this.p.duration());
     if (this.b != null && this.b - this.a < LOOP_MIN_SEC) this.b = null;
     this.render();
-    if (this.active) this.announce(); else this.p.toast(t('loopStartSet', { time: fmtTime(this.a) }));
+    if (this.active) this.announce(); else this.p.toast(tr('loopStartSet', { time: fmtTime(this.a) }));
   }
 
   setB(tm) {
@@ -4485,11 +4485,11 @@ class ABLoop {
     this.b = null;
     clearTimeout(this.timer);
     this.render();
-    this.p.toast(t('loopCleared'));
+    this.p.toast(tr('loopCleared'));
   }
 
   announce() {
-    this.p.toast(t('loopSet', { from: fmtTime(this.a), to: fmtTime(this.b) }), t('loopClear'), () => this.clear());
+    this.p.toast(tr('loopSet', { from: fmtTime(this.a), to: fmtTime(this.b) }), tr('loopClear'), () => this.clear());
   }
 
   render() {
@@ -4527,7 +4527,7 @@ class ABLoop {
   seeked(target) {
     if (!this.active || (target >= this.a - 0.5 && target < this.b)) return;
     this.last = target;
-    this.p.toast(t('loopOutside', { from: fmtTime(this.a), to: fmtTime(this.b) }), t('loopClear'), () => this.clear());
+    this.p.toast(tr('loopOutside', { from: fmtTime(this.a), to: fmtTime(this.b) }), tr('loopClear'), () => this.clear());
   }
 }
 
@@ -4658,10 +4658,10 @@ function captionExcerpt(cues, t, span) {
 const CAPTION_SIZES = { s: 0.8, m: 1, l: 1.3, xl: 1.65 };
 
 class CaptionsView {
-  constructor(el, video) {
-    this.el = el;
+  constructor(elem, video) {
+    this.el = elem;
     this.video = video;
-    this.textEl = el.firstElementChild;
+    this.textEl = elem.firstElementChild;
     this.index = null;
     this.on = false;
     this.shown = -2;
@@ -4725,15 +4725,15 @@ class CaptionsView {
 // Transcript tab of the side panel. The list is built once, on first show; rows use
 // `content-visibility: auto`, so off-screen rows cost no layout or paint.
 class TranscriptPanel {
-  constructor(player, el, marksEl) {
+  constructor(player, elem, marksEl) {
     this.player = player;
-    this.el = el;
+    this.el = elem;
     this.visible = false;
     this.marksEl = marksEl;
-    this.list = el.querySelector('.tlist');
-    this.search = el.querySelector('.tsearch');
-    this.countEl = el.querySelector('.tcount');
-    this.backBtn = el.querySelector('.tback');
+    this.list = elem.querySelector('.tlist');
+    this.search = elem.querySelector('.tsearch');
+    this.countEl = elem.querySelector('.tcount');
+    this.backBtn = elem.querySelector('.tback');
     this.cues = [];
     this.lower = null;
     this.index = null;
@@ -4861,7 +4861,7 @@ class TranscriptPanel {
       for (let i = 0; i < this.lower.length; i++) if (this.lower[i].includes(q)) this.hits.push(i);
       for (const i of this.hits) this.rows[i].classList.add('hit');
     }
-    this.countEl.textContent = q ? t('searchCount', { n: this.hits.length }) : '';
+    this.countEl.textContent = q ? tr('searchCount', { n: this.hits.length }) : '';
     this.renderMarks();
   }
 
@@ -4869,15 +4869,15 @@ class TranscriptPanel {
     if (!this.hits.length) return;
     this.hitPos = (this.hitPos + dir + this.hits.length) % this.hits.length;
     const k = this.hits[this.hitPos];
-    this.countEl.textContent = t('searchPos', { i: this.hitPos + 1, n: this.hits.length });
+    this.countEl.textContent = tr('searchPos', { i: this.hitPos + 1, n: this.hits.length });
     this.stopFollowing();
     this.scrollTo(k);
   }
 
   // Search hits on the progress bar, merged into 0.25% buckets (at most 400 marks).
   renderMarks() {
-    const el = this.marksEl;
-    el.textContent = '';
+    const elem = this.marksEl;
+    elem.textContent = '';
     const dur = this.player.duration();
     if (!this.hits.length || !dur) return;
     const seen = new Set();
@@ -4890,7 +4890,7 @@ class TranscriptPanel {
       m.style.left = (bucket / 4).toFixed(2) + '%';
       frag.appendChild(m);
     }
-    el.appendChild(frag);
+    elem.appendChild(frag);
   }
 
   dispose() {
@@ -4905,34 +4905,34 @@ class TranscriptPanel {
 // ===================================================================================
 
 // Small DOM helper: h('button.btn.primary', { title: 'x', onclick }, 'text', child, ...)
-function h(spec, props, ...children) {
+function el(spec, props, ...children) {
   const [tag, ...classes] = spec.split('.');
-  const el = document.createElement(tag || 'div');
-  if (classes.length) el.className = classes.join(' ');
+  const elem = document.createElement(tag || 'div');
+  if (classes.length) elem.className = classes.join(' ');
   if (props) {
     for (const [k, v] of Object.entries(props)) {
       if (v == null || v === false) continue;
-      if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2), guard(v));
-      else if (k === 'text') el.textContent = v;
-      else if (k in el && typeof v !== 'string') el[k] = v;
-      else el.setAttribute(k, v === true ? '' : String(v));
+      if (k.startsWith('on') && typeof v === 'function') elem.addEventListener(k.slice(2), guard(v));
+      else if (k === 'text') elem.textContent = v;
+      else if (k in elem && typeof v !== 'string') elem[k] = v;
+      else elem.setAttribute(k, v === true ? '' : String(v));
     }
   }
-  for (const c of children) if (c != null && c !== false) el.append(c);
-  return el;
+  for (const c of children) if (c != null && c !== false) elem.append(c);
+  return elem;
 }
 
 const SIDEBAR_TABS = ['transcript', 'slides', 'notes', 'discussion'];
 
 class Sidebar {
-  constructor(player, el) {
+  constructor(player, elem) {
     this.p = player;
-    this.el = el;
+    this.el = elem;
     this.controllers = {};
     this.active = null;
     this.isOpen = false;
     this.d = new Disposer();
-    for (const b of el.querySelectorAll('.tabs [data-tab]')) {
+    for (const b of elem.querySelectorAll('.tabs [data-tab]')) {
       this.d.listen(b, 'click', () => this.switchTo(b.dataset.tab));
     }
   }
@@ -5046,32 +5046,32 @@ class NotesPane {
   }
 
   build() {
-    const timeLabel = h('span');
+    const timeLabel = el('span');
     this.composerTime = timeLabel;
-    this.textarea = h('textarea.input', { rows: 3, maxLength: 5000, 'aria-label': t('addNote') });
-    this.addBtn = h('button.pbtn.primary', { text: t('addNote'), onclick: (e) => this.addNote(e) });
+    this.textarea = el('textarea.input', { rows: 3, maxLength: 5000, 'aria-label': tr('addNote') });
+    this.addBtn = el('button.pbtn.primary', { text: tr('addNote'), onclick: (e) => this.addNote(e) });
     this.d.listen(this.textarea, 'keydown', (e) => {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); this.addNote(e); }
     });
     this.d.listen(this.textarea, 'focus', () => this.updatePlaceholder());
-    this.select = h('select.input.small', { 'aria-label': t('filterAll') });
+    this.select = el('select.input.small', { 'aria-label': tr('filterAll') });
     for (const f of NOTE_FILTERS) {
-      const label = { all: t('filterAll'), note: t('filterNotes'), bookmark: t('filterBookmarks'), flag: t('filterFlags') }[f];
+      const label = { all: tr('filterAll'), note: tr('filterNotes'), bookmark: tr('filterBookmarks'), flag: tr('filterFlags') }[f];
       if (f === 'flag' && !this.canFlag) continue;
-      this.select.append(h('option', { value: f, text: label }));
+      this.select.append(el('option', { value: f, text: label }));
     }
     this.d.listen(this.select, 'change', () => { this.filter = this.select.value; this.render(); });
-    this.tagSelect = h('select.input.small', { 'aria-label': t('filterTags') });
+    this.tagSelect = el('select.input.small', { 'aria-label': tr('filterTags') });
     this.d.listen(this.tagSelect, 'change', () => { this.tagFilter = this.tagSelect.value; this.render(); });
-    this.manageBtn = h('button.link', { text: t('manageTags'), onclick: () => { this.managing = !this.managing; this.exporting = false; this.render(); } });
-    this.exportBtn = h('button.link', { text: t('exportMenu'), onclick: () => { this.exporting = !this.exporting; this.managing = false; this.render(); } });
-    this.manageBox = h('div');
-    this.errorEl = h('div.perror', { hidden: true });
-    this.list = h('div.plist');
+    this.manageBtn = el('button.link', { text: tr('manageTags'), onclick: () => { this.managing = !this.managing; this.exporting = false; this.render(); } });
+    this.exportBtn = el('button.link', { text: tr('exportMenu'), onclick: () => { this.exporting = !this.exporting; this.managing = false; this.render(); } });
+    this.manageBox = el('div');
+    this.errorEl = el('div.perror', { hidden: true });
+    this.list = el('div.plist');
     this.pane.append(
-      h('div.pinfo', { text: t('notesPrivate') }),
-      h('div.composer', null, this.textarea, h('div.crow', null, timeLabel, h('span.grow'), this.addBtn)),
-      h('div.ptools', null, this.select, this.tagSelect, h('span.grow'), this.manageBtn, this.exportBtn),
+      el('div.pinfo', { text: tr('notesPrivate') }),
+      el('div.composer', null, this.textarea, el('div.crow', null, timeLabel, el('span.grow'), this.addBtn)),
+      el('div.ptools', null, this.select, this.tagSelect, el('span.grow'), this.manageBtn, this.exportBtn),
       this.manageBox,
       this.errorEl,
       this.list,
@@ -5080,7 +5080,7 @@ class NotesPane {
 
   updatePlaceholder() {
     const at = fmtTime(this.p.video.currentTime, this.p.duration() >= 3600);
-    this.textarea.placeholder = t('addNotePlaceholder', { time: at });
+    this.textarea.placeholder = tr('addNotePlaceholder', { time: at });
   }
 
   show(on) {
@@ -5095,17 +5095,17 @@ class NotesPane {
 
   fail(e) {
     log.warn('write failed', e);
-    this.showError(t('saveFailed', { error: e.message || e }));
-    this.p.toast(t('saveFailed', { error: e.message || e }));
+    this.showError(tr('saveFailed', { error: e.message || e }));
+    this.p.toast(tr('saveFailed', { error: e.message || e }));
   }
 
   renderTagFilter() {
     const sel = this.tagSelect;
     const keep = this.tagFilter;
     sel.textContent = '';
-    sel.append(h('option', { value: '', text: t('allTags') }));
-    for (const tag of this.tags.tags) sel.append(h('option', { value: tag.id, text: tag.name }));
-    sel.append(h('option', { value: '-', text: t('untagged') }));
+    sel.append(el('option', { value: '', text: tr('allTags') }));
+    for (const tag of this.tags.tags) sel.append(el('option', { value: tag.id, text: tag.name }));
+    sel.append(el('option', { value: '-', text: tr('untagged') }));
     this.tagFilter = keep && (keep === '-' || this.tags.byId(keep)) ? keep : '';
     sel.value = this.tagFilter;
   }
@@ -5126,41 +5126,41 @@ class NotesPane {
     if (this.exporting) this.manageBox.append(this.exportPanel());
     const shown = this.items.filter((x) => (this.filter === 'all' || x.type === this.filter) && this.tagMatch(x));
     const frag = document.createDocumentFragment();
-    if (!shown.length) frag.append(h('div.pempty', { text: t('noNotes') }));
+    if (!shown.length) frag.append(el('div.pempty', { text: tr('noNotes') }));
     for (const item of shown) frag.append(this.renderItem(item, long));
     this.list.textContent = '';
     this.list.append(frag);
   }
 
   renderItem(item, long) {
-    const label = { note: t('markerNote'), bookmark: t('markerBookmark'), flag: t('markerFlag') }[item.type];
+    const label = { note: tr('markerNote'), bookmark: tr('markerBookmark'), flag: tr('markerFlag') }[item.type];
     const time = item.time != null
-      ? h('button.chiptime', { text: fmtTime(item.time, long), title: label, onclick: () => this.p.seek(item.time) })
+      ? el('button.chiptime', { text: fmtTime(item.time, long), title: label, onclick: () => this.p.seek(item.time) })
       : null;
-    const head = h('div.ihead', null, h('span.kind.k-' + item.type, { text: label }), time, h('span.grow'));
-    const body = item.type === 'note' ? h('div.ibody', { text: item.text }) : null;
+    const head = el('div.ihead', null, el('span.kind.k-' + item.type, { text: label }), time, el('span.grow'));
+    const body = item.type === 'note' ? el('div.ibody', { text: item.text }) : null;
     let tags = null;
     if (item.type !== 'flag') {
       const open = () => { this.picking = this.picking === item.id ? null : item.id; this.render(); };
-      tags = h('div.itags', null, ...this.tags.of(item.id).map((tag) => tagChip(tag, open)),
-        h('button.link.addtag', { text: t('addTagShort'), title: t('tagsFor'), onclick: open }));
+      tags = el('div.itags', null, ...this.tags.of(item.id).map((tag) => tagChip(tag, open)),
+        el('button.link.addtag', { text: tr('addTagShort'), title: tr('tagsFor'), onclick: open }));
       if (this.picking === item.id) tags.append(tagPicker(this.tags, item.id, () => { this.picking = null; this.render(); }));
     }
-    const actions = h('div.iactions');
-    if (item.type === 'note') actions.append(h('button.link', { text: t('edit'), onclick: () => this.startEdit(item, card) }));
+    const actions = el('div.iactions');
+    if (item.type === 'note') actions.append(el('button.link', { text: tr('edit'), onclick: () => this.startEdit(item, card) }));
     actions.append(this.deleteButton(item));
-    const card = h('div.card.k-' + item.type, { 'data-id': item.id }, head, body, tags, actions);
+    const card = el('div.card.k-' + item.type, { 'data-id': item.id }, head, body, tags, actions);
     return card;
   }
 
   // Two clicks within 3 s delete; the second click is the user action sent with the write.
   deleteButton(item) {
-    const label = item.type === 'flag' ? t('remove') : t('delete');
+    const label = item.type === 'flag' ? tr('remove') : tr('delete');
     let armed = 0;
-    const b = h('button.link.danger', { text: label });
+    const b = el('button.link.danger', { text: label });
     b.addEventListener('click', guard((e) => {
       if (!armed) {
-        b.textContent = t('confirmDelete');
+        b.textContent = tr('confirmDelete');
         armed = setTimeout(() => { armed = 0; b.textContent = label; }, 3000);
         return;
       }
@@ -5172,10 +5172,10 @@ class NotesPane {
   }
 
   startEdit(item, card) {
-    const area = h('textarea.input', { rows: 3, maxLength: 5000 });
+    const area = el('textarea.input', { rows: 3, maxLength: 5000 });
     area.value = item.text;
-    const save = h('button.pbtn.primary', { text: t('save') });
-    const cancel = h('button.pbtn', { text: t('cancel'), onclick: () => this.render() });
+    const save = el('button.pbtn.primary', { text: tr('save') });
+    const cancel = el('button.pbtn', { text: tr('cancel'), onclick: () => this.render() });
     save.addEventListener('click', guard((e) => this.once(async () => {
       const text = area.value.trim();
       if (!text) return;
@@ -5187,7 +5187,7 @@ class NotesPane {
         this.changed();
       } catch (err) { save.disabled = false; this.fail(err); }
     })));
-    card.querySelector('.ibody').replaceWith(h('div.composer', null, area, h('div.crow', null, h('span.grow'), cancel, save)));
+    card.querySelector('.ibody').replaceWith(el('div.composer', null, area, el('div.crow', null, el('span.grow'), cancel, save)));
     card.querySelector('.iactions').hidden = true;
     area.focus();
   }
@@ -5234,7 +5234,7 @@ class NotesPane {
         this.items.push(note);
         this.sort();
         this.changed();
-        this.p.toast(t('bookmarkedAt', { time: fmtTime(time) }), t('undo'), (ev) => this.remove(ev, note));
+        this.p.toast(tr('bookmarkedAt', { time: fmtTime(time) }), tr('undo'), (ev) => this.remove(ev, note));
         return note;
       } catch (err) { this.fail(err); return null; }
     }).then((x) => x || null);
@@ -5257,13 +5257,13 @@ class NotesPane {
       if (existing) {
         await this.api.removeFlag(e, existing);
         this.items = this.items.filter((x) => x !== existing);
-        this.p.toast(t('flagRemoved', { time: fmtTime(existing.time) }));
+        this.p.toast(tr('flagRemoved', { time: fmtTime(existing.time) }));
       } else {
         await this.api.addFlag(e, time);
         const scene = Math.floor(time / FLAG_SCENE_SECONDS) * FLAG_SCENE_SECONDS;
         this.items.push({ id: 'flag-' + scene / FLAG_SCENE_SECONDS, type: 'flag', time: scene, createdAt: new Date().toISOString() });
         this.sort();
-        this.p.toast(t('flagAdded', { time: fmtTime(scene) }));
+        this.p.toast(tr('flagAdded', { time: fmtTime(scene) }));
       }
       this.changed();
       this.p.renderFlagButton();
@@ -5289,7 +5289,7 @@ class NotesPane {
   markers() {
     return this.items.filter((x) => x.time != null).map((x) => {
       const tags = x.type === 'flag' ? [] : this.tags.of(x.id);
-      const base = x.type === 'note' ? t('markerNote') + ': ' + x.text : x.type === 'bookmark' ? t('markerBookmark') : t('markerFlag');
+      const base = x.type === 'note' ? tr('markerNote') + ': ' + x.text : x.type === 'bookmark' ? tr('markerBookmark') : tr('markerFlag');
       return {
         time: x.time,
         kind: x.type,
@@ -5310,31 +5310,31 @@ class NotesPane {
   exportPanel() {
     const ex = new Exporter(this.p);
     const hasPdf = !!(this.p.deck && this.p.deck.pages.length);
-    const pics = h('input', { type: 'checkbox', checked: hasPdf, disabled: !hasPdf });
-    const pdfs = h('input', { type: 'checkbox' });
+    const pics = el('input', { type: 'checkbox', checked: hasPdf, disabled: !hasPdf });
+    const pdfs = el('input', { type: 'checkbox' });
     const busy = async (btn, fn) => {
       btn.disabled = true;
-      try { await fn(); } catch (e) { this.p.toast(t('exportFailed', { msg: (e && e.message) || e })); } finally { btn.disabled = false; }
+      try { await fn(); } catch (e) { this.p.toast(tr('exportFailed', { msg: (e && e.message) || e })); } finally { btn.disabled = false; }
     };
-    const one = h('button.pbtn.primary', { text: t('exportLecture') });
+    const one = el('button.pbtn.primary', { text: tr('exportLecture') });
     one.addEventListener('click', guard(() => busy(one, async () => {
       const r = await ex.lecture(pics.checked);
-      this.p.toast(t('exportedLecture', { n: r.notes, p: r.pictures }));
+      this.p.toast(tr('exportedLecture', { n: r.notes, p: r.pictures }));
     })));
-    const all = h('button.pbtn', { text: t('exportCourse') });
+    const all = el('button.pbtn', { text: tr('exportCourse') });
     all.addEventListener('click', guard(() => busy(all, async () => {
-      const n = await ex.course((k, total) => { all.textContent = t('exportCourseProgress', { k: k + 1, n: total }); });
-      all.textContent = t('exportCourse');
-      this.p.toast(n ? t('exportedCourse', { n }) : t('exportedNothing'));
+      const n = await ex.course((k, total) => { all.textContent = tr('exportCourseProgress', { k: k + 1, n: total }); });
+      all.textContent = tr('exportCourse');
+      this.p.toast(n ? tr('exportedCourse', { n }) : tr('exportedNothing'));
     })));
-    const backup = h('button.pbtn', { text: t('backupMake') });
+    const backup = el('button.pbtn', { text: tr('backupMake') });
     backup.addEventListener('click', guard(() => busy(backup, async () => {
       const data = await makeBackup(pdfs.checked);
       const name = 'echo360-lite-backup-' + new Date().toISOString().slice(0, 10) + '.json';
       downloadBlob(new Blob([JSON.stringify(data)], { type: 'application/json' }), name);
-      this.p.toast(t('backupMade', { n: Object.keys(data.db).length }));
+      this.p.toast(tr('backupMade', { n: Object.keys(data.db).length }));
     })));
-    const file = h('input', { type: 'file', accept: '.json,application/json', hidden: true });
+    const file = el('input', { type: 'file', accept: '.json,application/json', hidden: true });
     file.addEventListener('change', guard(async () => {
       const f = file.files[0];
       if (!f) return;
@@ -5343,20 +5343,20 @@ class NotesPane {
         // From now on this page must not write its older data over the restored one (its
         // settings on leaving, the watched record): stop all writes and reload at once.
         storageLock.frozen = true;
-        this.p.toast(t('backupRestored', { n }));
+        this.p.toast(tr('backupRestored', { n }));
         setTimeout(() => location.reload(), 1200);
-      } catch (e) { this.p.toast(t('exportFailed', { msg: (e && e.message) || e })); }
+      } catch (e) { this.p.toast(tr('exportFailed', { msg: (e && e.message) || e })); }
       file.value = '';
     }));
-    const restore = h('button.pbtn', { text: t('backupRestore'), onclick: () => file.click() });
-    return h('div.tagman', null,
-      h('div.pinfo', { text: t('exportInfo') }),
-      h('label.crow', null, pics, h('span', { text: hasPdf ? t('exportPictures') : t('exportPicturesNoPdf') })),
-      h('div.crow', null, one, all),
-      h('div.pinfo', { text: t('backupInfo') }),
-      h('label.crow', null, pdfs, h('span', { text: t('backupPdfs') })),
-      h('div.crow', null, backup, restore, file),
-      h('div.crow', null, h('span.grow'), h('button.link', { text: t('done'), onclick: () => { this.exporting = false; this.render(); } })));
+    const restore = el('button.pbtn', { text: tr('backupRestore'), onclick: () => file.click() });
+    return el('div.tagman', null,
+      el('div.pinfo', { text: tr('exportInfo') }),
+      el('label.crow', null, pics, el('span', { text: hasPdf ? tr('exportPictures') : tr('exportPicturesNoPdf') })),
+      el('div.crow', null, one, all),
+      el('div.pinfo', { text: tr('backupInfo') }),
+      el('label.crow', null, pdfs, el('span', { text: tr('backupPdfs') })),
+      el('div.crow', null, backup, restore, file),
+      el('div.crow', null, el('span.grow'), el('button.link', { text: tr('done'), onclick: () => { this.exporting = false; this.render(); } })));
   }
 
   // `G`: tags the note or bookmark at the current time (within the last 30 s, or just
@@ -5416,9 +5416,9 @@ class TagStore {
     } else {
       // First use in this course: a few suggestions, which the user may delete.
       this.tags = [
-        { id: 'exam', name: t('tagExam'), color: TAG_COLORS[0] },
-        { id: 'assignment', name: t('tagAssignment'), color: TAG_COLORS[1] },
-        { id: 'confused', name: t('tagConfused'), color: TAG_COLORS[2] },
+        { id: 'exam', name: tr('tagExam'), color: TAG_COLORS[0] },
+        { id: 'assignment', name: tr('tagAssignment'), color: TAG_COLORS[1] },
+        { id: 'confused', name: tr('tagConfused'), color: TAG_COLORS[2] },
       ];
       this.saveTags();
     }
@@ -5508,67 +5508,67 @@ class TagStore {
 
 // A tag as a small coloured chip.
 function tagChip(tag, onclick) {
-  const el = h(onclick ? 'button.tagchip' : 'span.tagchip', { onclick: onclick || null, title: tag.name },
-    h('i', { style: 'background:' + tag.color }), h('span', { text: tag.name }));
-  return el;
+  const elem = el(onclick ? 'button.tagchip' : 'span.tagchip', { onclick: onclick || null, title: tag.name },
+    el('i', { style: 'background:' + tag.color }), el('span', { text: tag.name }));
+  return elem;
 }
 
 // The picker for one item: every tag as a toggle, and a field for a new tag.
-function tagPicker(store, itemId, onDone) {
-  const box = h('div.tagpick', { role: 'group', 'aria-label': t('tagsFor') });
+function tagPicker(tagStore, itemId, onDone) {
+  const box = el('div.tagpick', { role: 'group', 'aria-label': tr('tagsFor') });
   const render = () => {
     box.textContent = '';
-    for (const tag of store.tags) {
-      const on = store.has(itemId, tag.id);
-      box.append(h('button.tagopt' + (on ? '.on' : ''), { 'aria-pressed': String(on), onclick: () => { store.toggle(itemId, tag.id); render(); } },
-        h('i', { style: 'background:' + tag.color }), h('span', { text: tag.name })));
+    for (const tag of tagStore.tags) {
+      const on = tagStore.has(itemId, tag.id);
+      box.append(el('button.tagopt' + (on ? '.on' : ''), { 'aria-pressed': String(on), onclick: () => { tagStore.toggle(itemId, tag.id); render(); } },
+        el('i', { style: 'background:' + tag.color }), el('span', { text: tag.name })));
     }
-    const input = h('input.input.small', { placeholder: t('newTag'), maxLength: 40, 'aria-label': t('newTag') });
+    const input = el('input.input.small', { placeholder: tr('newTag'), maxLength: 40, 'aria-label': tr('newTag') });
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Enter' && input.value.trim()) {
-        const tag = store.create(input.value);
-        if (tag && !store.has(itemId, tag.id)) store.toggle(itemId, tag.id);
+        const tag = tagStore.create(input.value);
+        if (tag && !tagStore.has(itemId, tag.id)) tagStore.toggle(itemId, tag.id);
         render();
         box.querySelector('input').focus();
       } else if (e.key === 'Escape') onDone();
     });
-    box.append(h('div.tagnew', null, input, h('button.link', { text: t('done'), onclick: onDone })));
+    box.append(el('div.tagnew', null, input, el('button.link', { text: tr('done'), onclick: onDone })));
   };
   render();
   return box;
 }
 
 // Managing the course's tags: rename, colour, delete (two clicks), add.
-function tagManager(store, onClose) {
-  const box = h('div.tagman');
+function tagManager(tagStore, onClose) {
+  const box = el('div.tagman');
   const render = () => {
     box.textContent = '';
-    box.append(h('div.pinfo', { text: t('tagsPrivate') }));
-    for (const tag of store.tags) {
-      const swatch = h('button.tagswatch', { title: t('tagColor'), 'aria-label': t('tagColor'), style: 'background:' + tag.color });
+    box.append(el('div.pinfo', { text: tr('tagsPrivate') }));
+    for (const tag of tagStore.tags) {
+      const swatch = el('button.tagswatch', { title: tr('tagColor'), 'aria-label': tr('tagColor'), style: 'background:' + tag.color });
       swatch.addEventListener('click', () => {
         const i = TAG_COLORS.indexOf(tag.color);
-        store.recolor(tag.id, TAG_COLORS[(i + 1) % TAG_COLORS.length]);
+        tagStore.recolor(tag.id, TAG_COLORS[(i + 1) % TAG_COLORS.length]);
         render();
       });
-      const name = h('input.input.small', { value: tag.name, maxLength: 40, 'aria-label': t('tagName') });
+      const name = el('input.input.small', { value: tag.name, maxLength: 40, 'aria-label': tr('tagName') });
       name.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') name.blur(); });
-      name.addEventListener('change', () => store.rename(tag.id, name.value));
+      name.addEventListener('change', () => tagStore.rename(tag.id, name.value));
       let armed = 0;
-      const del = h('button.link.danger', { text: t('delete') });
+      const del = el('button.link.danger', { text: tr('delete') });
       del.addEventListener('click', () => {
-        if (!armed) { del.textContent = t('confirmDelete'); armed = setTimeout(() => { armed = 0; del.textContent = t('delete'); }, 3000); return; }
+        if (!armed) { del.textContent = tr('confirmDelete'); armed = setTimeout(() => { armed = 0; del.textContent = tr('delete'); }, 3000); return; }
         clearTimeout(armed);
-        store.remove(tag.id);
+        tagStore.remove(tag.id);
         render();
       });
-      box.append(h('div.tagrow', null, swatch, name, del));
+      box.append(el('div.tagrow', null, swatch, name, del));
     }
-    const input = h('input.input.small', { placeholder: t('newTag'), maxLength: 40, 'aria-label': t('newTag') });
-    input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter' && store.create(input.value)) render(); });
-    box.append(h('div.tagrow', null, input, h('button.pbtn', { text: t('addTag'), onclick: () => { if (store.create(input.value)) render(); } })),
-      h('div.crow', null, h('span.grow'), h('button.link', { text: t('done'), onclick: onClose })));
+    const input = el('input.input.small', { placeholder: tr('newTag'), maxLength: 40, 'aria-label': tr('newTag') });
+    input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter' && tagStore.create(input.value)) render(); });
+    box.append(el('div.tagrow', null, input, el('button.pbtn', { text: tr('addTag'), onclick: () => { if (tagStore.create(input.value)) render(); } })),
+      el('div.crow', null, el('span.grow'), el('button.link', { text: tr('done'), onclick: onClose })));
   };
   render();
   return box;
@@ -5618,7 +5618,7 @@ class DiscussionPane {
     } catch (e) {
       if (seq !== this.loadSeq) return false;
       log.info('discussions unavailable:', e.message);
-      if (this.loadedAt) this.showError(t('loadFailed', { error: e.message }));
+      if (this.loadedAt) this.showError(tr('loadFailed', { error: e.message }));
       return false;
     }
   }
@@ -5630,33 +5630,33 @@ class DiscussionPane {
   }
 
   build() {
-    this.textarea = h('textarea.input', { rows: 3, maxLength: MAX_POST_LENGTH + 500, placeholder: t('postPlaceholder'), 'aria-label': t('postPlaceholder') });
-    this.counter = h('span.counter');
-    this.linkTime = h('input', { type: 'checkbox', checked: true });
-    this.linkLabel = h('span');
-    this.anon = h('input', { type: 'checkbox' });
-    this.postBtn = h('button.pbtn.primary', { text: t('postPublic'), onclick: (e) => this.post(e) });
+    this.textarea = el('textarea.input', { rows: 3, maxLength: MAX_POST_LENGTH + 500, placeholder: tr('postPlaceholder'), 'aria-label': tr('postPlaceholder') });
+    this.counter = el('span.counter');
+    this.linkTime = el('input', { type: 'checkbox', checked: true });
+    this.linkLabel = el('span');
+    this.anon = el('input', { type: 'checkbox' });
+    this.postBtn = el('button.pbtn.primary', { text: tr('postPublic'), onclick: (e) => this.post(e) });
     this.d.listen(this.textarea, 'input', () => this.updateCounter(this.textarea, this.counter, this.postBtn));
     this.d.listen(this.textarea, 'focus', () => this.updateLinkLabel());
     this.d.listen(this.textarea, 'keydown', (e) => {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); this.post(e); }
     });
-    this.sortSel = h('select.input.small', { 'aria-label': t('sortNewest') },
-      h('option', { value: 'newest', text: t('sortNewest') }), h('option', { value: 'time', text: t('sortVideoTime') }));
+    this.sortSel = el('select.input.small', { 'aria-label': tr('sortNewest') },
+      el('option', { value: 'newest', text: tr('sortNewest') }), el('option', { value: 'time', text: tr('sortVideoTime') }));
     this.d.listen(this.sortSel, 'change', () => { this.sort = this.sortSel.value; this.render(); });
-    this.hiddenEl = h('span.pmuted');
-    this.errorEl = h('div.perror', { hidden: true });
-    this.list = h('div.plist');
+    this.hiddenEl = el('span.pmuted');
+    this.errorEl = el('div.perror', { hidden: true });
+    this.list = el('div.plist');
     this.pane.append(
-      h('div.composer.public', null,
-        h('div.pwarn', { role: 'note', text: t('publicWarning') }),
+      el('div.composer.public', null,
+        el('div.pwarn', { role: 'note', text: tr('publicWarning') }),
         this.textarea,
-        h('div.crow', null,
-          h('label.check', null, this.linkTime, this.linkLabel),
-          h('label.check', null, this.anon, h('span', { text: t('hideName') })),
-          h('span.grow'), this.counter, this.postBtn)),
-      h('div.ptools', null, this.sortSel, this.hiddenEl, h('span.grow'),
-        h('button.link', { text: t('refresh'), onclick: () => this.load() })),
+        el('div.crow', null,
+          el('label.check', null, this.linkTime, this.linkLabel),
+          el('label.check', null, this.anon, el('span', { text: tr('hideName') })),
+          el('span.grow'), this.counter, this.postBtn)),
+      el('div.ptools', null, this.sortSel, this.hiddenEl, el('span.grow'),
+        el('button.link', { text: tr('refresh'), onclick: () => this.load() })),
       this.errorEl,
       this.list,
     );
@@ -5665,12 +5665,12 @@ class DiscussionPane {
   }
 
   updateLinkLabel() {
-    this.linkLabel.textContent = t('linkTime', { time: fmtTime(this.p.video.currentTime, this.p.duration() >= 3600) });
+    this.linkLabel.textContent = tr('linkTime', { time: fmtTime(this.p.video.currentTime, this.p.duration() >= 3600) });
   }
 
   updateCounter(area, counter, button) {
     const left = MAX_POST_LENGTH - area.value.length;
-    counter.textContent = left < 0 ? t('tooLong', { n: -left }) : left < 500 ? t('charsLeft', { n: left }) : '';
+    counter.textContent = left < 0 ? tr('tooLong', { n: -left }) : left < 500 ? tr('charsLeft', { n: left }) : '';
     counter.classList.toggle('over', left < 0);
     button.disabled = left < 0 || !area.value.trim();
   }
@@ -5691,7 +5691,7 @@ class DiscussionPane {
 
   fail(e) {
     log.warn('discussion write failed', e);
-    this.showError(t('saveFailed', { error: e.message || e }));
+    this.showError(tr('saveFailed', { error: e.message || e }));
   }
 
   sorted() {
@@ -5703,30 +5703,30 @@ class DiscussionPane {
 
   render() {
     this.dirty = false;
-    this.hiddenEl.textContent = this.hiddenCount ? t('hiddenPosts', { n: this.hiddenCount }) : '';
+    this.hiddenEl.textContent = this.hiddenCount ? tr('hiddenPosts', { n: this.hiddenCount }) : '';
     const long = this.p.duration() >= 3600;
     const frag = document.createDocumentFragment();
-    if (!this.threads.length) frag.append(h('div.pempty', { text: t('noPosts') }));
+    if (!this.threads.length) frag.append(el('div.pempty', { text: tr('noPosts') }));
     for (const q of this.sorted()) frag.append(this.renderThread(q, long));
     this.list.textContent = '';
     this.list.append(frag);
   }
 
   renderThread(q, long) {
-    const card = h('div.card.thread', null, this.renderComment(q, long));
+    const card = el('div.card.thread', null, this.renderComment(q, long));
     const n = q.replies.length;
-    const footer = h('div.iactions');
+    const footer = el('div.iactions');
     if (n) {
       const open = this.openReplies.has(q.id);
-      footer.append(h('button.link', {
-        text: open ? t('hideReplies') : (n === 1 ? t('oneReply') : t('replies', { n })),
+      footer.append(el('button.link', {
+        text: open ? tr('hideReplies') : (n === 1 ? tr('oneReply') : tr('replies', { n })),
         onclick: () => { if (open) this.openReplies.delete(q.id); else this.openReplies.add(q.id); this.render(); },
       }));
     }
-    footer.append(h('button.link', { text: t('replyPublic'), onclick: () => { this.replyOpen = q.id; this.openReplies.add(q.id); this.render(); } }));
+    footer.append(el('button.link', { text: tr('replyPublic'), onclick: () => { this.replyOpen = q.id; this.openReplies.add(q.id); this.render(); } }));
     card.append(footer);
     if (n && this.openReplies.has(q.id)) {
-      const replies = h('div.replies');
+      const replies = el('div.replies');
       for (const r of q.replies) replies.append(this.renderComment(r, long));
       card.append(replies);
     }
@@ -5735,38 +5735,38 @@ class DiscussionPane {
   }
 
   renderComment(c, long) {
-    const who = c.mine ? t('you') + (c.nameHidden ? ' (' + t('anonymous') + ')' : '') : (c.author || t('anonymous'));
+    const who = c.mine ? tr('you') + (c.nameHidden ? ' (' + tr('anonymous') + ')' : '') : (c.author || tr('anonymous'));
     const badges = [];
-    if (c.instructor) badges.push(h('span.badge.inst', { text: t('instructor') }));
-    if (c.ta) badges.push(h('span.badge.inst', { text: t('ta') }));
-    const time = c.time != null ? h('button.chiptime', { text: fmtTime(c.time, long), onclick: () => this.p.seek(c.time) }) : null;
-    const date = h('span.pmuted', { text: formatDate(c.createdAt), title: c.createdAt || '' });
-    const actions = h('div.cactions',
+    if (c.instructor) badges.push(el('span.badge.inst', { text: tr('instructor') }));
+    if (c.ta) badges.push(el('span.badge.inst', { text: tr('ta') }));
+    const time = c.time != null ? el('button.chiptime', { text: fmtTime(c.time, long), onclick: () => this.p.seek(c.time) }) : null;
+    const date = el('span.pmuted', { text: formatDate(c.createdAt), title: c.createdAt || '' });
+    const actions = el('div.cactions',
       null,
-      h('button.link' + (c.liked ? '.on' : ''), {
-        text: (c.liked ? t('unlike') : t('like')) + (c.likes ? ' · ' + c.likes : ''),
+      el('button.link' + (c.liked ? '.on' : ''), {
+        text: (c.liked ? tr('unlike') : tr('like')) + (c.likes ? ' · ' + c.likes : ''),
         onclick: (e) => this.write(e, () => this.api.like(e, c, !c.liked)),
       }),
-      c.questionId ? null : h('button.link' + (c.saved ? '.on' : ''), {
-        text: c.saved ? t('unsavePost') : t('savePost'),
+      c.questionId ? null : el('button.link' + (c.saved ? '.on' : ''), {
+        text: c.saved ? tr('unsavePost') : tr('savePost'),
         onclick: (e) => this.write(e, () => this.api.save(e, c, !c.saved)),
       }),
       c.mine ? this.deleteButton(c) : null,
-      c.hasAttachment ? h('button.link', { text: t('attachment') + ' → ' + t('openInOriginal'), onclick: () => this.p.opts.onFallback('attachment') }) : null,
+      c.hasAttachment ? el('button.link', { text: tr('attachment') + ' → ' + tr('openInOriginal'), onclick: () => this.p.opts.onFallback('attachment') }) : null,
     );
-    return h('div.comment' + (c.questionId ? '.reply' : ''), null,
-      h('div.ihead', null, h('span.author', { text: who }), ...badges, time, h('span.grow'), date),
-      h('div.ibody', { text: c.body }),
+    return el('div.comment' + (c.questionId ? '.reply' : ''), null,
+      el('div.ihead', null, el('span.author', { text: who }), ...badges, time, el('span.grow'), date),
+      el('div.ibody', { text: c.body }),
       actions);
   }
 
   deleteButton(c) {
     let armed = 0;
-    const b = h('button.link.danger', { text: t('delete') });
+    const b = el('button.link.danger', { text: tr('delete') });
     b.addEventListener('click', guard((e) => {
       if (!armed) {
-        b.textContent = t('confirmDelete');
-        armed = setTimeout(() => { armed = 0; b.textContent = t('delete'); }, 3000);
+        b.textContent = tr('confirmDelete');
+        armed = setTimeout(() => { armed = 0; b.textContent = tr('delete'); }, 3000);
         return;
       }
       clearTimeout(armed);
@@ -5777,10 +5777,10 @@ class DiscussionPane {
   }
 
   renderReplyComposer(q) {
-    const area = h('textarea.input', { rows: 2, placeholder: t('replyPlaceholder'), 'aria-label': t('replyPlaceholder') });
-    const counter = h('span.counter');
-    const anon = h('input', { type: 'checkbox' });
-    const send = h('button.pbtn.primary', { text: t('replyPublic') });
+    const area = el('textarea.input', { rows: 2, placeholder: tr('replyPlaceholder'), 'aria-label': tr('replyPlaceholder') });
+    const counter = el('span.counter');
+    const anon = el('input', { type: 'checkbox' });
+    const send = el('button.pbtn.primary', { text: tr('replyPublic') });
     const submit = (e) => {
       const body = area.value.trim();
       if (this.busy || !body || body.length > MAX_POST_LENGTH) return;
@@ -5792,11 +5792,11 @@ class DiscussionPane {
     send.addEventListener('click', guard(submit));
     this.updateCounter(area, counter, send);
     setTimeout(() => area.focus(), 0);
-    return h('div.composer.public.reply', null,
-      h('div.pwarn', { role: 'note', text: t('publicWarning') }),
+    return el('div.composer.public.reply', null,
+      el('div.pwarn', { role: 'note', text: tr('publicWarning') }),
       area,
-      h('div.crow', null, h('label.check', null, anon, h('span', { text: t('hideName') })), h('span.grow'), counter,
-        h('button.pbtn', { text: t('cancel'), onclick: () => { this.replyOpen = null; this.render(); } }), send));
+      el('div.crow', null, el('label.check', null, anon, el('span', { text: tr('hideName') })), el('span.grow'), counter,
+        el('button.pbtn', { text: tr('cancel'), onclick: () => { this.replyOpen = null; this.render(); } }), send));
   }
 
   async post(e) {
@@ -5837,7 +5837,7 @@ class DiscussionPane {
     return this.threads.filter((q) => q.time != null).map((q) => ({
       time: q.time,
       kind: 'comment',
-      label: t('markerComment') + ': ' + (q.body.length > 80 ? q.body.slice(0, 77) + '…' : q.body),
+      label: tr('markerComment') + ': ' + (q.body.length > 80 ? q.body.slice(0, 77) + '…' : q.body),
     }));
   }
 
@@ -5864,8 +5864,8 @@ function formatDate(iso) {
 // ===================================================================================
 
 class MarkersLayer {
-  constructor(el) {
-    this.el = el;
+  constructor(elem) {
+    this.el = elem;
     this.items = [];
     this.dur = 0;
   }
@@ -5877,8 +5877,8 @@ class MarkersLayer {
   }
 
   render() {
-    const el = this.el;
-    el.textContent = '';
+    const elem = this.el;
+    elem.textContent = '';
     if (!this.dur) return;
     const frag = document.createDocumentFragment();
     for (const m of this.items) {
@@ -5889,7 +5889,7 @@ class MarkersLayer {
       i.style.left = ((m.time / this.dur) * 100).toFixed(3) + '%';
       frag.appendChild(i);
     }
-    el.appendChild(frag);
+    elem.appendChild(frag);
   }
 
   // Closest item within `px` pixels of fraction `f` on a bar `width` pixels wide.
@@ -5925,7 +5925,7 @@ function notice(text) {
       + '<div role="status"><span></span><button>✕</button></div>';
     root.querySelector('span').textContent = text;
     const close = root.querySelector('button');
-    close.setAttribute('aria-label', t('close'));
+    close.setAttribute('aria-label', tr('close'));
     close.addEventListener('click', () => host.remove());
     document.body.appendChild(host);
     setTimeout(() => host.remove(), 10000);
@@ -6197,12 +6197,12 @@ const idbCache = {
     if (storageLock.frozen) return Promise.resolve(undefined);
     return this.open().then((db) => new Promise((resolve, reject) => {
       const tx = db.transaction('cache', 'readwrite');
-      const store = tx.objectStore('cache');
+      const os = tx.objectStore('cache');
       let next;
-      const req = store.get(key);
+      const req = os.get(key);
       req.onsuccess = () => {
         try { next = fn(req.result); } catch (e) { tx.abort(); reject(e); return; }
-        if (next === undefined) store.delete(key); else store.put(next, key);
+        if (next === undefined) os.delete(key); else os.put(next, key);
       };
       tx.oncomplete = () => resolve(next);
       tx.onerror = () => reject(tx.error);
@@ -6352,9 +6352,9 @@ class HlsAudioTrack {
   // Decoded audio of chunk i: { start, end, rate, pcm } with pcm a mono Float32Array.
   async readChunk(i, signal, rate) {
     const sampleRate = rate || AUDIO_RATE;
-    const c = this.chunks[i];
-    if (!c) throw new Error('no chunk ' + i);
-    const segs = this.segments.slice(c.a, c.b);
+    const chunk = this.chunks[i];
+    if (!chunk) throw new Error('no chunk ' + i);
+    const segs = this.segments.slice(chunk.a, chunk.b);
     if (this.init && !this.initBytes) this.initBytes = await fetchRange(this.init.url, this.init.offset, this.init.length, signal);
     // Adjacent byte ranges of the same file are fetched with one request.
     const reqs = [];
@@ -7832,8 +7832,8 @@ class SlideReader {
   addTarget(name, stage) {
     // The pages go in their own box (which the picture-area view can zoom), the
     // "not recognised" note stays over it at its own size.
-    const pages = h('div.rpages');
-    stage.append(pages, h('div.rstale', { text: t('pageNotRecognised') }));
+    const pages = el('div.rpages');
+    stage.append(pages, el('div.rstale', { text: tr('pageNotRecognised') }));
     this.targets.set(name, { stage, pages, active: false, token: 0 });
   }
 
@@ -7928,7 +7928,7 @@ class SlideReader {
     const deck = this.deck;
     const p = deck.pages[this.view];
     if (!p) return '';
-    return t('pageOfN', { n: p.num, total: deck.pages.filter((x) => x.file === p.file).length })
+    return tr('pageOfN', { n: p.num, total: deck.pages.filter((x) => x.file === p.file).length })
       + (deck.files.length > 1 ? ' · ' + p.file.replace(/\.pdf$/i, '') : '');
   }
 
@@ -7936,16 +7936,16 @@ class SlideReader {
   // `compact` gives the short wording for the toolbar over the PDF view.
   followElement(compact) {
     const now = this.player.video.currentTime;
-    if (!this.follow) return h('button.rback', { text: compact ? t('backToLectureShort') : t('backToLecture'), onclick: () => this.resumeFollow() });
+    if (!this.follow) return el('button.rback', { text: compact ? tr('backToLectureShort') : tr('backToLecture'), onclick: () => this.resumeFollow() });
     const state = this.stale ? 'Stale' : this.deck.knownAt(now) ? '' : 'Unsure';
-    return h('span.rfollowing', { text: t('following' + state + (compact ? 'Short' : '')) });
+    return el('span.rfollowing', { text: tr('following' + state + (compact ? 'Short' : '')) });
   }
 }
 
 class SlidesPane {
-  constructor(player, el) {
+  constructor(player, elem) {
     this.player = player;
-    this.el = el;
+    this.el = elem;
     this.visible = false;
     this.chapters = [];
     this.dirty = true;
@@ -7954,13 +7954,13 @@ class SlidesPane {
     this.showChapters = false;
     this.d = new Disposer();
     this.reader = player.reader;
-    this.deckBox = h('div.sdeck');
-    this.readerBox = h('div.reader', { hidden: true });
-    this.status = h('div.sstatus', { 'aria-live': 'polite' });
-    this.chapToggle = h('button.chaptoggle', { hidden: true, onclick: () => { this.showChapters = !this.showChapters; this.render(); } });
-    this.list = h('div.slist');
-    this.screenBox = h('div.sscreen');
-    el.append(this.deckBox, this.readerBox, this.chapToggle, this.status, this.screenBox, this.list);
+    this.deckBox = el('div.sdeck');
+    this.readerBox = el('div.reader', { hidden: true });
+    this.status = el('div.sstatus', { 'aria-live': 'polite' });
+    this.chapToggle = el('button.chaptoggle', { hidden: true, onclick: () => { this.showChapters = !this.showChapters; this.render(); } });
+    this.list = el('div.slist');
+    this.screenBox = el('div.sscreen');
+    elem.append(this.deckBox, this.readerBox, this.chapToggle, this.status, this.screenBox, this.list);
     this.buildReader();
     this.d.add(this.reader.onInfo(() => { if (this.visible) this.renderPageInfo(); }));
     this.d.listen(this.list, 'click', (e) => {
@@ -7973,17 +7973,17 @@ class SlidesPane {
 
   buildReader() {
     const r = this.readerBox;
-    const stage = h('div.rstage');
+    const stage = el('div.rstage');
     this.reader.addTarget('side', stage);
     this.stage = stage;
-    this.prevBtn = h('button.rnav', { 'aria-label': t('prevPage'), title: t('prevPage'), text: '‹', onclick: () => this.reader.turn(-1) });
-    this.nextBtn = h('button.rnav', { 'aria-label': t('nextPage'), title: t('nextPage'), text: '›', onclick: () => this.reader.turn(1) });
-    this.pageLabel = h('span.rlabel');
-    this.mainBtn = h('button.rmain', { onclick: () => this.player.setPdfMain(!this.player.prefs.pdfMain) });
-    this.followBox = h('div.rfollow');
-    this.timesBox = h('div.rtimes');
-    this.fixBox = h('details.rfix');
-    r.append(stage, h('div.rbar', null, this.prevBtn, this.pageLabel, this.nextBtn), this.mainBtn, this.followBox, this.timesBox, this.fixBox);
+    this.prevBtn = el('button.rnav', { 'aria-label': tr('prevPage'), title: tr('prevPage'), text: '‹', onclick: () => this.reader.turn(-1) });
+    this.nextBtn = el('button.rnav', { 'aria-label': tr('nextPage'), title: tr('nextPage'), text: '›', onclick: () => this.reader.turn(1) });
+    this.pageLabel = el('span.rlabel');
+    this.mainBtn = el('button.rmain', { onclick: () => this.player.setPdfMain(!this.player.prefs.pdfMain) });
+    this.followBox = el('div.rfollow');
+    this.timesBox = el('div.rtimes');
+    this.fixBox = el('details.rfix');
+    r.append(stage, el('div.rbar', null, this.prevBtn, this.pageLabel, this.nextBtn), this.mainBtn, this.followBox, this.timesBox, this.fixBox);
   }
 
   setChapters(chapters, statusText) {
@@ -8013,15 +8013,15 @@ class SlidesPane {
     const a = this.player.slides;
     const sources = this.player.lesson.sources;
     if (!a || sources.length < 2) return;
-    const how = a.manualScreen != null ? t('screenChosen') : a.screenIndex == null ? '' : a.screenSure ? t('screenFound') : t('screenGuessed');
-    box.append(h('span', { text: t('screenView') }));
+    const how = a.manualScreen != null ? tr('screenChosen') : a.screenIndex == null ? '' : a.screenSure ? tr('screenFound') : tr('screenGuessed');
+    box.append(el('span', { text: tr('screenView') }));
     sources.forEach((src, i) => {
       const on = src.index === a.screenIndex;
-      box.append(h('button.sview' + (on ? '.on' : ''), { text: t('viewN', { n: i + 1 }), 'aria-pressed': String(on), title: t('screenUse', { n: i + 1 }),
+      box.append(el('button.sview' + (on ? '.on' : ''), { text: tr('viewN', { n: i + 1 }), 'aria-pressed': String(on), title: tr('screenUse', { n: i + 1 }),
         onclick: () => { if (!on || a.manualScreen == null) a.chooseScreen(src.index).catch((e) => log.warn('screen choice:', e)); } }));
     });
-    if (how) box.append(h('span.sviewhow', { text: how }));
-    if (a.manualScreen != null) box.append(h('button.link', { text: t('screenAuto'), onclick: () => a.chooseScreen(null).catch((e) => log.warn('screen choice:', e)) }));
+    if (how) box.append(el('span.sviewhow', { text: how }));
+    if (a.manualScreen != null) box.append(el('button.link', { text: tr('screenAuto'), onclick: () => a.chooseScreen(null).catch((e) => log.warn('screen choice:', e)) }));
   }
 
   renderDeck() {
@@ -8029,27 +8029,27 @@ class SlidesPane {
     const box = this.deckBox;
     box.textContent = '';
     if (!deck) return;
-    const input = h('input', { type: 'file', accept: '.pdf,application/pdf', multiple: true, hidden: true });
+    const input = el('input', { type: 'file', accept: '.pdf,application/pdf', multiple: true, hidden: true });
     // Failures are shown in this tab (deck.error).
     input.addEventListener('change', guard(() => { if (input.files.length) deck.addFiles(input.files).catch(() => {}); }));
-    const files = h('div.sfiles');
+    const files = el('div.sfiles');
     for (const f of deck.files) {
-      files.append(h('span.sfile', null, h('span.sfname', { text: f.name, title: f.name }),
-        h('button.sfremove', { title: t('removeFile', { name: f.name }), 'aria-label': t('removeFile', { name: f.name }), text: '✕', onclick: () => deck.removeFile(f.hash) })));
+      files.append(el('span.sfile', null, el('span.sfname', { text: f.name, title: f.name }),
+        el('button.sfremove', { title: tr('removeFile', { name: f.name }), 'aria-label': tr('removeFile', { name: f.name }), text: '✕', onclick: () => deck.removeFile(f.hash) })));
     }
-    files.append(h('button.sfadd', { text: deck.files.length ? t('addMoreSlides') : t('addSlides'), onclick: () => input.click() }), input);
+    files.append(el('button.sfadd', { text: deck.files.length ? tr('addMoreSlides') : tr('addSlides'), onclick: () => input.click() }), input);
     let msg = '';
-    if (deck.state === 'loading') msg = t('deckLoading');
+    if (deck.state === 'loading') msg = tr('deckLoading');
     else if (deck.state === 'reading') {
       const r = deck.ocr;
-      msg = !r ? t('deckWaiting')
-        : r.state === 'reading' && !r.engineReady && r.stats.read === 0 ? t('deckLangLoading', { lang: languageName(r.lang), mb: (TESS_LANGS[r.lang].bytes / 1e6).toFixed(1) })
-          : t('deckReading', { pct: Math.floor(deck.progress * 100) });
+      msg = !r ? tr('deckWaiting')
+        : r.state === 'reading' && !r.engineReady && r.stats.read === 0 ? tr('deckLangLoading', { lang: languageName(r.lang), mb: (TESS_LANGS[r.lang].bytes / 1e6).toFixed(1) })
+          : tr('deckReading', { pct: Math.floor(deck.progress * 100) });
     }
     else if (deck.state === 'error') msg = deck.error;
-    else if (!deck.files.length) msg = t('slidesLocal');
+    else if (!deck.files.length) msg = tr('slidesLocal');
     box.append(files);
-    if (msg) box.append(h('div.sdmsg', { text: msg }));
+    if (msg) box.append(el('div.sdmsg', { text: msg }));
   }
 
   render() {
@@ -8060,7 +8060,7 @@ class SlidesPane {
     this.readerBox.hidden = !deck;
     this.reader.setActive('side', this.visible && !!deck);
     this.chapToggle.hidden = !deck || !this.chapters.length;
-    this.chapToggle.textContent = this.showChapters ? t('hideChapters') : t('showChapters', { n: this.chapters.length });
+    this.chapToggle.textContent = this.showChapters ? tr('hideChapters') : tr('showChapters', { n: this.chapters.length });
     const listShown = !deck || this.showChapters;
     this.list.hidden = !listShown;
     this.status.hidden = !listShown;
@@ -8080,12 +8080,12 @@ class SlidesPane {
         const cue = k >= 0 && cues[k].end > c.start ? cues[k] : cues[k + 1];
         if (cue && cue.start < c.end) said = cue.text;
       }
-      const img = c.thumb ? h('img', { src: c.thumb, alt: '', loading: 'lazy', decoding: 'async' }) : h('div.noimg');
-      const card = h('button.scard', { 'data-i': String(i) },
+      const img = c.thumb ? el('img', { src: c.thumb, alt: '', loading: 'lazy', decoding: 'async' }) : el('div.noimg');
+      const card = el('button.scard', { 'data-i': String(i) },
         img,
-        h('div.smeta', null,
-          h('div.stitle', null, h('span.sn', { text: t('slideN', { n: i + 1 }) }), h('span.st', { text: fmtTime(c.start, long) + (c.precise ? '' : ' ~') })),
-          said ? h('div.ssaid', { text: said }) : null));
+        el('div.smeta', null,
+          el('div.stitle', null, el('span.sn', { text: tr('slideN', { n: i + 1 }) }), el('span.st', { text: fmtTime(c.start, long) + (c.precise ? '' : ' ~') })),
+          said ? el('div.ssaid', { text: said }) : null));
       frag.appendChild(card);
       return card;
     });
@@ -8118,7 +8118,7 @@ class SlidesPane {
     this.pageLabel.title = p.title || '';
     this.prevBtn.disabled = i <= 0;
     this.nextBtn.disabled = i >= deck.pages.length - 1;
-    this.mainBtn.textContent = this.player.prefs.pdfMain ? t('pdfMainClose') : t('pdfMainOpen');
+    this.mainBtn.textContent = this.player.prefs.pdfMain ? tr('pdfMainClose') : tr('pdfMainOpen');
 
     this.followBox.textContent = '';
     this.followBox.append(rd.followElement());
@@ -8127,20 +8127,20 @@ class SlidesPane {
     const times = deck.timesOf(i);
     this.timesBox.textContent = '';
     if (times.length) {
-      this.timesBox.append(h('span.rtl', { text: t('shownAt') }));
-      for (const r of times) this.timesBox.append(h('button.rtime', { text: fmtTime(r.start, long), onclick: () => { this.player.seek(r.start); rd.resumeFollow(); } }));
+      this.timesBox.append(el('span.rtl', { text: tr('shownAt') }));
+      for (const r of times) this.timesBox.append(el('button.rtime', { text: fmtTime(r.start, long), onclick: () => { this.player.seek(r.start); rd.resumeFollow(); } }));
     } else if (deck.state === 'ready') {
-      this.timesBox.append(h('span.rtl', { text: t('notFoundInRecording') }));
+      this.timesBox.append(el('span.rtl', { text: tr('notFoundInRecording') }));
     }
 
     // Correction for the part being played.
     const fixed = deck.correctionAt(this.player.video.currentTime);
     this.fixBox.textContent = '';
-    this.fixBox.append(h('summary', { text: t('wrongPage') }),
-      h('button.rfixbtn', { text: t('useThisPage', { n: p.num }), onclick: () => { deck.correct(this.player.video.currentTime, i); this.fixBox.open = false; rd.resumeFollow(); } }),
-      h('button.rfixbtn', { text: t('markNotSlide'), onclick: () => { deck.correct(this.player.video.currentTime, 'none'); this.fixBox.open = false; rd.resumeFollow(); } }));
+    this.fixBox.append(el('summary', { text: tr('wrongPage') }),
+      el('button.rfixbtn', { text: tr('useThisPage', { n: p.num }), onclick: () => { deck.correct(this.player.video.currentTime, i); this.fixBox.open = false; rd.resumeFollow(); } }),
+      el('button.rfixbtn', { text: tr('markNotSlide'), onclick: () => { deck.correct(this.player.video.currentTime, 'none'); this.fixBox.open = false; rd.resumeFollow(); } }));
     if (fixed) {
-      this.fixBox.append(h('button.rfixbtn', { text: t('undoCorrection'), onclick: () => { deck.correct(this.player.video.currentTime, null); this.fixBox.open = false; rd.resumeFollow(); } }));
+      this.fixBox.append(el('button.rfixbtn', { text: tr('undoCorrection'), onclick: () => { deck.correct(this.player.video.currentTime, null); this.fixBox.open = false; rd.resumeFollow(); } }));
     }
   }
 
@@ -9072,7 +9072,7 @@ class SlideDeckController {
         await idbCache.update('deckref:' + hash, (refs) => (Array.isArray(refs) ? (refs.includes(mid) ? refs : refs.concat(mid)) : [mid]));
       } catch (e) {
         this.state = 'error';
-        this.error = t('deckSaveFailed', { name: f.name, msg: (e && e.message) || e });
+        this.error = tr('deckSaveFailed', { name: f.name, msg: (e && e.message) || e });
         this.onChange();
         throw e;
       }
@@ -9092,12 +9092,12 @@ class SlideDeckController {
     // In one transaction: drop this recording from the file's users and, if it was the
     // last one, the file itself (no other tab can add itself in between).
     const mid = this.lesson.mediaId;
-    await idbCache.tx('readwrite', (store) => {
-      const req = store.get('deckref:' + hash);
+    await idbCache.tx('readwrite', (os) => {
+      const req = os.get('deckref:' + hash);
       req.onsuccess = () => {
         const refs = (Array.isArray(req.result) ? req.result : []).filter((m) => m !== mid);
-        if (refs.length) store.put(refs, 'deckref:' + hash);
-        else { store.delete('deckref:' + hash); store.delete('deckfile:' + hash); }
+        if (refs.length) os.put(refs, 'deckref:' + hash);
+        else { os.delete('deckref:' + hash); os.delete('deckfile:' + hash); }
       };
       return req;
     }).catch((e) => log.warn('slide file removal:', e));
@@ -9156,7 +9156,7 @@ class SlideDeckController {
       if (this.ac.signal.aborted || this.job !== job) return;
       log.warn('slide file:', e && e.message ? e.message : e);
       this.state = 'error';
-      this.error = t('deckError', { msg: String((e && e.message) || e) });
+      this.error = tr('deckError', { msg: String((e && e.message) || e) });
       this.onChange();
     }
   }
@@ -9437,10 +9437,10 @@ const cpuFix = (function () {
   const own = { sheet: null, namesById: new Map(), names: new Set() };
   function ownSheet() {
     if (own.sheet && own.sheet.ownerNode && own.sheet.ownerNode.isConnected) return own.sheet;
-    const el = document.createElement('style');
-    el.setAttribute('data-echo360-lite-cpu-fix', '');
-    document.head.appendChild(el);
-    own.sheet = el.sheet;
+    const elem = document.createElement('style');
+    elem.setAttribute('data-echo360-lite-cpu-fix', '');
+    document.head.appendChild(elem);
+    own.sheet = elem.sheet;
     own.names.clear();
     own.namesById.clear();
     return own.sheet;
@@ -9538,8 +9538,8 @@ const cpuFix = (function () {
   function scan() {
     let gsProto = null;
     let csProto = null;
-    for (const el of document.querySelectorAll('body, body *')) {
-      const c = el._reactRootContainer;
+    for (const elem of document.querySelectorAll('body, body *')) {
+      const c = elem._reactRootContainer;
       const root = c && (c._internalRoot || c);
       if (!root || !root.current) continue;
       const stack = [root.current];
@@ -9570,8 +9570,8 @@ const cpuFix = (function () {
     installThrottle();
     const t0 = Date.now();
     const timer = setInterval(() => {
-      const el = document.querySelector('style[data-styled-version]');
-      const ver = el && el.getAttribute('data-styled-version');
+      const elem = document.querySelector('style[data-styled-version]');
+      const ver = elem && elem.getAttribute('data-styled-version');
       if (ver && !/^4\./.test(ver)) { clearInterval(timer); log.info('cpu-fix inactive: styled-components ' + ver); return; }
       if (ver) {
         try {
@@ -9655,10 +9655,10 @@ const courseList = {
 
     const label = (row, info) => {
       const host = row.querySelector('.header-details') || row.querySelector('header') || row;
-      let el = host.querySelector('.e3l-watch');
-      if (!info) { if (el) el.remove(); return; }
-      if (!el) { el = document.createElement('span'); host.append(el); }
-      el.textContent = '';
+      let elem = host.querySelector('.e3l-watch');
+      if (!info) { if (elem) elem.remove(); return; }
+      if (!elem) { elem = document.createElement('span'); host.append(elem); }
+      elem.textContent = '';
       const bar = document.createElement('span');
       bar.className = 'e3l-bar';
       const dur = info.dur;
@@ -9676,21 +9676,21 @@ const courseList = {
         b.style.left = Math.min(100, (info.last / dur) * 100).toFixed(2) + '%';
         bar.append(b);
       }
-      el.append(bar);
+      elem.append(bar);
       const txt = document.createElement('span');
       if (info.ranges) {
         const pct = Math.max(1, Math.round(info.share * 100)); // never "0%" for something watched
-        txt.textContent = t('listWatched', { pct });
-        tips.push(t('listWatchedTitle', { pct }));
-        el.className = 'e3l-watch' + (pct >= LIST_DONE_PCT ? ' e3l-done' : '');
+        txt.textContent = tr('listWatched', { pct });
+        tips.push(tr('listWatchedTitle', { pct }));
+        elem.className = 'e3l-watch' + (pct >= LIST_DONE_PCT ? ' e3l-done' : '');
       } else {
-        txt.textContent = t('listLastAt', { time: fmtTime(info.last) });
+        txt.textContent = tr('listLastAt', { time: fmtTime(info.last) });
         txt.className = 'e3l-last';
-        el.className = 'e3l-watch';
+        elem.className = 'e3l-watch';
       }
-      if (info.last != null) tips.push(t('listLastAtTitle', { time: fmtTime(info.last) }));
-      el.append(txt);
-      el.title = tips.join('; ');
+      if (info.last != null) tips.push(tr('listLastAtTitle', { time: fmtTime(info.last) }));
+      elem.append(txt);
+      elem.title = tips.join('; ');
     };
 
     // { dur, ranges, share } from this device and/or { last } from Echo360; null if neither.
@@ -9854,19 +9854,19 @@ function mdEscape(s) {
 function lectureMarkdown(lec) {
   const long = lec.items.some((x) => x.time >= 3600);
   const lines = ['# ' + lec.title, ''];
-  const meta = [lec.date ? t('mdRecorded', { date: lec.date }) : null, lec.url ? '[' + t('mdOpen') + '](' + lec.url + ')' : null].filter(Boolean);
+  const meta = [lec.date ? tr('mdRecorded', { date: lec.date }) : null, lec.url ? '[' + tr('mdOpen') + '](' + lec.url + ')' : null].filter(Boolean);
   if (meta.length) lines.push(meta.join(' · '), '');
   const items = lec.items.filter((x) => x.type === 'note' || x.type === 'bookmark');
-  if (!items.length) lines.push('_' + t('mdNothing') + '_');
+  if (!items.length) lines.push('_' + tr('mdNothing') + '_');
   for (const x of items) {
-    const when = x.time != null ? '[' + fmtTime(x.time, long) + '](' + lec.url + '#t=' + Math.floor(x.time) + ')' : t('mdNoTime');
+    const when = x.time != null ? '[' + fmtTime(x.time, long) + '](' + lec.url + '#t=' + Math.floor(x.time) + ')' : tr('mdNoTime');
     const tags = lec.tagsOf(x.id).map((g) => mdTag(g.name)).filter(Boolean).join(' ');
-    const body = x.type === 'note' ? mdEscape(x.text) : '🔖 ' + t('markerBookmark');
+    const body = x.type === 'note' ? mdEscape(x.text) : '🔖 ' + tr('markerBookmark');
     lines.push('- **' + when + '** ' + body + (tags ? ' ' + tags : ''));
     const pic = lec.picture ? lec.picture(x) : null;
     if (pic) lines.push('  ', '  ![](' + encodeURI(pic).replace(/\(/g, '%28').replace(/\)/g, '%29') + ')');
   }
-  lines.push('', '_' + t('mdFooter', { date: new Date().toISOString().slice(0, 10) }) + '_', '');
+  lines.push('', '_' + tr('mdFooter', { date: new Date().toISOString().slice(0, 10) }) + '_', '');
   return lines.join('\n');
 }
 
@@ -10012,7 +10012,7 @@ async function makeBackup(withPdfs) {
 // first; the IndexedDB entries are then written in one transaction (all or none), and only
 // then the settings. Returns the number of entries written.
 async function restoreBackup(data, db = idbCache) {
-  if (!data || data.app !== 'echo360-lite' || data.v !== 1 || !data.db || typeof data.db !== 'object') throw new Error(t('backupInvalid'));
+  if (!data || data.app !== 'echo360-lite' || data.v !== 1 || !data.db || typeof data.db !== 'object') throw new Error(tr('backupInvalid'));
   // Settings and positions: only known keys, each validated like the player does (a
   // damaged value becomes the default instead of breaking every later visit).
   const local = [];
@@ -10062,7 +10062,6 @@ function browserName() {
 
 function scriptManager() {
   try {
-    // eslint-disable-next-line no-undef
     if (typeof GM_info !== 'undefined' && GM_info) return (GM_info.scriptHandler || 'userscript manager') + ' ' + (GM_info.version || '');
   } catch (e) { /* not available */ }
   return 'unknown (or development)';
@@ -10160,13 +10159,13 @@ function diagnosticsText(p) {
         if (!player) return;
         let handoff = arg;
         try { handoff = adapter.withStartTime(arg, player.video.currentTime); } catch (e) { /* keep original arg */ }
-        startOriginal(callOriginal, handoff, t('errorNotice'));
+        startOriginal(callOriginal, handoff, tr('errorNotice'));
       };
       console.info(TAG, 'v' + VERSION + ' active (' + adapter.id + ', ' + lesson.sources.length + ' sources, reporting '
         + (lesson.analytics ? 'on' : 'off') + ')');
     } catch (e) {
       log.warn('could not start, using the original player:', e);
-      startOriginal(callOriginal, arg, t('fallbackNotice'));
+      startOriginal(callOriginal, arg, tr('fallbackNotice'));
     }
     return undefined;
   });
@@ -10182,7 +10181,7 @@ function diagnosticsText(p) {
       if (!document.querySelector('video') && ++tries < 4) { setTimeout(check, BOOT_CHECK_MS); return; }
       log.info('player bootstrap not seen; leaving the original player in place');
       cpuFix.start();
-      notice(t('fallbackNotice'));
+      notice(tr('fallbackNotice'));
     };
     setTimeout(check, BOOT_CHECK_MS);
   });

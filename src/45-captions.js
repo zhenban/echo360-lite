@@ -55,10 +55,10 @@ function captionExcerpt(cues, t, span) {
 const CAPTION_SIZES = { s: 0.8, m: 1, l: 1.3, xl: 1.65 };
 
 class CaptionsView {
-  constructor(el, video) {
-    this.el = el;
+  constructor(elem, video) {
+    this.el = elem;
     this.video = video;
-    this.textEl = el.firstElementChild;
+    this.textEl = elem.firstElementChild;
     this.index = null;
     this.on = false;
     this.shown = -2;
@@ -122,15 +122,15 @@ class CaptionsView {
 // Transcript tab of the side panel. The list is built once, on first show; rows use
 // `content-visibility: auto`, so off-screen rows cost no layout or paint.
 class TranscriptPanel {
-  constructor(player, el, marksEl) {
+  constructor(player, elem, marksEl) {
     this.player = player;
-    this.el = el;
+    this.el = elem;
     this.visible = false;
     this.marksEl = marksEl;
-    this.list = el.querySelector('.tlist');
-    this.search = el.querySelector('.tsearch');
-    this.countEl = el.querySelector('.tcount');
-    this.backBtn = el.querySelector('.tback');
+    this.list = elem.querySelector('.tlist');
+    this.search = elem.querySelector('.tsearch');
+    this.countEl = elem.querySelector('.tcount');
+    this.backBtn = elem.querySelector('.tback');
     this.cues = [];
     this.lower = null;
     this.index = null;
@@ -258,7 +258,7 @@ class TranscriptPanel {
       for (let i = 0; i < this.lower.length; i++) if (this.lower[i].includes(q)) this.hits.push(i);
       for (const i of this.hits) this.rows[i].classList.add('hit');
     }
-    this.countEl.textContent = q ? t('searchCount', { n: this.hits.length }) : '';
+    this.countEl.textContent = q ? tr('searchCount', { n: this.hits.length }) : '';
     this.renderMarks();
   }
 
@@ -266,15 +266,15 @@ class TranscriptPanel {
     if (!this.hits.length) return;
     this.hitPos = (this.hitPos + dir + this.hits.length) % this.hits.length;
     const k = this.hits[this.hitPos];
-    this.countEl.textContent = t('searchPos', { i: this.hitPos + 1, n: this.hits.length });
+    this.countEl.textContent = tr('searchPos', { i: this.hitPos + 1, n: this.hits.length });
     this.stopFollowing();
     this.scrollTo(k);
   }
 
   // Search hits on the progress bar, merged into 0.25% buckets (at most 400 marks).
   renderMarks() {
-    const el = this.marksEl;
-    el.textContent = '';
+    const elem = this.marksEl;
+    elem.textContent = '';
     const dur = this.player.duration();
     if (!this.hits.length || !dur) return;
     const seen = new Set();
@@ -287,7 +287,7 @@ class TranscriptPanel {
       m.style.left = (bucket / 4).toFixed(2) + '%';
       frag.appendChild(m);
     }
-    el.appendChild(frag);
+    elem.appendChild(frag);
   }
 
   dispose() {

@@ -55,10 +55,10 @@ const cpuFix = (function () {
   const own = { sheet: null, namesById: new Map(), names: new Set() };
   function ownSheet() {
     if (own.sheet && own.sheet.ownerNode && own.sheet.ownerNode.isConnected) return own.sheet;
-    const el = document.createElement('style');
-    el.setAttribute('data-echo360-lite-cpu-fix', '');
-    document.head.appendChild(el);
-    own.sheet = el.sheet;
+    const elem = document.createElement('style');
+    elem.setAttribute('data-echo360-lite-cpu-fix', '');
+    document.head.appendChild(elem);
+    own.sheet = elem.sheet;
     own.names.clear();
     own.namesById.clear();
     return own.sheet;
@@ -156,8 +156,8 @@ const cpuFix = (function () {
   function scan() {
     let gsProto = null;
     let csProto = null;
-    for (const el of document.querySelectorAll('body, body *')) {
-      const c = el._reactRootContainer;
+    for (const elem of document.querySelectorAll('body, body *')) {
+      const c = elem._reactRootContainer;
       const root = c && (c._internalRoot || c);
       if (!root || !root.current) continue;
       const stack = [root.current];
@@ -188,8 +188,8 @@ const cpuFix = (function () {
     installThrottle();
     const t0 = Date.now();
     const timer = setInterval(() => {
-      const el = document.querySelector('style[data-styled-version]');
-      const ver = el && el.getAttribute('data-styled-version');
+      const elem = document.querySelector('style[data-styled-version]');
+      const ver = elem && elem.getAttribute('data-styled-version');
       if (ver && !/^4\./.test(ver)) { clearInterval(timer); log.info('cpu-fix inactive: styled-components ' + ver); return; }
       if (ver) {
         try {

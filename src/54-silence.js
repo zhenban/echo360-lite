@@ -94,9 +94,9 @@ class HlsAudioTrack {
   // Decoded audio of chunk i: { start, end, rate, pcm } with pcm a mono Float32Array.
   async readChunk(i, signal, rate) {
     const sampleRate = rate || AUDIO_RATE;
-    const c = this.chunks[i];
-    if (!c) throw new Error('no chunk ' + i);
-    const segs = this.segments.slice(c.a, c.b);
+    const chunk = this.chunks[i];
+    if (!chunk) throw new Error('no chunk ' + i);
+    const segs = this.segments.slice(chunk.a, chunk.b);
     if (this.init && !this.initBytes) this.initBytes = await fetchRange(this.init.url, this.init.offset, this.init.length, signal);
     // Adjacent byte ranges of the same file are fetched with one request.
     const reqs = [];

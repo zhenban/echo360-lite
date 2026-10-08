@@ -13,7 +13,7 @@ const srcDir = join(root, 'src');
 const files = readdirSync(srcDir).filter((f) => f.endsWith('.js')).sort();
 
 // Source code stays English-only; translated UI strings will live in their own table.
-const CJK = /[　-〿㐀-鿿豈-﫿＀-￯]/;
+const CJK = /[\u3000-\u303f\u3400-\u9fff\uf900-\ufaff\uff00-\uffef]/;
 let failed = false;
 const parts = files.map((f) => {
   const text = readFileSync(join(srcDir, f), 'utf8');

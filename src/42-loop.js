@@ -26,14 +26,14 @@ class ABLoop {
 
   build() {
     const seek = this.p.$('.seek');
-    this.band = h('div.loopband', { hidden: true },
-      h('i.lh.la', { title: t('loopStart') }), h('i.lh.lb', { title: t('loopEnd') }),
-      h('button.lx', { title: t('loopClear') + ' (X)', 'aria-label': t('loopClear'), text: '✕' }));
+    this.band = el('div.loopband', { hidden: true },
+      el('i.lh.la', { title: tr('loopStart') }), el('i.lh.lb', { title: tr('loopEnd') }),
+      el('button.lx', { title: tr('loopClear') + ' (X)', 'aria-label': tr('loopClear'), text: '✕' }));
     seek.append(this.band);
-    this.menu = h('div.menu.loopmenu', { hidden: true, role: 'menu' },
-      h('button', { 'data-loop': 'a', text: t('loopFromHere') }),
-      h('button', { 'data-loop': 'b', text: t('loopToHere') }),
-      h('button', { 'data-loop': 'x', text: t('loopClear') }));
+    this.menu = el('div.menu.loopmenu', { hidden: true, role: 'menu' },
+      el('button', { 'data-loop': 'a', text: tr('loopFromHere') }),
+      el('button', { 'data-loop': 'b', text: tr('loopToHere') }),
+      el('button', { 'data-loop': 'x', text: tr('loopClear') }));
     const host = this.p.$('.speedmenu').parentElement;  // where the other menus live
     host.append(this.menu);
     const d = this.d;
@@ -94,7 +94,7 @@ class ABLoop {
     this.a = clamp(tm, 0, this.p.duration());
     if (this.b != null && this.b - this.a < LOOP_MIN_SEC) this.b = null;
     this.render();
-    if (this.active) this.announce(); else this.p.toast(t('loopStartSet', { time: fmtTime(this.a) }));
+    if (this.active) this.announce(); else this.p.toast(tr('loopStartSet', { time: fmtTime(this.a) }));
   }
 
   setB(tm) {
@@ -114,11 +114,11 @@ class ABLoop {
     this.b = null;
     clearTimeout(this.timer);
     this.render();
-    this.p.toast(t('loopCleared'));
+    this.p.toast(tr('loopCleared'));
   }
 
   announce() {
-    this.p.toast(t('loopSet', { from: fmtTime(this.a), to: fmtTime(this.b) }), t('loopClear'), () => this.clear());
+    this.p.toast(tr('loopSet', { from: fmtTime(this.a), to: fmtTime(this.b) }), tr('loopClear'), () => this.clear());
   }
 
   render() {
@@ -156,6 +156,6 @@ class ABLoop {
   seeked(target) {
     if (!this.active || (target >= this.a - 0.5 && target < this.b)) return;
     this.last = target;
-    this.p.toast(t('loopOutside', { from: fmtTime(this.a), to: fmtTime(this.b) }), t('loopClear'), () => this.clear());
+    this.p.toast(tr('loopOutside', { from: fmtTime(this.a), to: fmtTime(this.b) }), tr('loopClear'), () => this.clear());
   }
 }

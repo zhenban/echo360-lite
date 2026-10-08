@@ -14,7 +14,6 @@ function browserName() {
 
 function scriptManager() {
   try {
-    // eslint-disable-next-line no-undef
     if (typeof GM_info !== 'undefined' && GM_info) return (GM_info.scriptHandler || 'userscript manager') + ' ' + (GM_info.version || '');
   } catch (e) { /* not available */ }
   return 'unknown (or development)';

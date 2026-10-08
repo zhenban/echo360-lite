@@ -101,19 +101,19 @@ function mdEscape(s) {
 function lectureMarkdown(lec) {
   const long = lec.items.some((x) => x.time >= 3600);
   const lines = ['# ' + lec.title, ''];
-  const meta = [lec.date ? t('mdRecorded', { date: lec.date }) : null, lec.url ? '[' + t('mdOpen') + '](' + lec.url + ')' : null].filter(Boolean);
+  const meta = [lec.date ? tr('mdRecorded', { date: lec.date }) : null, lec.url ? '[' + tr('mdOpen') + '](' + lec.url + ')' : null].filter(Boolean);
   if (meta.length) lines.push(meta.join(' · '), '');
   const items = lec.items.filter((x) => x.type === 'note' || x.type === 'bookmark');
-  if (!items.length) lines.push('_' + t('mdNothing') + '_');
+  if (!items.length) lines.push('_' + tr('mdNothing') + '_');
   for (const x of items) {
-    const when = x.time != null ? '[' + fmtTime(x.time, long) + '](' + lec.url + '#t=' + Math.floor(x.time) + ')' : t('mdNoTime');
+    const when = x.time != null ? '[' + fmtTime(x.time, long) + '](' + lec.url + '#t=' + Math.floor(x.time) + ')' : tr('mdNoTime');
     const tags = lec.tagsOf(x.id).map((g) => mdTag(g.name)).filter(Boolean).join(' ');
-    const body = x.type === 'note' ? mdEscape(x.text) : '🔖 ' + t('markerBookmark');
+    const body = x.type === 'note' ? mdEscape(x.text) : '🔖 ' + tr('markerBookmark');
     lines.push('- **' + when + '** ' + body + (tags ? ' ' + tags : ''));
     const pic = lec.picture ? lec.picture(x) : null;
     if (pic) lines.push('  ', '  ![](' + encodeURI(pic).replace(/\(/g, '%28').replace(/\)/g, '%29') + ')');
   }
-  lines.push('', '_' + t('mdFooter', { date: new Date().toISOString().slice(0, 10) }) + '_', '');
+  lines.push('', '_' + tr('mdFooter', { date: new Date().toISOString().slice(0, 10) }) + '_', '');
   return lines.join('\n');
 }
 
@@ -259,7 +259,7 @@ async function makeBackup(withPdfs) {
 // first; the IndexedDB entries are then written in one transaction (all or none), and only
 // then the settings. Returns the number of entries written.
 async function restoreBackup(data, db = idbCache) {
-  if (!data || data.app !== 'echo360-lite' || data.v !== 1 || !data.db || typeof data.db !== 'object') throw new Error(t('backupInvalid'));
+  if (!data || data.app !== 'echo360-lite' || data.v !== 1 || !data.db || typeof data.db !== 'object') throw new Error(tr('backupInvalid'));
   // Settings and positions: only known keys, each validated like the player does (a
   // damaged value becomes the default instead of breaking every later visit).
   const local = [];

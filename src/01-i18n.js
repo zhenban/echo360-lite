@@ -318,7 +318,7 @@ const STRINGS = {
 
 const LANG = 'en';
 
-function t(key, vars) {
+function tr(key, vars) {
   let s = (STRINGS[LANG] && STRINGS[LANG][key]) || STRINGS.en[key] || key;
   if (vars) s = s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
   return s;

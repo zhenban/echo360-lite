@@ -1,5 +1,5 @@
 // Unit tests for the pure logic in src/ (no browser needed).
-//   node --test test/unit.test.mjs
+//   npm test        (or: node --test test/*.test.mjs)
 // The sources are plain scripts meant to be concatenated, so they are evaluated in a small
 // sandbox with just enough browser globals stubbed out.
 import { test } from 'node:test';
@@ -29,7 +29,7 @@ function loadSources(names, overrides) {
   };
   Object.assign(ctx, overrides || {});
   vm.createContext(ctx);
-  const files = readdirSync(join(root, 'src')).filter((f) => f.startsWith('02-tuning') || names.some((n) => f.includes(n))).sort();
+  const files = readdirSync(join(root, 'src')).filter((f) => f.startsWith('02-tuning') || names.some((n) => f === n + '.js' || f.startsWith(n + '-'))).sort();
   const code = files.map((f) => readFileSync(join(root, 'src', f), 'utf8')).join('\n')
     + '\n;globalThis.__exports = {};'
     + ['clamp', 'fmtTime', 'parseIsoDuration', 'Disposer', 'PlayedRanges', 'FollowerSync', 'CueIndex', 'parseVtt', 'AudioChain', 'seg', 'thumbnailFor', 'pickAudioRendition', 'parseMediaPlaylist', 'Envelope', 'findSilences', 'silencesFromCues', 'speechSpans', 'silenceIndexAt', 'mp4Boxes', 'parseFragment', 'videoVariants', 'Stream', 'pickScreen', 'slightChange', 'thumbChange', 'learnThreshold', 'sampleChanges', 'groupSegments', 'sampleIndexAt', 'HlsVideoReader', 'buildScenes', 'chapterIndexAt', 'SessionKeeper', 'mediaSession', 'TagStore', 'watchedShare', 'makeZip', 'crc32', 'lectureMarkdown', 'mdTag', 'followSamples', 'followLecture', 'textScores', 'slideWords', 'ocrLanguage', 'TESS_LANGS', 'slideTextWorkerSource', 'FORCE_OFF', 'captionExcerpt',

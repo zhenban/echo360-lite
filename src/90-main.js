@@ -52,13 +52,13 @@
         if (!player) return;
         let handoff = arg;
         try { handoff = adapter.withStartTime(arg, player.video.currentTime); } catch (e) { /* keep original arg */ }
-        startOriginal(callOriginal, handoff, t('errorNotice'));
+        startOriginal(callOriginal, handoff, tr('errorNotice'));
       };
       console.info(TAG, 'v' + VERSION + ' active (' + adapter.id + ', ' + lesson.sources.length + ' sources, reporting '
         + (lesson.analytics ? 'on' : 'off') + ')');
     } catch (e) {
       log.warn('could not start, using the original player:', e);
-      startOriginal(callOriginal, arg, t('fallbackNotice'));
+      startOriginal(callOriginal, arg, tr('fallbackNotice'));
     }
     return undefined;
   });
@@ -74,7 +74,7 @@
       if (!document.querySelector('video') && ++tries < 4) { setTimeout(check, BOOT_CHECK_MS); return; }
       log.info('player bootstrap not seen; leaving the original player in place');
       cpuFix.start();
-      notice(t('fallbackNotice'));
+      notice(tr('fallbackNotice'));
     };
     setTimeout(check, BOOT_CHECK_MS);
   });

@@ -456,33 +456,33 @@ function playerTemplate() {
     <div class="pdfview" data-slot="off">
       <div class="pstage"></div>
       <div class="pbar">
-        <button class="pnav pprev" title="${t('prevPage')}" aria-label="${t('prevPage')}">‹</button>
+        <button class="pnav pprev" title="${tr('prevPage')}" aria-label="${tr('prevPage')}">‹</button>
         <span class="plabel"></span>
-        <button class="pnav pnext" title="${t('nextPage')}" aria-label="${t('nextPage')}">›</button>
+        <button class="pnav pnext" title="${tr('nextPage')}" aria-label="${tr('nextPage')}">›</button>
         <span class="pfollow"></span>
-        <button class="pnav pswap" title="${t('pdfSwap')}" aria-label="${t('pdfSwap')}">⇄</button>
-        <button class="pnav pdfclose" title="${t('pdfMainClose')}" aria-label="${t('pdfMainClose')}">✕</button>
+        <button class="pnav pswap" title="${tr('pdfSwap')}" aria-label="${tr('pdfSwap')}">⇄</button>
+        <button class="pnav pdfclose" title="${tr('pdfMainClose')}" aria-label="${tr('pdfMainClose')}">✕</button>
       </div>
     </div>
-    <div class="divider" role="separator" aria-orientation="vertical" aria-label="${t('resizeViews')}" tabindex="0"></div>
-    <div class="pipframe" title="${t('pipHint')}"><div class="grip" title="${t('resizePip')}"></div></div>
+    <div class="divider" role="separator" aria-orientation="vertical" aria-label="${tr('resizeViews')}" tabindex="0"></div>
+    <div class="pipframe" title="${tr('pipHint')}"><div class="grip" title="${tr('resizePip')}"></div></div>
   </div>
   <div class="captions" hidden><span></span></div>
   <div class="center"><div class="spinner"></div></div>
-  <div class="sessionhint" role="status" hidden><i></i><span>${t('sessionRenewing')}</span></div>
+  <div class="sessionhint" role="status" hidden><i></i><span>${tr('sessionRenewing')}</span></div>
   <div class="top">
-    <a class="back" title="${t('back')}" aria-label="${t('back')}">${svg('back')}</a>
+    <a class="back" title="${tr('back')}" aria-label="${tr('back')}">${svg('back')}</a>
     <div class="title"></div>
-    <span class="pausehint" aria-hidden="true">${svg('pause')}<span>${t('pausedHint')}</span></span>
- <button class="chip tbtn" data-open="transcript" hidden aria-pressed="false" title="${t('transcriptKey')}">${svg('transcript')}<span class="lbl">${t('transcript')}</span></button>
-    <button class="chip tbtn" data-open="slides" hidden aria-pressed="false" title="${t('slidesKey')}">${svg('slides')}<span class="lbl">${t('slides')}</span></button>
-    <button class="chip tbtn" data-open="notes" hidden aria-pressed="false" title="${t('notes')}">${svg('notes')}<span class="lbl">${t('notes')}</span></button>
-    <button class="chip tbtn" data-open="discussion" hidden aria-pressed="false" title="${t('discussion')}">${svg('discussion')}<span class="lbl">${t('discussion')}</span></button>
-    <button class="chip kbtn" title="${t('keysTitle')} (?)" aria-label="${t('keysTitle')}">?</button>
-    <button class="chip orig" title="${t('originalPlayerTitle')}">${t('originalPlayer')}</button>
+    <span class="pausehint" aria-hidden="true">${svg('pause')}<span>${tr('pausedHint')}</span></span>
+ <button class="chip tbtn" data-open="transcript" hidden aria-pressed="false" title="${tr('transcriptKey')}">${svg('transcript')}<span class="lbl">${tr('transcript')}</span></button>
+    <button class="chip tbtn" data-open="slides" hidden aria-pressed="false" title="${tr('slidesKey')}">${svg('slides')}<span class="lbl">${tr('slides')}</span></button>
+    <button class="chip tbtn" data-open="notes" hidden aria-pressed="false" title="${tr('notes')}">${svg('notes')}<span class="lbl">${tr('notes')}</span></button>
+    <button class="chip tbtn" data-open="discussion" hidden aria-pressed="false" title="${tr('discussion')}">${svg('discussion')}<span class="lbl">${tr('discussion')}</span></button>
+    <button class="chip kbtn" title="${tr('keysTitle')} (?)" aria-label="${tr('keysTitle')}">?</button>
+    <button class="chip orig" title="${tr('originalPlayerTitle')}">${tr('originalPlayer')}</button>
   </div>
   <div class="bottom">
-    <div class="seek" role="slider" aria-label="${t('seek')}" tabindex="0">
+    <div class="seek" role="slider" aria-label="${tr('seek')}" tabindex="0">
       <div class="rail"><div class="wat"></div><div class="bar buf"></div><div class="sils"></div><div class="chaps"></div><div class="bar hov"></div><div class="bar fill"></div></div>
       <div class="imarks"></div>
       <div class="marks"></div>
@@ -490,99 +490,99 @@ function playerTemplate() {
       <div class="tip"><img class="pv" alt="" hidden><span class="tt">0:00</span></div>
     </div>
     <div class="row">
-      <button class="btn play" title="${t('play')}" aria-label="${t('play')}">${svg('play')}</button>
-      <button class="btn rew hide-sm" title="${t('rewind')}" aria-label="${t('rewind')}">${svg('back10')}</button>
-      <button class="btn fwd hide-sm" title="${t('forward')}" aria-label="${t('forward')}">${svg('fwd10')}</button>
+      <button class="btn play" title="${tr('play')}" aria-label="${tr('play')}">${svg('play')}</button>
+      <button class="btn rew hide-sm" title="${tr('rewind')}" aria-label="${tr('rewind')}">${svg('back10')}</button>
+      <button class="btn fwd hide-sm" title="${tr('forward')}" aria-label="${tr('forward')}">${svg('fwd10')}</button>
       <div class="vol">
-        <button class="btn mute" title="${t('mute')}" aria-label="${t('mute')}">${svg('volume')}</button>
-        <input class="volume hide-sm" type="range" min="0" max="1" step="0.01" aria-label="${t('volume')}">
+        <button class="btn mute" title="${tr('mute')}" aria-label="${tr('mute')}">${svg('volume')}</button>
+        <input class="volume hide-sm" type="range" min="0" max="1" step="0.01" aria-label="${tr('volume')}">
       </div>
       <div class="time"><span class="cur">0:00</span> / <span class="dur">0:00</span></div>
       <div class="spacer"></div>
-      <button class="btn bmbtn hide-sm" hidden title="${t('bookmarkKey')}" aria-label="${t('bookmark')}">${svg('bookmark')}</button>
-      <button class="btn flagbtn hide-sm" hidden title="${t('flagKey')}" aria-label="${t('flag')}" aria-pressed="false">${svg('flag')}</button>
-      <button class="btn copybtn" title="${t('copy')}" aria-label="${t('copy')}" aria-haspopup="menu">${svg('copy')}</button>
-      <button class="btn audiobtn hide-sm" title="${t('audio')}" aria-label="${t('audio')}" aria-haspopup="menu">${svg('audio')}</button>
-      <button class="btn ccbtn" hidden title="${t('captionsKey')}" aria-label="${t('captions')}" aria-haspopup="menu">${svg('cc')}</button>
-      <button class="btn swap" title="${t('swapViews')}" aria-label="${t('swapViews')}">${svg('swap')}</button>
-      <button class="btn layout" title="${t('layout')}" aria-label="${t('layout')}" aria-haspopup="menu">${svg('layoutSide')}</button>
-      <button class="qbtn hide-sm" title="${t('quality')}" aria-label="${t('quality')}" aria-haspopup="menu"></button>
-      <button class="speed" title="${t('speed')}" aria-label="${t('speed')}">1x</button>
-      <button class="btn popbtn" hidden aria-pressed="false" title="${t('popout')} (W)" aria-label="${t('popout')}">${svg('popout')}</button>
-      <button class="btn fs" title="${t('fullscreen')}" aria-label="${t('fullscreen')}">${svg('fullscreen')}</button>
-      <button class="btn morebtn" title="${t('moreMenu')}" aria-label="${t('moreMenu')}" aria-haspopup="menu">${svg('more')}</button>
+      <button class="btn bmbtn hide-sm" hidden title="${tr('bookmarkKey')}" aria-label="${tr('bookmark')}">${svg('bookmark')}</button>
+      <button class="btn flagbtn hide-sm" hidden title="${tr('flagKey')}" aria-label="${tr('flag')}" aria-pressed="false">${svg('flag')}</button>
+      <button class="btn copybtn" title="${tr('copy')}" aria-label="${tr('copy')}" aria-haspopup="menu">${svg('copy')}</button>
+      <button class="btn audiobtn hide-sm" title="${tr('audio')}" aria-label="${tr('audio')}" aria-haspopup="menu">${svg('audio')}</button>
+      <button class="btn ccbtn" hidden title="${tr('captionsKey')}" aria-label="${tr('captions')}" aria-haspopup="menu">${svg('cc')}</button>
+      <button class="btn swap" title="${tr('swapViews')}" aria-label="${tr('swapViews')}">${svg('swap')}</button>
+      <button class="btn layout" title="${tr('layout')}" aria-label="${tr('layout')}" aria-haspopup="menu">${svg('layoutSide')}</button>
+      <button class="qbtn hide-sm" title="${tr('quality')}" aria-label="${tr('quality')}" aria-haspopup="menu"></button>
+      <button class="speed" title="${tr('speed')}" aria-label="${tr('speed')}">1x</button>
+      <button class="btn popbtn" hidden aria-pressed="false" title="${tr('popout')} (W)" aria-label="${tr('popout')}">${svg('popout')}</button>
+      <button class="btn fs" title="${tr('fullscreen')}" aria-label="${tr('fullscreen')}">${svg('fullscreen')}</button>
+      <button class="btn morebtn" title="${tr('moreMenu')}" aria-label="${tr('moreMenu')}" aria-haspopup="menu">${svg('more')}</button>
     </div>
   </div>
   <div class="menu qualitymenu" hidden role="menu"></div>
-  <div class="menu speedmenu" hidden role="menu"><div class="head">${t('speed')}</div></div>
-  <div class="menu layoutmenu" hidden role="menu"><div class="head">${t('layout')}</div>
-    <button role="menuitemradio" data-layout="side">${svg('layoutSide')}${t('layoutSide')}</button>
-    <button role="menuitemradio" data-layout="pip">${svg('layoutPip')}${t('layoutPip')}</button>
-    <button role="menuitemradio" data-layout="single">${svg('layoutSingle')}${t('layoutSingle')}</button>
+  <div class="menu speedmenu" hidden role="menu"><div class="head">${tr('speed')}</div></div>
+  <div class="menu layoutmenu" hidden role="menu"><div class="head">${tr('layout')}</div>
+    <button role="menuitemradio" data-layout="side">${svg('layoutSide')}${tr('layoutSide')}</button>
+    <button role="menuitemradio" data-layout="pip">${svg('layoutPip')}${tr('layoutPip')}</button>
+    <button role="menuitemradio" data-layout="single">${svg('layoutSingle')}${tr('layoutSingle')}</button>
   </div>
-  <div class="menu ccmenu" hidden role="menu"><div class="head">${t('captions')}</div>
-    <button class="opt cctoggle" role="menuitemcheckbox" aria-checked="false"><span>${t('showCaptions')}</span><span class="state"></span></button>
-    <button class="opt cchidepaused" role="menuitemcheckbox" aria-checked="true"><span>${t('hideCaptionsPaused')}</span><span class="state"></span></button>
-    <div class="head">${t('captionSize')}</div>
+  <div class="menu ccmenu" hidden role="menu"><div class="head">${tr('captions')}</div>
+    <button class="opt cctoggle" role="menuitemcheckbox" aria-checked="false"><span>${tr('showCaptions')}</span><span class="state"></span></button>
+    <button class="opt cchidepaused" role="menuitemcheckbox" aria-checked="true"><span>${tr('hideCaptionsPaused')}</span><span class="state"></span></button>
+    <div class="head">${tr('captionSize')}</div>
     <div class="sizes">
       <button role="menuitemradio" data-size="s">S</button><button role="menuitemradio" data-size="m">M</button><button role="menuitemradio" data-size="l">L</button><button role="menuitemradio" data-size="xl">XL</button>
     </div>
   </div>
-  <div class="menu copymenu" hidden role="menu"><div class="head">${t('copy')}</div>
-    <button class="opt" role="menuitem" data-copy="frame"><span class="row1"><span>${t('copyFrame')}</span><span class="key">P</span></span><span class="desc">${t('copyFrameDesc')}</span></button>
-    <button class="opt" role="menuitem" data-copy="captions"><span class="row1"><span>${t('copyCaptions')}</span><span class="key">A</span></span><span class="desc">${t('copyCaptionsDesc')}</span></button>
-    <div class="sub">${t('copyCaptionsSpan')}</div>
+  <div class="menu copymenu" hidden role="menu"><div class="head">${tr('copy')}</div>
+    <button class="opt" role="menuitem" data-copy="frame"><span class="row1"><span>${tr('copyFrame')}</span><span class="key">P</span></span><span class="desc">${tr('copyFrameDesc')}</span></button>
+    <button class="opt" role="menuitem" data-copy="captions"><span class="row1"><span>${tr('copyCaptions')}</span><span class="key">A</span></span><span class="desc">${tr('copyCaptionsDesc')}</span></button>
+    <div class="sub">${tr('copyCaptionsSpan')}</div>
     <div class="choices copyspan">${[30, 60, 120, 300].map((s) => `<button role="menuitemradio" data-span="${s}">${s < 60 ? s + 's' : s / 60 + 'm'}</button>`).join('')}</div>
   </div>
   <div class="menu moremenu" hidden role="menu"></div>
-  <div class="diagbox" hidden role="dialog" aria-label="${t('diagTitle')}"><div class="khcard"><h2>${t('diagTitle')}</h2>
-    <p class="diaginfo">${t('diagInfo')}</p><pre class="diagtext"></pre>
-    <div class="actions"><button class="pbtn diagcopy">${t('diagCopy')}</button><button class="pbtn diagclose">${t('close')}</button></div></div></div>
-  <div class="menu audiomenu" hidden role="menu"><div class="head">${t('audio')}</div>
+  <div class="diagbox" hidden role="dialog" aria-label="${tr('diagTitle')}"><div class="khcard"><h2>${tr('diagTitle')}</h2>
+    <p class="diaginfo">${tr('diagInfo')}</p><pre class="diagtext"></pre>
+    <div class="actions"><button class="pbtn diagcopy">${tr('diagCopy')}</button><button class="pbtn diagclose">${tr('close')}</button></div></div></div>
+  <div class="menu audiomenu" hidden role="menu"><div class="head">${tr('audio')}</div>
     <div class="why" hidden></div>
-    <button class="opt" role="menuitemcheckbox" data-audio="level" aria-checked="false"><span class="row1"><span>${t('audioLevel')}</span><span class="state"></span></span><span class="desc">${t('audioLevelDesc')}</span></button>
-    <button class="opt" role="menuitemcheckbox" data-audio="voice" aria-checked="false"><span class="row1"><span>${t('audioVoice')}</span><span class="state"></span></span><span class="desc">${t('audioVoiceDesc')}</span></button>
-    <button class="opt" role="menuitemcheckbox" data-audio="mono" aria-checked="false"><span class="row1"><span>${t('audioMono')}</span><span class="state"></span></span><span class="desc">${t('audioMonoDesc')}</span></button>
+    <button class="opt" role="menuitemcheckbox" data-audio="level" aria-checked="false"><span class="row1"><span>${tr('audioLevel')}</span><span class="state"></span></span><span class="desc">${tr('audioLevelDesc')}</span></button>
+    <button class="opt" role="menuitemcheckbox" data-audio="voice" aria-checked="false"><span class="row1"><span>${tr('audioVoice')}</span><span class="state"></span></span><span class="desc">${tr('audioVoiceDesc')}</span></button>
+    <button class="opt" role="menuitemcheckbox" data-audio="mono" aria-checked="false"><span class="row1"><span>${tr('audioMono')}</span><span class="state"></span></span><span class="desc">${tr('audioMonoDesc')}</span></button>
     <div class="sep"></div>
-    <div class="head">${t('silence')}</div>
+    <div class="head">${tr('silence')}</div>
     <div class="silstatus"></div>
-    <button class="opt" role="menuitemcheckbox" data-sil="auto" aria-checked="false"><span class="row1"><span>${t('silenceAuto')}</span><span class="state"></span></span><span class="desc">${t('silenceAutoDesc')}</span></button>
-    <div class="sub">${t('silenceMin')}</div>
+    <button class="opt" role="menuitemcheckbox" data-sil="auto" aria-checked="false"><span class="row1"><span>${tr('silenceAuto')}</span><span class="state"></span></span><span class="desc">${tr('silenceAutoDesc')}</span></button>
+    <div class="sub">${tr('silenceMin')}</div>
     <div class="choices silmin">${SILENCE_MIN_CHOICES.map((s) => `<button role="menuitemradio" data-min="${s}">${s < 60 ? s + 's' : s / 60 + 'm'}</button>`).join('')}</div>
-    <div class="sens"><div class="sub">${t('silenceSensitivity')}</div>
-    <div class="choices silsens"><button role="menuitemradio" data-sens="low">${t('low')}</button><button role="menuitemradio" data-sens="normal">${t('normal')}</button><button role="menuitemradio" data-sens="high">${t('high')}</button></div></div>
+    <div class="sens"><div class="sub">${tr('silenceSensitivity')}</div>
+    <div class="choices silsens"><button role="menuitemradio" data-sens="low">${tr('low')}</button><button role="menuitemradio" data-sens="normal">${tr('normal')}</button><button role="menuitemradio" data-sens="high">${tr('high')}</button></div></div>
   </div>
   <button class="skipsil fade" tabindex="-1"></button>
-  <div class="endnote" hidden role="status"><span>${t('contentEnded')}</span>
-    <button class="endskip">${t('contentEndSkip')}</button><button class="endstop">${t('contentEndStop')}</button>
-    <button class="endclose" aria-label="${t('close')}">✕</button></div>
+  <div class="endnote" hidden role="status"><span>${tr('contentEnded')}</span>
+    <button class="endskip">${tr('contentEndSkip')}</button><button class="endstop">${tr('contentEndStop')}</button>
+    <button class="endclose" aria-label="${tr('close')}">✕</button></div>
   <div class="toast" hidden><span class="msg"></span><button class="act"></button></div>
-  <div class="dropzone" hidden>${t('dropSlides')}</div>
+  <div class="dropzone" hidden>${tr('dropSlides')}</div>
   <div class="error" hidden><div class="card"><h2></h2><p></p><div class="actions"></div></div></div>
-  <div class="keyhelp" hidden role="dialog" aria-label="${t('keysTitle')}"><div class="khcard"><h2>${t('keysTitle')}</h2><div class="khlist"></div>
-    <div class="actions"><button class="pbtn khclose">${t('close')}</button></div></div></div>
+  <div class="keyhelp" hidden role="dialog" aria-label="${tr('keysTitle')}"><div class="khcard"><h2>${tr('keysTitle')}</h2><div class="khlist"></div>
+    <div class="actions"><button class="pbtn khclose">${tr('close')}</button></div></div></div>
 </div>
-<aside class="panel" hidden aria-label="${t('sidebarTabs')}">
-  <div class="presize" title="${t('resizePanel')}"></div>
+<aside class="panel" hidden aria-label="${tr('sidebarTabs')}">
+  <div class="presize" title="${tr('resizePanel')}"></div>
   <div class="phead">
     <div class="tabs" role="tablist">
-      <button role="tab" data-tab="transcript" hidden>${t('transcript')}</button>
-      <button role="tab" data-tab="slides" hidden>${t('slides')}</button>
-      <button role="tab" data-tab="notes" hidden>${t('notes')}</button>
-      <button role="tab" data-tab="discussion" hidden>${t('discussion')}</button>
+      <button role="tab" data-tab="transcript" hidden>${tr('transcript')}</button>
+      <button role="tab" data-tab="slides" hidden>${tr('slides')}</button>
+      <button role="tab" data-tab="notes" hidden>${tr('notes')}</button>
+      <button role="tab" data-tab="discussion" hidden>${tr('discussion')}</button>
     </div>
-    <button class="btn panelclose" title="${t('closePanel')}" aria-label="${t('closePanel')}">${svg('close')}</button>
+    <button class="btn panelclose" title="${tr('closePanel')}" aria-label="${tr('closePanel')}">${svg('close')}</button>
   </div>
-  <div class="pextras" hidden><div class="msg"></div><button class="link">${t('openInOriginal')}</button></div>
+  <div class="pextras" hidden><div class="msg"></div><button class="link">${tr('openInOriginal')}</button></div>
   <section class="pane" data-pane="transcript" hidden>
     <div class="psearch">
-      <input class="tsearch" type="search" placeholder="${t('searchTranscript')}" aria-label="${t('searchTranscript')}">
+      <input class="tsearch" type="search" placeholder="${tr('searchTranscript')}" aria-label="${tr('searchTranscript')}">
       <span class="tcount" aria-live="polite"></span>
-      <button class="btn tprev" title="${t('prevMatch')}" aria-label="${t('prevMatch')}">${svg('up')}</button>
-      <button class="btn tnext" title="${t('nextMatch')}" aria-label="${t('nextMatch')}">${svg('down')}</button>
+      <button class="btn tprev" title="${tr('prevMatch')}" aria-label="${tr('prevMatch')}">${svg('up')}</button>
+      <button class="btn tnext" title="${tr('nextMatch')}" aria-label="${tr('nextMatch')}">${svg('down')}</button>
     </div>
     <div class="tlist" tabindex="0"></div>
-    <button class="tback" hidden>${t('backToCurrent')}</button>
+    <button class="tback" hidden>${tr('backToCurrent')}</button>
   </section>
   <section class="pane" data-pane="slides" hidden></section>
   <section class="pane" data-pane="notes" hidden></section>

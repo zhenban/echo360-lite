@@ -1,0 +1,21 @@
+{
+  "name": "echo360-lite",
+  "private": true,
+  "description": "A lightweight replacement for the Echo360 lecture player (userscript).",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test test/*.test.mjs",
+    "lint": "eslint src test build.mjs eslint.config.mjs",
+    "check-dist": "node build.mjs && git diff --exit-code -- dist/",
+    "ci": "npm run lint && npm test && npm run check-dist"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.5",
+    "globals": "^17.13.0"
+  }
+}

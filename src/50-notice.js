@@ -14,7 +14,7 @@ function notice(text) {
       + '<div role="status"><span></span><button>✕</button></div>';
     root.querySelector('span').textContent = text;
     const close = root.querySelector('button');
-    close.setAttribute('aria-label', t('close'));
+    close.setAttribute('aria-label', tr('close'));
     close.addEventListener('click', () => host.remove());
     document.body.appendChild(host);
     setTimeout(() => host.remove(), 10000);

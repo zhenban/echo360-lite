@@ -18,7 +18,7 @@ class Zoomer {
     this.state = new Map();     // element -> { s, cx, cy }
     this.drag = null;
     this.dragged = false;       // a pan just ended (the click that follows is not a play toggle)
-    this.map = h('div.zmap', { hidden: true, 'aria-hidden': 'true' }, h('i'));
+    this.map = el('div.zmap', { hidden: true, 'aria-hidden': 'true' }, el('i'));
     this.mapFor = null;
     host.append(this.map);
     this.bind();
@@ -31,81 +31,81 @@ class Zoomer {
   }
 
   // The zoomable element at an event's target (a video or the PDF stage).
-  targetOf(el) {
-    if (!el || !el.closest) return null;
-    const stage = el.tagName === 'VIDEO' ? null : el.closest('.pstage');
-    const t = el.tagName === 'VIDEO' ? el : stage && stage.querySelector('.rpages');
+  targetOf(elem) {
+    if (!elem || !elem.closest) return null;
+    const stage = elem.tagName === 'VIDEO' ? null : elem.closest('.pstage');
+    const t = elem.tagName === 'VIDEO' ? elem : stage && stage.querySelector('.rpages');
     return t && this.host.contains(t) && this.canZoom(t) ? t : null;
   }
 
-  get(el) { return this.state.get(el) || { s: 1, cx: 0.5, cy: 0.5 }; }
+  get(elem) { return this.state.get(elem) || { s: 1, cx: 0.5, cy: 0.5 }; }
 
-  zoomed(el) { return this.get(el).s > 1.001; }
+  zoomed(elem) { return this.get(elem).s > 1.001; }
 
   // Zooms `el` by `factor` keeping the point at (fx, fy) (fractions of the element) still.
-  zoomAt(el, factor, fx, fy) {
-    const z = this.get(el);
+  zoomAt(elem, factor, fx, fy) {
+    const z = this.get(elem);
     const s = clamp(z.s * factor, 1, ZOOM_MAX);
     // The content point under the pointer before, and where it must stay.
     const px = z.cx + (fx - 0.5) / z.s;
     const py = z.cy + (fy - 0.5) / z.s;
-    this.set(el, s, px - (fx - 0.5) / s, py - (fy - 0.5) / s);
+    this.set(elem, s, px - (fx - 0.5) / s, py - (fy - 0.5) / s);
   }
 
-  set(el, s, cx, cy) {
+  set(elem, s, cx, cy) {
     const half = 0.5 / s;
     const z = { s, cx: clamp(cx, half, 1 - half), cy: clamp(cy, half, 1 - half) };
-    if (s <= 1.001) this.state.delete(el); else this.state.set(el, z);
-    this.apply(el);
+    if (s <= 1.001) this.state.delete(elem); else this.state.set(elem, z);
+    this.apply(elem);
     this.onChange();
   }
 
-  reset(el) { if (this.state.has(el)) this.set(el, 1, 0.5, 0.5); }
+  reset(elem) { if (this.state.has(elem)) this.set(elem, 1, 0.5, 0.5); }
 
-  resetAll() { for (const el of [...this.state.keys()]) this.reset(el); }
+  resetAll() { for (const elem of [...this.state.keys()]) this.reset(elem); }
 
-  apply(el) {
-    const z = this.get(el);
+  apply(elem) {
+    const z = this.get(elem);
     if (z.s <= 1.001) {
-      el.style.transform = '';
-      el.style.clipPath = '';
-      el.style.transformOrigin = '';
-      el.classList.remove('zoomed');
+      elem.style.transform = '';
+      elem.style.clipPath = '';
+      elem.style.transformOrigin = '';
+      elem.classList.remove('zoomed');
     } else {
-      const W = el.offsetWidth;
-      const H = el.offsetHeight;
+      const W = elem.offsetWidth;
+      const H = elem.offsetHeight;
       const tx = W / 2 - z.s * z.cx * W;
       const ty = H / 2 - z.s * z.cy * H;
-      el.style.transformOrigin = '0 0';
-      el.style.transform = 'translate(' + tx.toFixed(1) + 'px,' + ty.toFixed(1) + 'px) scale(' + z.s.toFixed(4) + ')';
+      elem.style.transformOrigin = '0 0';
+      elem.style.transform = 'translate(' + tx.toFixed(1) + 'px,' + ty.toFixed(1) + 'px) scale(' + z.s.toFixed(4) + ')';
       // The clip is in the element's own (unscaled) coordinates: the visible part only.
       const l = -tx / z.s;
       const tp = -ty / z.s;
-      el.style.clipPath = 'inset(' + tp.toFixed(1) + 'px ' + (W - l - W / z.s).toFixed(1) + 'px ' + (H - tp - H / z.s).toFixed(1) + 'px ' + l.toFixed(1) + 'px)';
-      el.classList.add('zoomed');
+      elem.style.clipPath = 'inset(' + tp.toFixed(1) + 'px ' + (W - l - W / z.s).toFixed(1) + 'px ' + (H - tp - H / z.s).toFixed(1) + 'px ' + l.toFixed(1) + 'px)';
+      elem.classList.add('zoomed');
     }
-    this.renderMap(el);
+    this.renderMap(elem);
   }
 
   // Re-applies after the element was resized (layout change, divider, window).
-  refresh() { for (const el of this.state.keys()) this.apply(el); }
+  refresh() { for (const elem of this.state.keys()) this.apply(elem); }
 
-  renderMap(el) {
+  renderMap(elem) {
     const m = this.map;
-    if (!this.zoomed(el)) {
-      if (this.mapFor === el) { m.hidden = true; this.mapFor = null; }
+    if (!this.zoomed(elem)) {
+      if (this.mapFor === elem) { m.hidden = true; this.mapFor = null; }
       return;
     }
-    this.mapFor = el;
-    const z = this.get(el);
-    const W = el.offsetWidth;
-    const H = el.offsetHeight;
+    this.mapFor = elem;
+    const z = this.get(elem);
+    const W = elem.offsetWidth;
+    const H = elem.offsetHeight;
     // Where the view is inside the host, without the zoom transform (a video is placed in
     // the host directly; the PDF pages inside an untransformed stage).
-    let x = el.offsetLeft;
-    let y = el.offsetTop;
-    if (el.tagName !== 'VIDEO') {
-      const r = el.parentElement.getBoundingClientRect();
+    let x = elem.offsetLeft;
+    let y = elem.offsetTop;
+    if (elem.tagName !== 'VIDEO') {
+      const r = elem.parentElement.getBoundingClientRect();
       const hr = this.host.getBoundingClientRect();
       x = r.left - hr.left;
       y = r.top - hr.top;
@@ -128,23 +128,23 @@ class Zoomer {
   bind() {
     const d = this.d;
     d.listen(this.host, 'wheel', (e) => {
-      const el = this.targetOf(e.target);
-      if (!el) return;
+      const elem = this.targetOf(e.target);
+      if (!elem) return;
       e.preventDefault();
-      const r = el.getBoundingClientRect();
+      const r = elem.getBoundingClientRect();
       // Pixel deltas from trackpads, line deltas from some mice.
       const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
       // The rect spans the whole scaled content: the pointer's position in the content,
       // then in the visible window.
-      const z = this.get(el);
+      const z = this.get(elem);
       const wx = 0.5 + ((e.clientX - r.left) / r.width - z.cx) * z.s;
       const wy = 0.5 + ((e.clientY - r.top) / r.height - z.cy) * z.s;
-      this.zoomAt(el, Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.002)), clamp(wx, 0, 1), clamp(wy, 0, 1));
+      this.zoomAt(elem, Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.002)), clamp(wx, 0, 1), clamp(wy, 0, 1));
     }, { passive: false });
     d.listen(this.host, 'pointerdown', (e) => {
-      const el = this.targetOf(e.target);
-      if (!el || e.button !== 0 || !this.zoomed(el)) return;
-      this.drag = { el, x: e.clientX, y: e.clientY, z: this.get(el), id: e.pointerId };
+      const elem = this.targetOf(e.target);
+      if (!elem || e.button !== 0 || !this.zoomed(elem)) return;
+      this.drag = { el: elem, x: e.clientX, y: e.clientY, z: this.get(elem), id: e.pointerId };
       this.dragged = false;
     });
     d.listen(this.host, 'pointermove', (e) => {

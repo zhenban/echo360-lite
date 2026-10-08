@@ -41,7 +41,7 @@ class DiscussionPane {
     } catch (e) {
       if (seq !== this.loadSeq) return false;
       log.info('discussions unavailable:', e.message);
-      if (this.loadedAt) this.showError(t('loadFailed', { error: e.message }));
+      if (this.loadedAt) this.showError(tr('loadFailed', { error: e.message }));
       return false;
     }
   }
@@ -53,33 +53,33 @@ class DiscussionPane {
   }
 
   build() {
-    this.textarea = h('textarea.input', { rows: 3, maxLength: MAX_POST_LENGTH + 500, placeholder: t('postPlaceholder'), 'aria-label': t('postPlaceholder') });
-    this.counter = h('span.counter');
-    this.linkTime = h('input', { type: 'checkbox', checked: true });
-    this.linkLabel = h('span');
-    this.anon = h('input', { type: 'checkbox' });
-    this.postBtn = h('button.pbtn.primary', { text: t('postPublic'), onclick: (e) => this.post(e) });
+    this.textarea = el('textarea.input', { rows: 3, maxLength: MAX_POST_LENGTH + 500, placeholder: tr('postPlaceholder'), 'aria-label': tr('postPlaceholder') });
+    this.counter = el('span.counter');
+    this.linkTime = el('input', { type: 'checkbox', checked: true });
+    this.linkLabel = el('span');
+    this.anon = el('input', { type: 'checkbox' });
+    this.postBtn = el('button.pbtn.primary', { text: tr('postPublic'), onclick: (e) => this.post(e) });
     this.d.listen(this.textarea, 'input', () => this.updateCounter(this.textarea, this.counter, this.postBtn));
     this.d.listen(this.textarea, 'focus', () => this.updateLinkLabel());
     this.d.listen(this.textarea, 'keydown', (e) => {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); this.post(e); }
     });
-    this.sortSel = h('select.input.small', { 'aria-label': t('sortNewest') },
-      h('option', { value: 'newest', text: t('sortNewest') }), h('option', { value: 'time', text: t('sortVideoTime') }));
+    this.sortSel = el('select.input.small', { 'aria-label': tr('sortNewest') },
+      el('option', { value: 'newest', text: tr('sortNewest') }), el('option', { value: 'time', text: tr('sortVideoTime') }));
     this.d.listen(this.sortSel, 'change', () => { this.sort = this.sortSel.value; this.render(); });
-    this.hiddenEl = h('span.pmuted');
-    this.errorEl = h('div.perror', { hidden: true });
-    this.list = h('div.plist');
+    this.hiddenEl = el('span.pmuted');
+    this.errorEl = el('div.perror', { hidden: true });
+    this.list = el('div.plist');
     this.pane.append(
-      h('div.composer.public', null,
-        h('div.pwarn', { role: 'note', text: t('publicWarning') }),
+      el('div.composer.public', null,
+        el('div.pwarn', { role: 'note', text: tr('publicWarning') }),
         this.textarea,
-        h('div.crow', null,
-          h('label.check', null, this.linkTime, this.linkLabel),
-          h('label.check', null, this.anon, h('span', { text: t('hideName') })),
-          h('span.grow'), this.counter, this.postBtn)),
-      h('div.ptools', null, this.sortSel, this.hiddenEl, h('span.grow'),
-        h('button.link', { text: t('refresh'), onclick: () => this.load() })),
+        el('div.crow', null,
+          el('label.check', null, this.linkTime, this.linkLabel),
+          el('label.check', null, this.anon, el('span', { text: tr('hideName') })),
+          el('span.grow'), this.counter, this.postBtn)),
+      el('div.ptools', null, this.sortSel, this.hiddenEl, el('span.grow'),
+        el('button.link', { text: tr('refresh'), onclick: () => this.load() })),
       this.errorEl,
       this.list,
     );
@@ -88,12 +88,12 @@ class DiscussionPane {
   }
 
   updateLinkLabel() {
-    this.linkLabel.textContent = t('linkTime', { time: fmtTime(this.p.video.currentTime, this.p.duration() >= 3600) });
+    this.linkLabel.textContent = tr('linkTime', { time: fmtTime(this.p.video.currentTime, this.p.duration() >= 3600) });
   }
 
   updateCounter(area, counter, button) {
     const left = MAX_POST_LENGTH - area.value.length;
-    counter.textContent = left < 0 ? t('tooLong', { n: -left }) : left < 500 ? t('charsLeft', { n: left }) : '';
+    counter.textContent = left < 0 ? tr('tooLong', { n: -left }) : left < 500 ? tr('charsLeft', { n: left }) : '';
     counter.classList.toggle('over', left < 0);
     button.disabled = left < 0 || !area.value.trim();
   }
@@ -114,7 +114,7 @@ class DiscussionPane {
 
   fail(e) {
     log.warn('discussion write failed', e);
-    this.showError(t('saveFailed', { error: e.message || e }));
+    this.showError(tr('saveFailed', { error: e.message || e }));
   }
 
   sorted() {
@@ -126,30 +126,30 @@ class DiscussionPane {
 
   render() {
     this.dirty = false;
-    this.hiddenEl.textContent = this.hiddenCount ? t('hiddenPosts', { n: this.hiddenCount }) : '';
+    this.hiddenEl.textContent = this.hiddenCount ? tr('hiddenPosts', { n: this.hiddenCount }) : '';
     const long = this.p.duration() >= 3600;
     const frag = document.createDocumentFragment();
-    if (!this.threads.length) frag.append(h('div.pempty', { text: t('noPosts') }));
+    if (!this.threads.length) frag.append(el('div.pempty', { text: tr('noPosts') }));
     for (const q of this.sorted()) frag.append(this.renderThread(q, long));
     this.list.textContent = '';
     this.list.append(frag);
   }
 
   renderThread(q, long) {
-    const card = h('div.card.thread', null, this.renderComment(q, long));
+    const card = el('div.card.thread', null, this.renderComment(q, long));
     const n = q.replies.length;
-    const footer = h('div.iactions');
+    const footer = el('div.iactions');
     if (n) {
       const open = this.openReplies.has(q.id);
-      footer.append(h('button.link', {
-        text: open ? t('hideReplies') : (n === 1 ? t('oneReply') : t('replies', { n })),
+      footer.append(el('button.link', {
+        text: open ? tr('hideReplies') : (n === 1 ? tr('oneReply') : tr('replies', { n })),
         onclick: () => { if (open) this.openReplies.delete(q.id); else this.openReplies.add(q.id); this.render(); },
       }));
     }
-    footer.append(h('button.link', { text: t('replyPublic'), onclick: () => { this.replyOpen = q.id; this.openReplies.add(q.id); this.render(); } }));
+    footer.append(el('button.link', { text: tr('replyPublic'), onclick: () => { this.replyOpen = q.id; this.openReplies.add(q.id); this.render(); } }));
     card.append(footer);
     if (n && this.openReplies.has(q.id)) {
-      const replies = h('div.replies');
+      const replies = el('div.replies');
       for (const r of q.replies) replies.append(this.renderComment(r, long));
       card.append(replies);
     }
@@ -158,38 +158,38 @@ class DiscussionPane {
   }
 
   renderComment(c, long) {
-    const who = c.mine ? t('you') + (c.nameHidden ? ' (' + t('anonymous') + ')' : '') : (c.author || t('anonymous'));
+    const who = c.mine ? tr('you') + (c.nameHidden ? ' (' + tr('anonymous') + ')' : '') : (c.author || tr('anonymous'));
     const badges = [];
-    if (c.instructor) badges.push(h('span.badge.inst', { text: t('instructor') }));
-    if (c.ta) badges.push(h('span.badge.inst', { text: t('ta') }));
-    const time = c.time != null ? h('button.chiptime', { text: fmtTime(c.time, long), onclick: () => this.p.seek(c.time) }) : null;
-    const date = h('span.pmuted', { text: formatDate(c.createdAt), title: c.createdAt || '' });
-    const actions = h('div.cactions',
+    if (c.instructor) badges.push(el('span.badge.inst', { text: tr('instructor') }));
+    if (c.ta) badges.push(el('span.badge.inst', { text: tr('ta') }));
+    const time = c.time != null ? el('button.chiptime', { text: fmtTime(c.time, long), onclick: () => this.p.seek(c.time) }) : null;
+    const date = el('span.pmuted', { text: formatDate(c.createdAt), title: c.createdAt || '' });
+    const actions = el('div.cactions',
       null,
-      h('button.link' + (c.liked ? '.on' : ''), {
-        text: (c.liked ? t('unlike') : t('like')) + (c.likes ? ' · ' + c.likes : ''),
+      el('button.link' + (c.liked ? '.on' : ''), {
+        text: (c.liked ? tr('unlike') : tr('like')) + (c.likes ? ' · ' + c.likes : ''),
         onclick: (e) => this.write(e, () => this.api.like(e, c, !c.liked)),
       }),
-      c.questionId ? null : h('button.link' + (c.saved ? '.on' : ''), {
-        text: c.saved ? t('unsavePost') : t('savePost'),
+      c.questionId ? null : el('button.link' + (c.saved ? '.on' : ''), {
+        text: c.saved ? tr('unsavePost') : tr('savePost'),
         onclick: (e) => this.write(e, () => this.api.save(e, c, !c.saved)),
       }),
       c.mine ? this.deleteButton(c) : null,
-      c.hasAttachment ? h('button.link', { text: t('attachment') + ' → ' + t('openInOriginal'), onclick: () => this.p.opts.onFallback('attachment') }) : null,
+      c.hasAttachment ? el('button.link', { text: tr('attachment') + ' → ' + tr('openInOriginal'), onclick: () => this.p.opts.onFallback('attachment') }) : null,
     );
-    return h('div.comment' + (c.questionId ? '.reply' : ''), null,
-      h('div.ihead', null, h('span.author', { text: who }), ...badges, time, h('span.grow'), date),
-      h('div.ibody', { text: c.body }),
+    return el('div.comment' + (c.questionId ? '.reply' : ''), null,
+      el('div.ihead', null, el('span.author', { text: who }), ...badges, time, el('span.grow'), date),
+      el('div.ibody', { text: c.body }),
       actions);
   }
 
   deleteButton(c) {
     let armed = 0;
-    const b = h('button.link.danger', { text: t('delete') });
+    const b = el('button.link.danger', { text: tr('delete') });
     b.addEventListener('click', guard((e) => {
       if (!armed) {
-        b.textContent = t('confirmDelete');
-        armed = setTimeout(() => { armed = 0; b.textContent = t('delete'); }, 3000);
+        b.textContent = tr('confirmDelete');
+        armed = setTimeout(() => { armed = 0; b.textContent = tr('delete'); }, 3000);
         return;
       }
       clearTimeout(armed);
@@ -200,10 +200,10 @@ class DiscussionPane {
   }
 
   renderReplyComposer(q) {
-    const area = h('textarea.input', { rows: 2, placeholder: t('replyPlaceholder'), 'aria-label': t('replyPlaceholder') });
-    const counter = h('span.counter');
-    const anon = h('input', { type: 'checkbox' });
-    const send = h('button.pbtn.primary', { text: t('replyPublic') });
+    const area = el('textarea.input', { rows: 2, placeholder: tr('replyPlaceholder'), 'aria-label': tr('replyPlaceholder') });
+    const counter = el('span.counter');
+    const anon = el('input', { type: 'checkbox' });
+    const send = el('button.pbtn.primary', { text: tr('replyPublic') });
     const submit = (e) => {
       const body = area.value.trim();
       if (this.busy || !body || body.length > MAX_POST_LENGTH) return;
@@ -215,11 +215,11 @@ class DiscussionPane {
     send.addEventListener('click', guard(submit));
     this.updateCounter(area, counter, send);
     setTimeout(() => area.focus(), 0);
-    return h('div.composer.public.reply', null,
-      h('div.pwarn', { role: 'note', text: t('publicWarning') }),
+    return el('div.composer.public.reply', null,
+      el('div.pwarn', { role: 'note', text: tr('publicWarning') }),
       area,
-      h('div.crow', null, h('label.check', null, anon, h('span', { text: t('hideName') })), h('span.grow'), counter,
-        h('button.pbtn', { text: t('cancel'), onclick: () => { this.replyOpen = null; this.render(); } }), send));
+      el('div.crow', null, el('label.check', null, anon, el('span', { text: tr('hideName') })), el('span.grow'), counter,
+        el('button.pbtn', { text: tr('cancel'), onclick: () => { this.replyOpen = null; this.render(); } }), send));
   }
 
   async post(e) {
@@ -260,7 +260,7 @@ class DiscussionPane {
     return this.threads.filter((q) => q.time != null).map((q) => ({
       time: q.time,
       kind: 'comment',
-      label: t('markerComment') + ': ' + (q.body.length > 80 ? q.body.slice(0, 77) + '…' : q.body),
+      label: tr('markerComment') + ': ' + (q.body.length > 80 ? q.body.slice(0, 77) + '…' : q.body),
     }));
   }
 

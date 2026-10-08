@@ -175,7 +175,7 @@ class SlideDeckController {
         await idbCache.update('deckref:' + hash, (refs) => (Array.isArray(refs) ? (refs.includes(mid) ? refs : refs.concat(mid)) : [mid]));
       } catch (e) {
         this.state = 'error';
-        this.error = t('deckSaveFailed', { name: f.name, msg: (e && e.message) || e });
+        this.error = tr('deckSaveFailed', { name: f.name, msg: (e && e.message) || e });
         this.onChange();
         throw e;
       }
@@ -195,12 +195,12 @@ class SlideDeckController {
     // In one transaction: drop this recording from the file's users and, if it was the
     // last one, the file itself (no other tab can add itself in between).
     const mid = this.lesson.mediaId;
-    await idbCache.tx('readwrite', (store) => {
-      const req = store.get('deckref:' + hash);
+    await idbCache.tx('readwrite', (os) => {
+      const req = os.get('deckref:' + hash);
       req.onsuccess = () => {
         const refs = (Array.isArray(req.result) ? req.result : []).filter((m) => m !== mid);
-        if (refs.length) store.put(refs, 'deckref:' + hash);
-        else { store.delete('deckref:' + hash); store.delete('deckfile:' + hash); }
+        if (refs.length) os.put(refs, 'deckref:' + hash);
+        else { os.delete('deckref:' + hash); os.delete('deckfile:' + hash); }
       };
       return req;
     }).catch((e) => log.warn('slide file removal:', e));
@@ -259,7 +259,7 @@ class SlideDeckController {
       if (this.ac.signal.aborted || this.job !== job) return;
       log.warn('slide file:', e && e.message ? e.message : e);
       this.state = 'error';
-      this.error = t('deckError', { msg: String((e && e.message) || e) });
+      this.error = tr('deckError', { msg: String((e && e.message) || e) });
       this.onChange();
     }
   }

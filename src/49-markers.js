@@ -5,8 +5,8 @@
 // ===================================================================================
 
 class MarkersLayer {
-  constructor(el) {
-    this.el = el;
+  constructor(elem) {
+    this.el = elem;
     this.items = [];
     this.dur = 0;
   }
@@ -18,8 +18,8 @@ class MarkersLayer {
   }
 
   render() {
-    const el = this.el;
-    el.textContent = '';
+    const elem = this.el;
+    elem.textContent = '';
     if (!this.dur) return;
     const frag = document.createDocumentFragment();
     for (const m of this.items) {
@@ -30,7 +30,7 @@ class MarkersLayer {
       i.style.left = ((m.time / this.dur) * 100).toFixed(3) + '%';
       frag.appendChild(i);
     }
-    el.appendChild(frag);
+    elem.appendChild(frag);
   }
 
   // Closest item within `px` pixels of fraction `f` on a bar `width` pixels wide.

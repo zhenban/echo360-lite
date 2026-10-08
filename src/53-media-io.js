@@ -119,12 +119,12 @@ const idbCache = {
     if (storageLock.frozen) return Promise.resolve(undefined);
     return this.open().then((db) => new Promise((resolve, reject) => {
       const tx = db.transaction('cache', 'readwrite');
-      const store = tx.objectStore('cache');
+      const os = tx.objectStore('cache');
       let next;
-      const req = store.get(key);
+      const req = os.get(key);
       req.onsuccess = () => {
         try { next = fn(req.result); } catch (e) { tx.abort(); reject(e); return; }
-        if (next === undefined) store.delete(key); else store.put(next, key);
+        if (next === undefined) os.delete(key); else os.put(next, key);
       };
       tx.oncomplete = () => resolve(next);
       tx.onerror = () => reject(tx.error);

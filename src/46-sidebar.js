@@ -4,34 +4,34 @@
 // ===================================================================================
 
 // Small DOM helper: h('button.btn.primary', { title: 'x', onclick }, 'text', child, ...)
-function h(spec, props, ...children) {
+function el(spec, props, ...children) {
   const [tag, ...classes] = spec.split('.');
-  const el = document.createElement(tag || 'div');
-  if (classes.length) el.className = classes.join(' ');
+  const elem = document.createElement(tag || 'div');
+  if (classes.length) elem.className = classes.join(' ');
   if (props) {
     for (const [k, v] of Object.entries(props)) {
       if (v == null || v === false) continue;
-      if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2), guard(v));
-      else if (k === 'text') el.textContent = v;
-      else if (k in el && typeof v !== 'string') el[k] = v;
-      else el.setAttribute(k, v === true ? '' : String(v));
+      if (k.startsWith('on') && typeof v === 'function') elem.addEventListener(k.slice(2), guard(v));
+      else if (k === 'text') elem.textContent = v;
+      else if (k in elem && typeof v !== 'string') elem[k] = v;
+      else elem.setAttribute(k, v === true ? '' : String(v));
     }
   }
-  for (const c of children) if (c != null && c !== false) el.append(c);
-  return el;
+  for (const c of children) if (c != null && c !== false) elem.append(c);
+  return elem;
 }
 
 const SIDEBAR_TABS = ['transcript', 'slides', 'notes', 'discussion'];
 
 class Sidebar {
-  constructor(player, el) {
+  constructor(player, elem) {
     this.p = player;
-    this.el = el;
+    this.el = elem;
     this.controllers = {};
     this.active = null;
     this.isOpen = false;
     this.d = new Disposer();
-    for (const b of el.querySelectorAll('.tabs [data-tab]')) {
+    for (const b of elem.querySelectorAll('.tabs [data-tab]')) {
       this.d.listen(b, 'click', () => this.switchTo(b.dataset.tab));
     }
   }
