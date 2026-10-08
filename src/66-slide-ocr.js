@@ -1,5 +1,5 @@
 // ===================================================================================
-// Reading the text on the screen view, for following the lecturer's slides (M7.5).
+// Reading the text on the screen view, for following the lecturer's slides.
 //
 // Runs only while the recording has slide files. Every HLS segment starts with a keyframe;
 // one keyframe every CHAPTER_STEP_SEC of the screen view is read at 720p (the smallest rendition at
@@ -20,7 +20,7 @@
 //
 // Cached record  ocr:<mediaId>  { v, screen, height, texts: [string], at: [text index per
 // sample, -1 = not read, OCR_FAILED], stats }.
-// For later features (M10 text recognition reuses the keyframes and their text):
+// For later features (on-device speech recognition may reuse the keyframes and text):
 //   reader.times[i], reader.texts, reader.at[i].
 // Language: chosen from the slide files' text (ocrLanguage); English data is about 3 MB,
 // other languages 0.6 to 2.7 MB; each is downloaded when first needed (Tesseract.js then

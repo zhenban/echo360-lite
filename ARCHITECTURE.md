@@ -20,7 +20,8 @@ That file is made by `node build.mjs` (or `npm run build`) from the files in `sr
   Japanese characters (all text the user sees is in `01-i18n.js`), or if the pages listed in
   `src/meta.txt` (`@match`) and in `SITE_HOSTS` (`03-common.js`) differ.
 
-`dist/` is committed, and CI checks that it matches `src/` (see section 9).
+`dist/` is committed, and CI checks that it matches `src/` (see section 9). **Only edit
+`src/`**: a change made in `dist/` is lost at the next build.
 
 ## 2. Map of the source files
 
@@ -253,3 +254,28 @@ npm run ci           # all of the above, plus "dist/ matches src/" (what GitHub 
   are made again.
 - **Adding a part of the player:** a class in its own file taking `(deps, disposer)`;
   create it in `setupParts()` with only the functions it needs and `this.d.child()`.
+
+## 10. Background reading
+
+The code uses some techniques that are not everyday web programming. The comments say what
+the code does with them; these explain the ideas:
+
+- Fragmented MP4 (the boxes `moof`, `trun`, `mdat` in `64-slides.js`):
+  [ISO base media file format](https://en.wikipedia.org/wiki/ISO_base_media_file_format);
+  HLS: [RFC 8216](https://datatracker.ietf.org/doc/html/rfc8216).
+- Decoding single frames: [WebCodecs](https://developer.mozilla.org/en-US/docs/Web/API/WebCodecs_API).
+- Audio tools: [Web Audio](https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API),
+  [DynamicsCompressorNode](https://developer.mozilla.org/en-US/docs/Web/API/DynamicsCompressorNode).
+- The chapter threshold: [Otsu's method](https://en.wikipedia.org/wiki/Otsu%27s_method).
+- Matching screen text to pages: [tf-idf](https://en.wikipedia.org/wiki/Tf%E2%80%93idf);
+  learning what "right" and "wrong" scores look like:
+  [EM for a mixture of Gaussians](https://en.wikipedia.org/wiki/Expectation%E2%80%93maximization_algorithm);
+  deciding all pages at once: [hidden Markov model](https://en.wikipedia.org/wiki/Hidden_Markov_model) and the
+  [Viterbi algorithm](https://en.wikipedia.org/wiki/Viterbi_algorithm).
+- Echo360's endpoints are not documented: they were found by watching the requests the
+  original player makes (browser developer tools, Network tab), and this script makes the
+  same requests in the same way. If Echo360 changes them, the lesson-page reading
+  (`10-adapter-echo360.js`) and the API (`11-echo360-api.js`) are where to look, and the
+  tests with the saved page data (`test/fixtures/boot-echo360-classroom.json`) show what
+  the code expects.
+

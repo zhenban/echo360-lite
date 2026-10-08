@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.14.0
+Under the hood (M8.9 E and F): the player is split into small parts, the code is checked automatically, and a smoke test runs real recordings in Chrome and Firefox. Nothing should look different; please report anything that does.
+- The player's start-up is caught however Echo360's page sets it up (one way, defining the start function with `defineProperty`, used to slip past and leave the original player).
+- The pages the script acts on are exactly those it is installed for.
+- Diagnostics also show the audio levels used for silence detection.
+- For developers: `npm test` (unit tests and whole-page tests in a simulated page), `npm run lint`, `npm run typecheck` (the JavaScript is type-checked from JSDoc), `npm run ci`; GitHub Actions runs them on every push and checks that `dist/` matches `src/`. The code layout is described in ARCHITECTURE.md; all tuning values are in `src/02-tuning.js`; shared helpers in `src/03-common.js`; data shapes in `src/04-types.js`. `test/smoke/smoke.mjs` runs the regression checklist on real recordings in a signed-in browser (Chrome or Edge over DevTools, Firefox over WebDriver BiDi).
+
 ## 0.13.1
 - Fix: in the single-view layout, switching to the camera and back quickly started the recording from the beginning (and could pause it). Every reload of a view (switching views, the PDF view, retry, renewed access) now keeps the position and play state even while the previous switch is still loading; the progress bar no longer jumps to 0 during a switch.
 - Fix: on some recordings slide chapters were missing entirely ("unavailable"): the screen view could not be told from the camera when the slides were busy (handwriting on coloured backgrounds) and the camera showed a still room. The screen is now recognised by how it changes over time (still between slide changes, while a camera always moves a little), which separated the views clearly on every recording checked. When it is not clear, the most likely view is used instead of giving up.

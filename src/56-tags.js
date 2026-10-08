@@ -1,6 +1,6 @@
 // ===================================================================================
 // Private tags on notes and bookmarks. Local only: they are kept in IndexedDB and never
-// sent to Echo360, so only the user sees them (and they go with a backup, M8.6).
+// sent to Echo360, so only the user sees them (and they go with a backup, 85-export.js).
 //
 // The tag list belongs to the course (Echo360 section), so every recording of the course
 // offers the same tags; which tags an item has is kept per recording.

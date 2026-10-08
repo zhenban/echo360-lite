@@ -9,3 +9,5 @@ dev/
 node_modules/
 # Course slides used for local testing (not ours to publish)
 lecture-slides/
+# Smoke test lecture lists (lesson ids show which courses an account takes)
+test/smoke/*.local.json

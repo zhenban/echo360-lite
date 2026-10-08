@@ -558,7 +558,7 @@ const STRINGS = {
   },
 };
 
-// English only for now; M9 chooses English or Chinese from the browser's language.
+// English only for now; a planned release chooses English or Chinese from the browser's language.
 const LANG = 'en';
 
 function tr(key, vars) {
@@ -1242,7 +1242,7 @@ function decodeEntities(s) {
   return s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, '\'').replace(/&nbsp;/g, ' ');
 }
 
-// One implementation today; the list is where M9's platform layer adds others.
+// One implementation today; the list is where support for other sites would be added.
 const ADAPTERS = [echo360ClassroomAdapter];
 
 // ---- 11-echo360-api.js ----
@@ -5910,7 +5910,7 @@ class NotesPane {
 // ---- 56-tags.js ----
 // ===================================================================================
 // Private tags on notes and bookmarks. Local only: they are kept in IndexedDB and never
-// sent to Echo360, so only the user sees them (and they go with a backup, M8.6).
+// sent to Echo360, so only the user sees them (and they go with a backup, 85-export.js).
 //
 // The tag list belongs to the course (Echo360 section), so every recording of the course
 // offers the same tags; which tags an item has is kept per recording.
@@ -6793,7 +6793,7 @@ function idle() {
 //   Envelope          step, length, db(i), dbAt(t), known(i), fill(start, pcm, rate), coverage()
 //   findSilences(env, opts)            -> { silences: [{ start, end }], noiseDb, speechDb, thresholdDb }
 //   silencesFromCues(cues, dur, opts)  -> [{ start, end }]
-//   speechSpans(silences, dur, env, maxSec) -> (reserved for M10, local transcription; tested)
+//   speechSpans(silences, dur, env, maxSec) -> (not used yet: kept for local speech recognition; tested)
 //                                         speech between silences, each piece at most
 //                                         maxSec long and cut at its quietest moment
 //   SilenceAnalyzer   source, silences, track, env, progress; onChange
@@ -8662,7 +8662,7 @@ class SlidesPane {
 
 // ---- 66-slide-ocr.js ----
 // ===================================================================================
-// Reading the text on the screen view, for following the lecturer's slides (M7.5).
+// Reading the text on the screen view, for following the lecturer's slides.
 //
 // Runs only while the recording has slide files. Every HLS segment starts with a keyframe;
 // one keyframe every CHAPTER_STEP_SEC of the screen view is read at 720p (the smallest rendition at
@@ -8683,7 +8683,7 @@ class SlidesPane {
 //
 // Cached record  ocr:<mediaId>  { v, screen, height, texts: [string], at: [text index per
 // sample, -1 = not read, OCR_FAILED], stats }.
-// For later features (M10 text recognition reuses the keyframes and their text):
+// For later features (on-device speech recognition may reuse the keyframes and text):
 //   reader.times[i], reader.texts, reader.at[i].
 // Language: chosen from the slide files' text (ocrLanguage); English data is about 3 MB,
 // other languages 0.6 to 2.7 MB; each is downloaded when first needed (Tesseract.js then

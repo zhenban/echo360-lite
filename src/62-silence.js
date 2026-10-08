@@ -15,7 +15,7 @@
 //   Envelope          step, length, db(i), dbAt(t), known(i), fill(start, pcm, rate), coverage()
 //   findSilences(env, opts)            -> { silences: [{ start, end }], noiseDb, speechDb, thresholdDb }
 //   silencesFromCues(cues, dur, opts)  -> [{ start, end }]
-//   speechSpans(silences, dur, env, maxSec) -> (reserved for M10, local transcription; tested)
+//   speechSpans(silences, dur, env, maxSec) -> (not used yet: kept for local speech recognition; tested)
 //                                         speech between silences, each piece at most
 //                                         maxSec long and cut at its quietest moment
 //   SilenceAnalyzer   source, silences, track, env, progress; onChange

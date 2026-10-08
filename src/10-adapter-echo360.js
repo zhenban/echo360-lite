@@ -222,5 +222,5 @@ function decodeEntities(s) {
   return s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, '\'').replace(/&nbsp;/g, ' ');
 }
 
-// One implementation today; the list is where M9's platform layer adds others.
+// One implementation today; the list is where support for other sites would be added.
 const ADAPTERS = [echo360ClassroomAdapter];

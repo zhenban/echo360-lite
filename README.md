@@ -91,7 +91,7 @@ npm test           # unit and whole-page tests
 npm run ci         # lint, type check, tests, dist/ in sync (what GitHub Actions runs)
 ```
 
-How the code is organised: [ARCHITECTURE.md](ARCHITECTURE.md).
+Only edit `src/` (`dist/` is generated). How the code is organised: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 Source files in `src/` are plain scripts concatenated in name order. Code and comments are in English, user-facing strings live in `src/01-i18n.js`, and every tuning value (with its unit and why it holds) in `src/02-tuning.js`.
 

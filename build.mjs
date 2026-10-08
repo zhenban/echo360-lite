@@ -26,6 +26,12 @@ export function assemble() {
     });
     return `// ---- ${f} ----\n${text.trimEnd()}\n`;
   });
+  // A file named in a comment (NN-name.js) must exist: names went stale before.
+  for (const f of files) {
+    for (const m of readFileSync(join(srcDir, f), 'utf8').matchAll(/\b(\d\d-[a-z0-9-]+\.js)\b/g)) {
+      if (!files.includes(m[1])) { console.error(`${f}: names ${m[1]}, which does not exist`); failed = true; }
+    }
+  }
   if (failed) return null;
   const meta = readFileSync(join(srcDir, 'meta.txt'), 'utf8').replace('{{VERSION}}', version).trimEnd();
   // The pages the script is loaded on (@match) and those it acts on (SITE_HOSTS) must agree.
