@@ -85,9 +85,13 @@ The stock player keeps one CPU core busy for the whole lecture (loud fans, drain
 ## Development
 
 ```sh
-node build.mjs                    # src/*.js -> dist/echo360-lite.user.js (readable, not minified)
-node --test test/unit.test.mjs    # unit tests
+npm install        # development tools (ESLint, TypeScript for checking, happy-dom)
+npm run build      # src/*.js -> dist/echo360-lite.user.js (readable, not minified)
+npm test           # unit and whole-page tests
+npm run ci         # lint, type check, tests, dist/ in sync (what GitHub Actions runs)
 ```
+
+How the code is organised: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 Source files in `src/` are plain scripts concatenated in name order. Code and comments are in English, user-facing strings live in `src/01-i18n.js`, and every tuning value (with its unit and why it holds) in `src/02-tuning.js`.
 

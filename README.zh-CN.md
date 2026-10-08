@@ -85,9 +85,13 @@
 ## 开发
 
 ```sh
-node build.mjs                    # src/*.js -> dist/echo360-lite.user.js（可读，不压缩）
-node --test test/unit.test.mjs    # 单元测试
+npm install        # 开发工具（ESLint、用于检查的 TypeScript、happy-dom）
+npm run build      # src/*.js -> dist/echo360-lite.user.js（可读，不压缩）
+npm test           # 单元测试和整页测试
+npm run ci         # 代码检查、类型检查、测试、dist/ 与源码一致（GitHub Actions 运行的就是这些）
 ```
+
+代码结构说明：[ARCHITECTURE.md](ARCHITECTURE.md)（英文）。
 
 `src/` 下的源文件是普通脚本，按文件名顺序拼接。代码和注释用英文，界面文字集中在 `src/01-i18n.js`，所有调节参数（带单位和依据）集中在 `src/02-tuning.js`。
 
