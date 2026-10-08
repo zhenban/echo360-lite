@@ -781,34 +781,59 @@ const echo360ClassroomAdapter = {
 
   // The page bootstraps its React player with an inline call
   //   Echo["echoPlayerV2FullApp"]("<json>")
-  // once the document is complete. We trap that property so we receive the JSON and can
-  // decide whether the original function ever runs.
+  // once the document is complete. We catch that function so we receive the JSON and can
+  // decide whether the original ever runs. The Echo object is wrapped in a Proxy, so the
+  // function is caught however it gets there: assigned, defined with defineProperty (as
+  // bundlers do), or already present when this runs; and so is an Echo object assigned
+  // later. Only a call made through a reference to the object kept from before it was
+  // assigned to window.Echo would pass by; the page's inline bootstrap uses the global.
   intercept(onBoot) {
     const NAME = 'echoPlayerV2FullApp';
     let original = null;
-    let echo = window.Echo;
 
     function launcher(arg) {
       const self = this;
       return onBoot(arg, (a) => (original ? original.call(self, a) : undefined));
     }
-    function getter() { return original ? launcher : undefined; }
-    function setter(fn) { original = fn; }
-    function trap(obj) {
-      if (!obj || (typeof obj !== 'object' && typeof obj !== 'function')) return;
-      const d = Object.getOwnPropertyDescriptor(obj, NAME);
-      if (d && d.get === getter) return;
-      if (d && typeof d.value === 'function') original = d.value;
-      Object.defineProperty(obj, NAME, { configurable: true, enumerable: true, get: getter, set: setter });
+    function wrap(obj) {
+      if (!obj || (typeof obj !== 'object' && typeof obj !== 'function')) return obj;
+      if (typeof obj[NAME] === 'function') original = obj[NAME];
+      return new Proxy(obj, {
+        get(target, key, receiver) {
+          if (key === NAME) {
+            // Defined on the object itself by code holding it directly: adopted now, when
+            // the page calls it through the global Echo.
+            const own = Reflect.get(target, key);
+            if (typeof own === 'function' && own !== launcher) original = own;
+            return original ? launcher : undefined;
+          }
+          return Reflect.get(target, key, receiver);
+        },
+        set(target, key, value) {
+          if (key === NAME) { original = value; return true; }
+          return Reflect.set(target, key, value);
+        },
+        defineProperty(target, key, desc) {
+          if (key === NAME && ('value' in desc || desc.get)) {
+            original = 'value' in desc ? desc.value : desc.get.call(target);
+            return true;
+          }
+          return Reflect.defineProperty(target, key, desc);
+        },
+        has(target, key) { return key === NAME ? !!original : Reflect.has(target, key); },
+        getOwnPropertyDescriptor(target, key) {
+          if (key === NAME) return original ? { value: launcher, writable: true, enumerable: true, configurable: true } : undefined;
+          return Reflect.getOwnPropertyDescriptor(target, key);
+        },
+      });
     }
 
-    if (!echo) echo = {};
-    trap(echo);
+    let echo = wrap(window.Echo || {});
     Object.defineProperty(window, 'Echo', {
       configurable: true,
       enumerable: true,
       get() { return echo; },
-      set(v) { echo = v; trap(v); },
+      set(v) { echo = wrap(v); },
     });
   },
 

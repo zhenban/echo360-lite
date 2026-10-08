@@ -28,12 +28,14 @@ function loadSources(names, overrides) {
     __timers: timers,
   };
   Object.assign(ctx, overrides || {});
+  // As in a page: window is the global object (page scripts set window.Echo, read Echo).
+  if (ctx.window === 'global') ctx.window = ctx;
   vm.createContext(ctx);
   const files = readdirSync(join(root, 'src')).filter((f) => f.startsWith('02-tuning') || names.some((n) => f === n + '.js' || f.startsWith(n + '-'))).sort();
   const code = files.map((f) => readFileSync(join(root, 'src', f), 'utf8')).join('\n')
     + '\n;globalThis.__exports = {};'
-    + ['clamp', 'fmtTime', 'parseIsoDuration', 'Disposer', 'PlayedRanges', 'FollowerSync', 'CueIndex', 'parseVtt', 'AudioChain', 'seg', 'thumbnailFor', 'pickAudioRendition', 'parseMediaPlaylist', 'Envelope', 'findSilences', 'silencesFromCues', 'speechSpans', 'silenceIndexAt', 'mp4Boxes', 'parseFragment', 'videoVariants', 'Stream', 'pickScreen', 'slightChange', 'thumbChange', 'learnThreshold', 'sampleChanges', 'groupSegments', 'sampleIndexAt', 'HlsVideoReader', 'buildScenes', 'chapterIndexAt', 'SessionKeeper', 'mediaSession', 'TagStore', 'watchedShare', 'makeZip', 'crc32', 'lectureMarkdown', 'mdTag', 'followSamples', 'followLecture', 'textScores', 'slideWords', 'ocrLanguage', 'TESS_LANGS', 'slideTextWorkerSource', 'FORCE_OFF', 'captionExcerpt',
-      'sanitizePrefs', 'sanitizePos', 'prefDefaults', 'guard', 'guardCore', 'featureGuard', 'unexpected', 'featureErrors', 'eventLog', 'SilenceAnalyzer', 'skipStretches', 'contentEndAt', 'frameUniform', 'uniformStretches', 'maskUrls', 'diagnosticsText', 'cacheTouched', 'cacheLastUse', 'cacheValid', 'restoreBackup', 'LitePlayer', 'NotesPane', 'DiscussionPane', 'SlideTextReader', 'SlideTextWorker', 'SlideDeckController', 'playerTemplate', 'NS']
+    + ['clamp', 'fmtTime', 'parseIsoDuration', 'Disposer', 'PlayedRanges', 'Reporter', 'FollowerSync', 'CueIndex', 'parseVtt', 'echo360ClassroomAdapter', 'AudioChain', 'seg', 'Echo360Api', 'thumbnailFor', 'pickAudioRendition', 'parseMediaPlaylist', 'Envelope', 'findSilences', 'silencesFromCues', 'speechSpans', 'silenceIndexAt', 'mp4Boxes', 'parseFragment', 'videoVariants', 'Stream', 'pickScreen', 'slightChange', 'thumbChange', 'learnThreshold', 'sampleChanges', 'groupSegments', 'sampleIndexAt', 'HlsVideoReader', 'buildScenes', 'chapterIndexAt', 'SessionKeeper', 'mediaSession', 'TagStore', 'watchedShare', 'makeZip', 'crc32', 'lectureMarkdown', 'mdTag', 'followSamples', 'followLecture', 'textScores', 'slideWords', 'ocrLanguage', 'TESS_LANGS', 'slideTextWorkerSource', 'FORCE_OFF', 'captionExcerpt',
+      'sanitizePrefs', 'sanitizePos', 'prefDefaults', 'guard', 'guardCore', 'featureGuard', 'unexpected', 'featureErrors', 'eventLog', 'SilenceAnalyzer', 'skipStretches', 'contentEndAt', 'frameUniform', 'uniformStretches', 'maskUrls', 'diagnosticsText', 'cacheTouched', 'cacheLastUse', 'cacheValid', 'restoreBackup', 'makeBackup', 'idbCache', 'LitePlayer', 'NotesPane', 'DiscussionPane', 'SlideTextReader', 'SlideTextWorker', 'SlideDeckController', 'playerTemplate', 'NS']
       .map((n) => `if (typeof ${n} !== 'undefined') globalThis.__exports.${n} = ${n};`).join('\n');
   vm.runInContext(code, ctx);
   return { ...ctx.__exports, timers, window: ctx.window, setFetch: (fn) => { ctx.__fetch = fn; } };
@@ -452,6 +454,261 @@ test('a stream knows where it is going while it loads; a reload in that window k
   v.currentTime = 0;
   v.emit('canplay');
   assert.equal(st.position(), 3105);
+});
+
+// ---- T1.1: reading the lesson page (sanitised real bootstrap data, test/fixtures) ----
+
+function adapterMod(host) {
+  return loadSources(['00-util', '10-adapter'], {
+    window: 'global',
+    location: { hostname: host || 'echo360.net.au', pathname: '/lesson/x/classroom', origin: 'https://' + (host || 'echo360.net.au'), protocol: 'https:', hash: '' },
+  });
+}
+const bootFixture = () => readFileSync(join(root, 'test', 'fixtures', 'boot-echo360-classroom.json'), 'utf8');
+
+test('T1.1 parse: a real (sanitised) lesson page gives views, duration, resume point, renewal and reporting data', () => {
+  const m = adapterMod();
+  const raw = bootFixture();
+  const cfg = JSON.parse(raw);
+  // The page passes a JSON string; an object works the same.
+  for (const arg of [JSON.stringify(cfg), cfg]) {
+    const l = m.echo360ClassroomAdapter.parse(arg);
+    assert.equal(l.sources.length, 2);
+    assert.equal(JSON.stringify(l.sources.map((x) => x.index)), '[1,2]');
+    assert.ok(l.sources.every((x) => x.av && x.v && x.poster));
+    assert.ok(Math.abs(l.duration - 6895.072) < 1e-6);
+    assert.equal(l.resumeAt, 1234);
+    assert.equal(l.sessionRenewMs, 3600000);
+    assert.equal(l.mediaId, cfg.video.mediaId);
+    assert.equal(l.lessonId, cfg.lesson.id);
+    assert.equal(l.sectionId, cfg.context.sectionId);
+    assert.equal(l.backUrl, '/section/' + cfg.sectionInfo.section.id + '/home');
+    assert.ok(l.transcriptUrl.includes(cfg.lesson.id) && l.transcriptUrl.includes(cfg.video.mediaId));
+    assert.equal(l.captionsUrl, cfg.captions);
+    assert.equal(l.thumbnails.length, 2);
+    assert.equal(l.isAnonymousUser, false);
+    assert.equal(l.analytics.gatewayUrl, 'https://api.echo360.net.au');
+    assert.equal(l.analytics.sessionId, cfg.sessionId);
+    assert.equal(l.analytics.context.lesson_id, cfg.context.lessonId);
+    assert.deepEqual(JSON.parse(JSON.stringify(l.extras)), { polls: false, slides: false, audioDescription: false });
+  }
+});
+
+test('T1.1 parse: live, copyright acknowledgement, no HLS stream go to the original player; one view works', () => {
+  const m = adapterMod();
+  const A = m.echo360ClassroomAdapter;
+  const base = () => JSON.parse(bootFixture());
+  const live = base();
+  live.video.playableMedias[1].isLive = true;
+  assert.throws(() => A.parse(live), /live/);
+  const cr = base();
+  cr.copyrightData = { enforceCopyrightAcknowledgement: true, copyrightAcknowledged: false };
+  assert.throws(() => A.parse(cr), /copyright/);
+  cr.copyrightData.copyrightAcknowledged = true;
+  assert.equal(A.parse(cr).sources.length, 2);
+  const noHls = base();
+  for (const x of noHls.video.playableMedias) x.isHls = false;
+  assert.throws(() => A.parse(noHls), /no audio\+video/);
+  const videoOnly = base();
+  videoOnly.video.playableMedias = videoOnly.video.playableMedias.filter((x) => x.trackType.join('+') !== 'Audio+Video');
+  assert.throws(() => A.parse(videoOnly), /no audio\+video/);
+  assert.throws(() => A.parse({}), /playableMedias/);
+  const one = base();
+  one.video.playableMedias = one.video.playableMedias.filter((x) => x.sourceIndex !== 2);
+  const l = A.parse(one);
+  assert.equal(l.sources.length, 1);
+  assert.equal(l.sources[0].index, 1);
+  // Not signed in: no reporting user, anonymous.
+  const anon = base();
+  delete anon.user;
+  assert.equal(A.parse(anon).isAnonymousUser, true);
+});
+
+test('T1.1 withStartTime: the resume point handed back to the original player round-trips', () => {
+  const m = adapterMod();
+  const A = m.echo360ClassroomAdapter;
+  const raw = JSON.stringify(JSON.parse(bootFixture()));
+  const moved = A.withStartTime(raw, 4771.4);
+  assert.equal(typeof moved, 'string');
+  assert.equal(A.parse(moved).resumeAt, 4771.4);
+  assert.equal(A.parse(A.withStartTime(JSON.parse(raw), -5)).resumeAt, 0);
+  // Nothing else changes.
+  const a = JSON.parse(raw);
+  const b = JSON.parse(moved);
+  delete a.startTimeMillis;
+  delete b.startTimeMillis;
+  assert.deepEqual(a, b);
+});
+
+test('T1.1 intercept: the page\'s player call is caught whichever way the page sets it up', () => {
+  const run = (setup) => {
+    const m = adapterMod();
+    const g = m.window;
+    const calls = [];
+    const origRan = [];
+    setup(g, () => m.echo360ClassroomAdapter.intercept((arg, callOriginal) => { calls.push(arg); return callOriginal; }), (a) => origRan.push(a));
+    // The page's inline bootstrap: Echo["echoPlayerV2FullApp"]("<json>").
+    const handOver = g.Echo.echoPlayerV2FullApp('{"x":1}');
+    assert.deepEqual(calls, ['{"x":1}']);
+    assert.deepEqual(origRan, []);
+    handOver('{"x":2}');
+    assert.deepEqual(origRan, ['{"x":2}']);
+  };
+  // 1. The page assigns window.Echo after the trap is set, then the function on it.
+  run((g, install, orig) => { install(); g.Echo = {}; g.Echo.echoPlayerV2FullApp = orig; });
+  // 2. window.Echo (with the function) existed before the trap.
+  run((g, install, orig) => { g.Echo = { echoPlayerV2FullApp: orig }; install(); });
+  // 3. The function is defined with defineProperty on an Echo object assigned later.
+  run((g, install, orig) => { install(); const e = {}; g.Echo = e; Object.defineProperty(e, 'echoPlayerV2FullApp', { value: orig, writable: true, configurable: true }); });
+});
+
+// ---- T1.3: watch reporting (it may count for attendance: mistakes are costly) ----
+
+function reporterRig(statusFor) {
+  const sent = [];
+  const store = new Map();
+  const listeners = {};
+  const m = loadSources(['00-util', '20-reporter'], {
+    window: { addEventListener: (t, fn) => { listeners[t] = fn; }, removeEventListener: (t) => { delete listeners[t]; } },
+    localStorage: { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, v) },
+    document: { referrer: 'https://echo360.example/section/s/home' },
+    location: { href: 'https://echo360.example/lesson/l/classroom', origin: 'https://echo360.example', hash: '' },
+  });
+  m.setFetch((url, init) => {
+    const body = init && init.body ? JSON.parse(init.body) : null;
+    sent.push({ url, method: (init && init.method) || 'GET', body, auth: init && init.headers && init.headers.Authorization });
+    const status = statusFor ? statusFor(url, sent) : 204;
+    return Promise.resolve({ status, ok: status < 400, headers: { get: (h) => (h === 'token' && url.includes('refresh') ? 'fresh-token' : null) } });
+  });
+  const v = new FakeVideo();
+  v.volume = 0.8;
+  v.played = { length: 1, start: () => 10, end: () => 70.5 };
+  const d = new m.Disposer();
+  const info = { appUrl: 'https://echo360.example', gatewayUrl: 'https://api.echo360.example', sessionId: 'sess', mediaId: 'media', context: { lesson_id: 'l' }, link: {}, user: { id: 'u', role: 'Student' } };
+  const played = new m.PlayedRanges();
+  played.add(0, 5);
+  const r = new m.Reporter(info, v, played, d);
+  return { m, r, v, d, sent, store, listeners, posts: () => sent.filter((x) => x.method === 'POST' && !x.url.includes('refresh')) };
+}
+
+test('T1.3 reporting: begin once, beacons with what was really played, end once on leaving', async () => {
+  const g = reporterRig();
+  const { r, v } = g;
+  v.currentTime = 70.5;
+  v.playbackRate = 1.5;
+  r.onPlay();
+  r.onPlay();                 // a second play is no second session
+  r.onPause();
+  r.end();
+  r.end();                    // pagehide twice, or end then detach: one END
+  g.d.dispose();
+  await new Promise((res) => setTimeout(res, 0));
+  const kinds = g.posts().map((x) => (x.url.endsWith('/session') ? x.body.lifecycle : 'beacon'));
+  assert.deepEqual(kinds, ['SESSION_BEGIN', 'beacon', 'SESSION_END']);
+  const b = g.posts()[0].body;
+  assert.equal(b.session_id, 'sess');
+  assert.equal(b.media_id, 'media');
+  assert.equal(b.media_state.position, 70500);
+  assert.equal(b.media_state.playback_rate, 150);
+  assert.equal(b.media_state.volume, 80);
+  // Earlier played ranges (another view) merged with the element's own.
+  assert.equal(JSON.stringify(b.media_state.played), '[{"start":0,"end":5000},{"start":10000,"end":70500}]');
+  assert.equal(b.browser.url, 'https://echo360.example/lesson/l/classroom');
+  // Nothing at all before playback started: no session for a page only opened.
+  const g2 = reporterRig();
+  g2.r.end();
+  g2.d.dispose();
+  await new Promise((res) => setTimeout(res, 0));
+  assert.equal(g2.posts().length, 0);
+});
+
+test('T1.3 reporting: a refused report refreshes the token and is sent once more, not again and again', async () => {
+  let refusals = 0;
+  const g = reporterRig((url) => (url.endsWith('/beacon') && refusals++ < 5 ? 401 : 204));
+  g.store.set('authn-jwt', 'old-token');
+  g.r.onPlay();
+  g.r.heartbeat();
+  await new Promise((res) => setTimeout(res, 10));
+  const beacons = g.sent.filter((x) => x.url.endsWith('/beacon'));
+  assert.equal(beacons.length, 2, 'the original and one retry');
+  assert.equal(beacons[0].auth, 'Bearer old-token');
+  assert.equal(beacons[1].auth, 'Bearer fresh-token');
+  assert.equal(g.sent.filter((x) => x.url.includes('refresh')).length, 1);
+  assert.equal(g.store.get('authn-jwt'), 'fresh-token');
+  g.d.dispose();
+});
+
+test('T1.3 reporting: after handing over to the original player, nothing more is sent', async () => {
+  const g = reporterRig();
+  g.r.onPlay();
+  g.d.dispose();              // handing over: this player stops, the original reports itself
+  const n = g.posts().length;
+  g.r.heartbeat();
+  g.r.onPlay();
+  g.r.end();
+  if (g.listeners.pagehide) g.listeners.pagehide();
+  for (const t of g.m.timers || []) if (t.fn) t.fn();
+  await new Promise((res) => setTimeout(res, 0));
+  assert.equal(g.posts().length, n);
+  assert.equal(g.listeners.pagehide, undefined, 'the unload listener is removed');
+});
+
+// ---- T1.4: nothing is written to Echo360 without the user doing it ----
+
+function apiRig(dryRun) {
+  const sent = [];
+  const local = new Map(dryRun ? [['echo360lite:dryRun', JSON.stringify(dryRun)]] : []);
+  const m = loadSources(['00-util', '10-adapter', '11-echo360-api'], {
+    localStorage: { getItem: (k) => (local.has(k) ? local.get(k) : null), setItem: (k, v) => local.set(k, v) },
+  });
+  m.setFetch((url, init) => {
+    sent.push({ url, method: init.method });
+    return Promise.resolve({ ok: true, status: 200, json: async () => ({ status: 'ok', data: [{ id: 'n1', createdAt: 'x' }] }) });
+  });
+  const lesson = { lessonId: 'L1', mediaId: 'M1', sectionId: 'S1', thumbnails: [] };
+  return { m, api: new m.Echo360Api(lesson), sent, dry: () => m.window.__echo360LiteDryRun || [] };
+}
+
+// Every write the API offers, with plausible arguments, and whether it is public.
+const WRITES = [
+  ['addNote', (ev) => [ev, { text: 'x', time: 5 }], false],
+  ['updateNote', (ev) => [ev, { id: 'n1' }, 'y'], false],
+  ['deleteNote', (ev) => [ev, { id: 'n1' }], false],
+  ['addFlag', (ev) => [ev, 40], true],
+  ['removeFlag', (ev) => [ev, { id: 'flag-1', time: 30 }], true],
+  ['postComment', (ev) => [ev, { body: 'q', anonymous: false, time: 10 }], true],
+  ['reply', (ev) => [ev, 'Q1', { body: 'r', anonymous: true }], true],
+  ['like', (ev) => [ev, { id: 'C1', questionId: null }, true], true],
+  ['deleteComment', (ev) => [ev, { id: 'C1', questionId: null }], true],
+  ['save', (ev) => [ev, { id: 'C1' }, true], true],
+];
+
+test('T1.4 writes: refused without a trusted user event, for every write', async () => {
+  const g = apiRig(false);
+  const own = Object.getOwnPropertyNames(g.m.Echo360Api.prototype).filter((n) => /^(add|update|delete|remove|post|reply|like|save)/.test(n));
+  assert.deepEqual(own.sort(), WRITES.map((w) => w[0]).sort(), 'every write method is covered here');
+  for (const [name, args] of WRITES) {
+    for (const ev of [undefined, null, {}, { isTrusted: false }, { isTrusted: 'true' }]) {
+      await assert.rejects(async () => g.api[name](...args(ev)), /write refused/, name);
+    }
+  }
+  assert.equal(g.sent.length, 0, 'nothing reached the network');
+});
+
+test('T1.4 writes: with a user event they are sent; dry run "public" holds back what others would see, "all" holds back everything', async () => {
+  const ev = { isTrusted: true };
+  const live = apiRig(false);
+  for (const [name, args] of WRITES) await live.api[name](...args(ev)).catch(() => {});
+  assert.equal(live.sent.length, WRITES.length);
+  const pub = apiRig('public');
+  for (const [name, args] of WRITES) await pub.api[name](...args(ev)).catch(() => {});
+  assert.equal(pub.sent.length, WRITES.filter((w) => !w[2]).length, 'only private writes sent');
+  assert.equal(pub.dry().length, WRITES.filter((w) => w[2]).length, 'public ones recorded instead');
+  assert.ok(pub.dry().every((r) => r.visibility === 'public'));
+  const all = apiRig('all');
+  for (const [name, args] of WRITES) await all.api[name](...args(ev)).catch(() => {});
+  assert.equal(all.sent.length, 0);
+  assert.equal(all.dry().length, WRITES.length);
 });
 
 // ---- slide chapters ----
@@ -943,6 +1200,42 @@ test('E2: a backup restore takes only known keys, validated, and skips damaged e
   assert.equal(db.has('tags:bad'), false);
   assert.equal(db.has('other:x'), false);
   assert.equal(db.has('watched:l'), true);
+});
+
+test('T1.5 backup: everything made by a backup comes back from it, through a file', async () => {
+  const local = new Map([
+    ['echo360lite:prefs', JSON.stringify({ rate: 1.5, layout: 'pip' })],
+    ['echo360lite:pos:abc', JSON.stringify({ t: 30, at: 1 })],
+    ['echo360lite:debug', 'true'],
+    ['someone-else', 'x'],
+  ]);
+  const ls = { getItem: (k) => (local.has(k) ? local.get(k) : null), setItem: (k, v) => local.set(k, v), key: (i) => [...local.keys()][i], get length() { return local.size; } };
+  const m = loadSources(['00-util', '01-i18n', '39-prefs', '40-player', '45-captions', '46-sidebar', '53-media-io', '54-silence', '11-echo360-api', '10-adapter', '85-export'], { localStorage: ls });
+  const db = new Map([
+    ['tags:s', { tags: [{ id: 'a', name: 'Exam', color: '#fff' }] }],
+    ['tagmap:m', { n1: ['a'] }],
+    ['watched:l', { d: 100, r: [[0, 10], [20, 30]], e: 90 }],
+    ['screenpick:m', { index: 2 }],
+    ['deck:m', { files: [{ hash: 'h', name: 'w1.pdf' }], fixes: [] }],
+    ['slides:m', { v: 4, chapters: [] }],   // an analysis cache: not user data, not backed up
+  ]);
+  Object.assign(m.idbCache, { get: async (k) => db.get(k), keys: async () => [...db.keys()] });
+  const file = JSON.stringify(await m.makeBackup(false));
+  const data = JSON.parse(file);
+  assert.equal(Object.keys(data.db).includes('slides:m'), false);
+  assert.equal('debug' in data.local, false);
+  // Into an empty browser.
+  const before = { local: new Map(local), db: new Map(db) };
+  local.clear();
+  const db2 = new Map();
+  const target = { get: async (k) => db2.get(k), put: async (k, v) => { db2.set(k, v); }, putMany: async (es) => { for (const [k, v] of es) db2.set(k, v); }, del: async (k) => { db2.delete(k); }, keys: async () => [...db2.keys()] };
+  await m.restoreBackup(data, target);
+  for (const k of ['tags:s', 'tagmap:m', 'watched:l', 'screenpick:m', 'deck:m']) assert.equal(JSON.stringify(db2.get(k)), JSON.stringify(before.db.get(k)), k);
+  assert.equal(db2.has('slides:m'), false);
+  assert.equal(JSON.parse(local.get('echo360lite:prefs')).rate, 1.5);
+  assert.equal(JSON.parse(local.get('echo360lite:prefs')).layout, 'pip');
+  assert.equal(JSON.parse(local.get('echo360lite:pos:abc')).t, 30);
+  assert.equal(local.has('echo360lite:debug'), false);
 });
 
 test('S1: every element the player looks up by a single class exists exactly once in its markup', () => {

@@ -1,0 +1,148 @@
+{
+ "title": "EXAMPLE1001 Lecture A (2 hours)",
+ "captions": "https://content.example.net/000002/captions-00000000-0000-4000-8000-000000000001-20260928084615.vtt",
+ "context": {
+  "courseId": "00000000-0000-4000-8000-000000000003",
+  "departmentId": "00000000-0000-4000-8000-000000000004",
+  "lessonId": "00000000-0000-4000-8000-000000000005",
+  "organizationId": "00000000-0000-4000-8000-000000000006",
+  "sectionId": "00000000-0000-4000-8000-000000000007",
+  "termId": "00000000-0000-4000-8000-000000000008"
+ },
+ "copyrightData": {
+  "enforceCopyrightAcknowledgement": false,
+  "copyrightAcknowledged": false
+ },
+ "polls": [],
+ "slides": {
+  "slideDeck": null
+ },
+ "cookieRenewalIntervalMillis": 3600000,
+ "startTimeMillis": 1234000,
+ "lesson": {
+  "id": "00000000-0000-4000-8000-000000000005",
+  "name": "Lecture A"
+ },
+ "sectionInfo": {
+  "section": {
+   "id": "00000000-0000-4000-8000-000000000007"
+  },
+  "course": {
+   "courseName": "Example Course",
+   "courseIdentifier": "EXAMPLE1001"
+  }
+ },
+ "user": {
+  "id": "00000000-0000-4000-8000-000000000009",
+  "currentRole": "Student"
+ },
+ "sessionId": "00000000-0000-4000-8000-000000000010",
+ "video": {
+  "duration": "PT6895.072S",
+  "mediaId": "00000000-0000-4000-8000-000000000001",
+  "audioDescriptions": [],
+  "playableMedias": [
+   {
+    "isHls": true,
+    "isLive": false,
+    "sourceIndex": 0,
+    "trackType": [
+     "Audio"
+    ],
+    "quality": [
+     0,
+     1
+    ],
+    "uri": "https://content.example.net/000011/s0_a.m3u8"
+   },
+   {
+    "isHls": true,
+    "isLive": false,
+    "sourceIndex": 1,
+    "trackType": [
+     "Video"
+    ],
+    "quality": [
+     0,
+     1
+    ],
+    "uri": "https://content.example.net/000011/s1_v.m3u8"
+   },
+   {
+    "isHls": true,
+    "isLive": false,
+    "sourceIndex": 1,
+    "trackType": [
+     "Audio",
+     "Video"
+    ],
+    "quality": [
+     0,
+     1
+    ],
+    "uri": "https://content.example.net/000011/s1_av.m3u8"
+   },
+   {
+    "isHls": true,
+    "isLive": false,
+    "sourceIndex": 2,
+    "trackType": [
+     "Video"
+    ],
+    "quality": [
+     0,
+     1
+    ],
+    "uri": "https://content.example.net/000011/s2_v.m3u8"
+   },
+   {
+    "isHls": true,
+    "isLive": false,
+    "sourceIndex": 2,
+    "trackType": [
+     "Audio",
+     "Video"
+    ],
+    "quality": [
+     0,
+     1
+    ],
+    "uri": "https://content.example.net/000011/s2_av.m3u8"
+   }
+  ],
+  "posterMedia": [
+   {
+    "sourceIndex": 1,
+    "uri": "https://thumbnails.example.net/000011/poster1.jpg"
+   },
+   {
+    "sourceIndex": 2,
+    "uri": "https://thumbnails.example.net/000011/poster2.jpg"
+   }
+  ],
+  "thumbnailMedia": [
+   {
+    "sourceIndex": 1,
+    "baseUri": "https://thumbnails.example.net/000011/thumbnails1",
+    "extension": "jpg",
+    "timesInSeconds": [
+     5,
+     65,
+     125,
+     185
+    ]
+   },
+   {
+    "sourceIndex": 2,
+    "baseUri": "https://thumbnails.example.net/000011/thumbnails2",
+    "extension": "jpg",
+    "timesInSeconds": [
+     5,
+     65,
+     125,
+     185
+    ]
+   }
+  ]
+ }
+}
