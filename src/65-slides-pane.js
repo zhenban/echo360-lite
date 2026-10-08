@@ -144,7 +144,7 @@ class SlideReader {
 }
 
 class SlidesPane {
-  constructor(player, elem) {
+  constructor(player, elem, disposer) {
     this.player = player;
     this.el = elem;
     this.visible = false;
@@ -153,8 +153,9 @@ class SlidesPane {
     this.current = -1;
     this.cards = [];
     this.showChapters = false;
-    this.d = new Disposer();
+    this.d = disposer || new Disposer();   // owned by whoever created this (parent.child())
     this.reader = player.reader;
+    this.d.add(() => this.reader.setActive('side', false));
     this.deckBox = el('div.sdeck');
     this.readerBox = el('div.reader', { hidden: true });
     this.status = el('div.sstatus', { 'aria-live': 'polite' });
@@ -346,7 +347,6 @@ class SlidesPane {
   }
 
   dispose() {
-    this.reader.setActive('side', false);
     this.d.dispose();
   }
 }

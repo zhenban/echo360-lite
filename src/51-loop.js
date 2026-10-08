@@ -11,8 +11,10 @@
 const LOOP_MIN_SEC = 1;
 
 class ABLoop {
-  constructor(player, disposer) {
-    this.p = player;
+  // deps: { mount (where the menus live), rail (the progress bar), video, duration(),
+  //         seek(t), toast(msg, action, fn) }
+  constructor(deps, disposer) {
+    this.p = deps;
     this.a = null;
     this.b = null;
     this.last = -1;          // time at the previous check
@@ -25,7 +27,7 @@ class ABLoop {
   get active() { return this.a != null && this.b != null; }
 
   build() {
-    const seek = this.p.$('.seek');
+    const seek = this.p.rail;
     this.band = el('div.loopband', { hidden: true },
       el('i.lh.la', { title: tr('loopStart') }), el('i.lh.lb', { title: tr('loopEnd') }),
       el('button.lx', { title: tr('loopClear') + ' (X)', 'aria-label': tr('loopClear'), text: '✕' }));
@@ -34,7 +36,7 @@ class ABLoop {
       el('button', { 'data-loop': 'a', text: tr('loopFromHere') }),
       el('button', { 'data-loop': 'b', text: tr('loopToHere') }),
       el('button', { 'data-loop': 'x', text: tr('loopClear') }));
-    const host = this.p.$('.speedmenu').parentElement;  // where the other menus live
+    const host = this.p.mount;  // where the other menus live
     host.append(this.menu);
     const d = this.d;
     d.listen(this.band.querySelector('.lx'), 'pointerdown', (e) => e.stopPropagation());
@@ -64,7 +66,7 @@ class ABLoop {
 
   // Dragging an end of the band.
   bindHandle(hd) {
-    const seek = this.p.$('.seek');
+    const seek = this.p.rail;
     const isA = hd.classList.contains('la');
     let drag = false;
     this.d.listen(hd, 'pointerdown', (e) => {

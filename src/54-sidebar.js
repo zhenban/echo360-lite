@@ -24,13 +24,13 @@ function el(spec, props, ...children) {
 const SIDEBAR_TABS = ['transcript', 'slides', 'notes', 'discussion'];
 
 class Sidebar {
-  constructor(player, elem) {
+  constructor(player, elem, disposer) {
     this.p = player;
     this.el = elem;
     this.controllers = {};
     this.active = null;
     this.isOpen = false;
-    this.d = new Disposer();
+    this.d = disposer || new Disposer();   // owned by whoever created this (parent.child())
     for (const b of elem.querySelectorAll('.tabs [data-tab]')) {
       this.d.listen(b, 'click', () => this.switchTo(b.dataset.tab));
     }
@@ -87,8 +87,8 @@ class Sidebar {
     this.p.onSidebarChange();
   }
 
+  // The panes are owned by whoever created them, not by the panel that shows them.
   dispose() {
-    for (const c of Object.values(this.controllers)) if (c.dispose) c.dispose();
     this.d.dispose();
   }
 }

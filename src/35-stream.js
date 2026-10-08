@@ -33,6 +33,7 @@ class Stream {
     // The element says 0 and paused until it gets there, so it cannot be asked (a second
     // reload in that window would start at 0).
     this.starting = null;     // { at, play } or null
+    this.renewedAt = 0;       // when access was last renewed for this stream (see the player's recoverAccess)
     this.arrived = null;      // listener clearing `starting`
   }
 

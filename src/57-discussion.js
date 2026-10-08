@@ -8,7 +8,7 @@
 const MAX_POST_LENGTH = 5000;
 
 class DiscussionPane {
-  constructor(player, pane, api) {
+  constructor(player, pane, api, disposer) {
     this.p = player;
     this.pane = pane;
     this.api = api;
@@ -20,7 +20,7 @@ class DiscussionPane {
     this.openReplies = new Set();
     this.replyOpen = null;
     this.loadedAt = 0;
-    this.d = new Disposer();
+    this.d = disposer || new Disposer();   // owned by whoever created this (parent.child())
     this.build();
   }
 

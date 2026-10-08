@@ -9,20 +9,15 @@
 // Layout: which source is shown big ("primary") is independent of which one is the clock.
 // Swapping views in the side-by-side and picture-in-picture layouts only moves the two
 // elements (CSS); in the single layout the clock is reloaded with the shown source.
+//
+// The player assembles its parts and keeps what they share: the streams, the layout and
+// the settings. Each part gets only the functions and elements it needs, and is owned
+// through a child of the player's Disposer (released with it, or alone if it fails):
+//   SeekBar (41), KeyboardShortcuts (42), LayoutControls (43), QualityController (44),
+//   MenuBar (45), PopoutController (46), SilenceUi (47); and the features: captions and
+//   transcript (53), side panel (54), notes (55), discussion (57), slides (64-68),
+//   zoom (50), A-B loop (51), watched parts (52), audio tools (60).
 // ===================================================================================
-
-const LAYOUTS = ['side', 'pip', 'single'];
-const CORNERS = ['br', 'bl', 'tr', 'tl'];
-
-// Keyboard shortcuts, as listed in the help panel (`?`): [keys, string key].
-const KEY_HELP = [
-  [['Space', 'K'], 'keyPlay'], [['←', '→'], 'keySeek5'], [['J', 'L'], 'keySeek10'], [['↑', '↓'], 'keyVolume'],
-  [['M'], 'keyMute'], [['F'], 'keyFullscreen'], [['S'], 'keySwap'], [['[', ']'], 'keySpeed'],
-  [['C'], 'keyCaptions'], [['T'], 'keyTranscript'], [['B'], 'keyBookmark'], [['G'], 'keyTag'], [['U'], 'keyFlag'],
-  [['Shift+←', 'Shift+→'], 'keySlide'], [['P'], 'keyCopyFrame'], [['A'], 'keyCopyCaptions'],
-  [['W'], 'keyPopout'], [['E'], 'keyExport'], [['+', '-'], 'keyZoom'], [['0'], 'keyZoomReset'], [['I', 'O'], 'keyLoop'], [['X'], 'keyLoopClear'],
-  [['?'], 'keyHelp'], [['Esc'], 'keyEscape'],
-];
 
 class LitePlayer {
   constructor(lesson, opts) {
@@ -49,14 +44,10 @@ class LitePlayer {
     featureErrors.notify = (name) => { if (!this.destroyed && this.root) this.toast(tr('featureFailed', { name })); };
     this.d.add(() => { featureErrors.notify = null; });
     this.prefs = sanitizePrefs(store.get('prefs', null));
-    this.levelsByRole = {};
-    this.skips = [];          // skippable stretches (updateSkips)
-    this.contentEnd = null;
     this.played = new PlayedRanges();
-    this.lastSecond = -1;
-    this.lastP = -1;
-    this.lastB = -1;
-    this.dragging = false;
+    // Shared by the parts that drag (seek bar, divider, picture-in-picture window) and
+    // those that must not interfere meanwhile (hiding the controls, skipping silences).
+    this.ui = { dragging: false };
     this.sync = null;
     this.followerFailed = false;
     this.frame = new FrameTask(() => this.render());
@@ -77,7 +68,7 @@ class LitePlayer {
     this.follower = new Stream(this.fvideo, (f) => (f.auth ? this.recoverAccess(this.follower, () => this.onFollowerFatal()) : this.onFollowerFatal()));
     this.followerPos = -1;
     for (const st of [this.clock, this.follower]) {
-      st.onLevel = () => { if (!this.destroyed) this.onLevelChange(); };
+      st.onLevel = () => { if (!this.destroyed) this.quality.levelChanged(); };
       // Refused but still retrying: renew in the background (once at a time).
       st.onAuth = () => {
         if (this.destroyed) return;
@@ -87,17 +78,26 @@ class LitePlayer {
       };
     }
     this.d.add(() => { this.dropFollower(); this.clock.destroy(); });
+    this.setupParts();
     this.bindVideo();
     this.bindControls();
-    this.bindLayoutControls();
-    this.bindKeys();
     this.watched = new WatchedStore(lesson, this.video, this.played);
     this.watched.load().then(() => { if (!this.destroyed) this.renderWatched(); }).catch(() => {});
     this.d.listen(window, 'pagehide', () => this.watched.save(this.duration()));
     this.reporter = lesson.analytics ? new Reporter(lesson.analytics, this.video, this.played, this.d.child()) : null;
     if (this.reporter) this.reporter.stateFn = () => ({ captions: this.cc.on, transcript: this.sidebar.visible('transcript') });
     // Optional features: one failing to start is turned off, the others and playback go on.
-    featureGuard('silence detection', () => this.setupSilence());
+    featureGuard('silence detection', () => {
+      this.silence = new SilenceUi({
+        $: (sel) => this.$(sel), lesson, video: this.video, sources: this.sources, prefs: this.prefs, savePrefs: () => this.savePrefs(),
+        seek: (t) => this.seek(t), duration: () => this.duration(), toast: (...a) => this.toast(...a), ui: this.ui,
+        uniform: () => (this.slides ? this.slides.uniform : []),
+        onSkips: (skips, end) => {
+          this.seekBar.renderSkips(skips);
+          if (this.watched) this.watched.contentEnd = end && end < this.duration() ? end : null;
+        },
+      }, this.d.feature('silence detection'));
+    });
     featureGuard('slide chapters', () => this.setupSlides());
     featureGuard('slide reader', () => this.setupDeck());
     featureGuard('captions', () => this.loadCues());
@@ -151,10 +151,7 @@ class LitePlayer {
     this.stage = this.$('.stage');
     this.video = this.$('video.clock');
     this.fvideo = this.$('video.follower');
-    this.seekEl = this.$('.seek');
     this.app = this.$('.app');
-    this.timeCur = this.$('.cur');
-    this.timeDur = this.$('.dur');
     this.$('.title').textContent = this.lesson.title;
     document.title = this.lesson.title;
     const back = this.$('.back');
@@ -166,21 +163,12 @@ class LitePlayer {
     this.cc = new CaptionsView(this.$('.captions'), this.video);
     this.d.add(() => this.cc.dispose());
     this.cc.setSize(this.prefs.capSize);
-    this.sidebar = new Sidebar(this, this.$('.panel'));
-    this.transcript = new TranscriptPanel(this, this.$('.pane[data-pane=transcript]'), this.$('.marks'));
+    this.sidebar = new Sidebar(this, this.$('.panel'), this.d.child());
+    this.transcript = new TranscriptPanel(this, this.$('.pane[data-pane=transcript]'), this.$('.marks'), this.d.child());
     this.markers = new MarkersLayer(this.$('.imarks'));
     this.notes = null;
     this.discussion = null;
-    this.d.add(() => { this.sidebar.dispose(); this.transcript.dispose(); if (this.notes) this.notes.dispose(); if (this.discussion) this.discussion.dispose(); });
     this.renderExtras();
-    const menu = this.$('.speedmenu');
-    for (const s of SPEEDS) {
-      const b = document.createElement('button');
-      b.setAttribute('role', 'menuitemradio');
-      b.dataset.rate = String(s);
-      b.textContent = s + 'x';
-      menu.appendChild(b);
-    }
     (document.body || document.documentElement).appendChild(host);
     const prevOverflow = document.documentElement.style.overflow;
     document.documentElement.style.overflow = 'hidden';
@@ -227,8 +215,8 @@ class LitePlayer {
     v.volume = clamp(this.prefs.volume, 0, 1);
     v.muted = !!this.prefs.muted;
     this.renderVolume();
-    this.clock.quality = this.qualityFor(pos);
-    this.clock.priority = this.roleOf(pos) === 'camera' ? 'low' : 'high';
+    this.clock.quality = this.quality.qualityFor(pos);
+    this.clock.priority = this.quality.roleOf(pos) === 'camera' ? 'low' : 'high';
     this.clock.load(source.av, startAt, () => {
       v.playbackRate = this.prefs.rate;
       if (this.clock.playing()) v.play().catch(() => {});
@@ -245,8 +233,8 @@ class LitePlayer {
       // Where the clock is, or is about to be while it is (re)loading.
       const at = this.clock.position();
       this.followerPos = pos;
-      this.follower.quality = this.qualityFor(pos);
-      this.follower.priority = this.roleOf(pos) === 'camera' ? 'low' : 'high';
+      this.follower.quality = this.quality.qualityFor(pos);
+      this.follower.priority = this.quality.roleOf(pos) === 'camera' ? 'low' : 'high';
       this.follower.load(uri, at, null);
     }
     if (!this.sync) this.sync = new FollowerSync(this.video, this.fvideo);
@@ -300,7 +288,7 @@ class LitePlayer {
       this.reader.setActive('main', pdf);
       if (pdf) this.redrawPdf();
     }
-    this.applyQuality();
+    this.quality.apply();
   }
 
   // ---- the PDF in the picture area ----
@@ -341,118 +329,12 @@ class LitePlayer {
     box.append(rd.followElement(true));
   }
 
-  // ---- copying (picture, transcript) ----
-
-  renderCopyMenu() {
-    const span = this.prefs.copySpan || 60;
-    for (const b of this.root.querySelectorAll('.copymenu [data-span]')) b.setAttribute('aria-checked', String(+b.dataset.span === span));
-  }
-
   // The element showing the screen view if it is playing, else the main view.
   screenVideo() {
     const pos = this.slides && this.slides.screenIndex != null ? this.sources.findIndex((s) => s.index === this.slides.screenIndex) : -1;
     if (pos >= 0 && pos === this.clockPos) return this.video;
     if (pos >= 0 && pos === this.followerPos) return this.fvideo;
     return this.layout === 'single' || this.clockPos === this.primaryPos ? this.video : this.fvideo;
-  }
-
-  // Copies the current picture at the video's own resolution. Must run from a user action.
-  copyFrame() {
-    const v = this.screenVideo();
-    if (!v.videoWidth) { this.toast(tr('copyFailed', { msg: 'no picture yet' })); return; }
-    const c = document.createElement('canvas');
-    c.width = v.videoWidth;
-    c.height = v.videoHeight;
-    c.getContext('2d').drawImage(v, 0, 0);
-    // The clipboard item is created synchronously (within the user action) from a promise.
-    const blob = new Promise((resolve) => c.toBlob(resolve, 'image/png'));
-    navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
-      .then(() => this.toast(tr('copiedFrame', { w: c.width, h: c.height })))
-      .catch((e) => this.toast(tr('copyFailed', { msg: (e && e.message) || e })));
-  }
-
-  // Copies what was said in the last copySpan seconds, in whole sentences, with the
-  // lecture's name and the time range.
-  copyCaptions() {
-    if (!this.cues || !this.cues.length) { this.toast(tr('copyNoCaptions')); return; }
-    const x = captionExcerpt(this.cues, this.video.currentTime, this.prefs.copySpan || 60);
-    if (!x) { this.toast(tr('copyNoCaptions')); return; }
-    const long = this.duration() >= 3600;
-    const from = fmtTime(x.start, long);
-    const to = fmtTime(x.end, long);
-    const text = this.lesson.title + '\n' + from + '–' + to + '\n\n' + x.text + '\n';
-    navigator.clipboard.writeText(text)
-      .then(() => this.toast(tr('copiedCaptions', { from, to })))
-      .catch((e) => this.toast(tr('copyFailed', { msg: (e && e.message) || e })));
-  }
-
-  // ---- quality ----
-
-  // 'screen' or 'camera'. Until the screen view is known, the first view counts as screen.
-  roleOf(pos) {
-    const src = this.sources[pos];
-    if (!src) return 'screen';
-    const screen = this.slides ? this.slides.screenIndex : null;
-    if (screen != null) return src.index === screen ? 'screen' : 'camera';
-    return pos === 0 ? 'screen' : 'camera';
-  }
-
-  qualityFor(pos) {
-    return this.prefs.quality[this.roleOf(pos)] || 'auto';
-  }
-
-  // Applies the quality settings to both streams. The camera may use a smaller rendition
-  // only while it is the small picture-in-picture window; the screen is never capped.
-  applyQuality() {
-    const pairs = [[this.clock, this.video, this.clockPos], [this.follower, this.fvideo, this.followerPos]];
-    for (const [stream, elem, pos] of pairs) {
-      if (pos < 0 || !stream.uri) continue;
-      let cap = 0;
-      if (this.layout === 'pip' && elem.dataset.slot === 'secondary' && this.roleOf(pos) === 'camera') {
-        cap = Math.ceil(elem.clientHeight * (window.devicePixelRatio || 1));
-      }
-      stream.setCap(cap);
-      stream.setQuality(this.qualityFor(pos));
-    }
-    this.onLevelChange();
-  }
-
-  onLevelChange() {
-    for (const [stream, pos] of [[this.clock, this.clockPos], [this.follower, this.followerPos]]) {
-      if (pos >= 0 && stream.levels.length) this.levelsByRole[this.roleOf(pos)] = stream.levels.map((l) => l.height);
-    }
-    const shown = this.layout === 'single' || this.clockPos === this.primaryPos ? this.clock : this.follower;
-    const h = shown.height;
-    this.$('.qbtn').textContent = h ? h + 'p' : tr('qualityAuto');
-    if (!this.$('.qualitymenu').hidden) this.renderQualityMenu();
-  }
-
-  renderQualityMenu() {
-    const menu = this.$('.qualitymenu');
-    menu.textContent = '';
-    menu.append(el('div.head', { text: tr('quality') }));
-    const roles = this.dual ? ['screen', 'camera'] : [this.roleOf(0)];
-    for (const role of roles) {
-      const pos = this.sources.findIndex((s, i) => this.roleOf(i) === role);
-      if (pos < 0) continue;
-      const stream = pos === this.clockPos ? this.clock : pos === this.followerPos ? this.follower : null;
-      const playing = stream && stream.height ? stream.height + 'p' : '';
-      if (this.dual) menu.append(el('div.sub', { text: tr(role === 'screen' ? 'qualityScreen' : 'qualityCamera') + (playing ? ' \u00b7 ' + tr('qualityNow', { q: playing }) : '') }));
-      else if (playing) menu.append(el('div.sub', { text: tr('qualityNow', { q: playing }) }));
-      const want = this.prefs.quality[role];
-      const heights = (this.levelsByRole[role] || []).slice().sort((a, b) => b - a);
-      const opts = [['auto', tr('qualityAutoBest')]].concat(heights.map((x) => [x, x + 'p']));
-      for (const [val, label] of opts) {
-        menu.append(el('button', { role: 'menuitemradio', 'aria-checked': String(want === val), 'data-role': role, 'data-q': String(val), text: label }));
-      }
-    }
-  }
-
-  setQuality(role, val) {
-    this.prefs.quality[role] = val === 'auto' ? 'auto' : +val;
-    this.savePrefs();
-    this.applyQuality();
-    this.renderQualityMenu();
   }
 
   setLayout(layout) {
@@ -517,6 +399,81 @@ class LitePlayer {
     this.toast(tr('secondViewLost'), tr('retry'), () => this.setLayout(this.prefs.layout));
   }
 
+  // ---- the parts ----
+
+  setupParts() {
+    const $ = (sel) => this.$(sel);
+    const savePrefs = () => this.savePrefs();
+    const toast = (...a) => this.toast(...a);
+    const isDestroyed = () => this.destroyed;
+    this.seekBar = new SeekBar({
+      $, video: this.video, clock: this.clock, duration: () => this.duration(), seek: (t) => this.seek(t),
+      isIdle: () => this.stage.classList.contains('idle'), armIdle: () => this.armIdle(), markers: this.markers, ui: this.ui,
+      previewAt: (t) => this.previewAt(t), skipAt: (t) => (this.silence ? this.silence.skipAt(t) : null),
+    }, this.d.child());
+    this.quality = new QualityController({
+      $, prefs: this.prefs, savePrefs, sources: this.sources, dual: this.dual,
+      screenIndex: () => (this.slides ? this.slides.screenIndex : null),
+      streams: () => [{ stream: this.clock, elem: this.video, pos: this.clockPos }, { stream: this.follower, elem: this.fvideo, pos: this.followerPos }],
+      shown: () => (this.layout === 'single' || this.clockPos === this.primaryPos ? this.clock : this.follower),
+      layout: () => this.layout,
+    }, this.d.child());
+    this.layoutControls = new LayoutControls({
+      $, stage: this.stage, prefs: this.prefs, savePrefs, ui: this.ui, armIdle: () => this.armIdle(), redrawPdf: () => this.redrawPdf(),
+      // A click swaps the two pictures (with the PDF shown: the PDF and the video).
+      onPipClick: () => { if (this.pdfMode) this.swapPdf(); else this.swapViews(); },
+    }, this.d.child());
+    this.menus = new MenuBar({
+      $, root: this.root, stage: this.stage, video: this.video, prefs: this.prefs, savePrefs, cc: this.cc, toast,
+      setRate: (r) => this.setRate(r), setLayout: (l) => this.setLayout(l), cues: () => this.cues || [], screenVideo: () => this.screenVideo(),
+      title: this.lesson.title, duration: () => this.duration(), wake: () => this.wake(), showKeys: () => this.keys.showHelp(true),
+      diagnostics: () => diagnosticsText(this),
+      onOpen: (menu) => { if (menu.classList.contains('qualitymenu')) this.quality.renderMenu(); },
+      onCloseAll: () => { if (this.loop) this.loop.menu.hidden = true; },
+    }, this.d.child());
+    this.keys = new KeyboardShortcuts({ $, isDestroyed, wake: () => this.wake(), actions: this.keyActions() }, this.d.child());
+    this.popout = new PopoutController({
+      $, host: this.host, video: this.video, title: this.lesson.title, onKey: this.keys.onKey, isDestroyed, toast,
+      relayout: () => { this.quality.apply(); this.redrawPdf(); },
+    }, this.d.feature('floating window'));
+  }
+
+  // What the keyboard shortcuts do (see 42-keys.js); false: not available now.
+  keyActions() {
+    const v = this.video;
+    const notesReady = () => this.notes && this.notesReady;
+    return {
+      togglePlay: () => this.togglePlay(),
+      seekBy: (s) => this.seek(this.clock.position() + s),
+      stepChapter: (dir) => this.stepChapter(dir),
+      volumeBy: (dv) => { if (dv > 0) v.muted = false; v.volume = clamp(v.volume + dv, 0, 1); },
+      toggleMute: () => { v.muted = !v.muted; },
+      fullscreen: () => this.toggleFullscreen(),
+      swap: () => this.swapViews(),
+      captions: () => (this.cues && this.cues.length ? this.menus.setCaptions(!this.cc.on) : false),
+      transcript: () => (this.sidebar.has('transcript') ? this.sidebar.toggle('transcript') : false),
+      bookmark: (a, e) => (notesReady() ? this.notes.addBookmark(e) : false),
+      flag: (a, e) => (notesReady() && this.notes.canFlag ? this.notes.toggleFlag(e) : false),
+      tag: (a, e) => (notesReady() ? this.notes.tagHere(e) : false),
+      copyFrame: () => this.menus.copyFrame(),
+      copyCaptions: () => this.menus.copyCaptions(),
+      escape: () => {
+        if (this.menus.diagnosticsOpen) this.menus.showDiagnostics(false);
+        else if (this.keys.helpOpen) this.keys.showHelp(false);
+        else if (this.menus.anyOpen()) this.menus.closeAll();
+        else return false;
+        return true;
+      },
+      zoom: (f) => this.zoomMain(f),
+      loopA: () => this.loop.setA(v.currentTime),
+      loopB: () => this.loop.setB(v.currentTime),
+      loopClear: () => (this.loop.a != null ? this.loop.clear() : false),
+      popout: () => (PopoutController.supported() ? this.popout.toggle() : false),
+      exportNotes: () => (notesReady() ? this.notes.openExport() : false),
+      speed: (dir) => this.setRate(nextSpeed(v.playbackRate, dir)),
+    };
+  }
+
   // ---- video events ----
 
   bindVideo() {
@@ -557,18 +514,15 @@ class LitePlayer {
       this.transcript.update(ct);
       const scene = Math.floor(ct / FLAG_SCENE_SECONDS);
       if (scene !== this.flagScene) { this.flagScene = scene; this.renderFlagButton(); }
-      this.silenceTick(ct);
+      if (this.silence) this.silence.tick(ct);
       if (this.slidesPane) this.slidesPane.update(ct);
       if (this.reader) this.reader.update(ct);
     };
     on('timeupdate', () => { invalidate(); onTime(); });
     on('seeked', onTime);
     on('progress', invalidate);
-    on('durationchange', () => { this.render(true); if (this.loop) this.loop.render(); this.renderWatched(); this.updateMarkers(); this.updateSkips(); this.renderChapterMarks(); });
-    on('ratechange', () => {
-      this.$('.speed').textContent = v.playbackRate + 'x';
-      for (const b of this.root.querySelectorAll('.speedmenu button')) b.setAttribute('aria-checked', String(+b.dataset.rate === v.playbackRate));
-    });
+    on('durationchange', () => { this.render(true); if (this.loop) this.loop.render(); this.renderWatched(); this.updateMarkers(); if (this.silence) this.silence.update(); this.renderChapterMarks(); });
+    on('ratechange', () => this.menus.renderSpeed(v.playbackRate));
     on('volumechange', () => {
       this.renderVolume();
       this.prefs.volume = v.volume;
@@ -628,40 +582,9 @@ class LitePlayer {
     return isFinite(dur) && dur > 0 ? dur : (isFinite(this.lesson.duration) ? this.lesson.duration : 0);
   }
 
-  // Time label, progress and buffer bars. Runs at most once per frame and only while the
-  // controls are visible; wake() forces a refresh when they reappear.
+  // Time label, progress and buffer bars (at most once per frame, see SeekBar).
   render(force) {
-    if (this.destroyed) return;
-    if (!force && this.stage.classList.contains('idle')) return;
-    const v = this.video;
-    const dur = this.duration();
-    const ct = this.clock.position();
-    const sec = Math.floor(ct);
-    if (force || sec !== this.lastSecond) {
-      this.lastSecond = sec;
-      const long = dur >= 3600;
-      this.timeCur.textContent = fmtTime(ct, long);
-      this.timeDur.textContent = fmtTime(dur, long);
-      this.seekEl.setAttribute('aria-valuetext', fmtTime(ct, long));
-    }
-    if (!dur) return;
-    if (!this.dragging) {
-      const p = ct / dur;
-      if (force || Math.abs(p - this.lastP) > 0.0002) {
-        this.lastP = p;
-        this.seekEl.style.setProperty('--p', p.toFixed(5));
-      }
-    }
-    const buf = v.buffered;
-    let end = 0;
-    for (let i = 0; i < buf.length; i++) {
-      if (buf.start(i) <= ct + 0.5 && buf.end(i) > end) end = buf.end(i);
-    }
-    const b = end / dur;
-    if (force || Math.abs(b - this.lastB) > 0.001) {
-      this.lastB = b;
-      this.seekEl.style.setProperty('--b', b.toFixed(4));
-    }
+    if (!this.destroyed) this.seekBar.render(force);
   }
 
   seek(target) {
@@ -689,90 +612,12 @@ class LitePlayer {
     this.savePrefs();
   }
 
-  // ---- floating window (Document Picture-in-Picture) ----
-
-  canPopout() { return typeof window.documentPictureInPicture === 'object' && !!window.documentPictureInPicture; }
-
-  // Moves the whole player (both views, controls, captions, side panel) into a floating
-  // window and back. Nothing is rebuilt: the same elements, streams and audio graph move.
-  async togglePopout() {
-    if (this.popout) { this.popout.close(); return; }
-    // A second press while the window is being opened does nothing (no second window).
-    if (this.popoutOpening) return;
-    this.popoutOpening = true;
-    try { await this.openPopout(); } finally { this.popoutOpening = false; }
-  }
-
-  async openPopout() {
-    if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
-    const r = this.host.getBoundingClientRect();
-    let pip;
-    try {
-      pip = await window.documentPictureInPicture.requestWindow({ width: Math.round(Math.min(960, r.width * 0.6)), height: Math.round(Math.min(600, r.height * 0.6)) });
-    } catch (e) {
-      this.toast(tr('popoutFailed', { msg: (e && e.message) || e }));
-      return;
-    }
-    if (this.destroyed) { pip.close(); return; }
-    const playing = !this.video.paused;
-    const holder = el('div.e3l-holder', { style: 'display:flex;align-items:center;justify-content:center;gap:12px;width:100%;height:' + Math.round(r.height) + 'px;background:#111;color:#ccc;font:14px system-ui,sans-serif' },
-      el('span', { text: tr('popoutHere') }),
-      el('button', { text: tr('popoutBack'), style: 'padding:6px 12px;border-radius:8px;border:0;cursor:pointer', onclick: () => pip.close() }));
-    const doc = pip.document;
-    const css = this.host.style.cssText;
-    const keys = (e) => this.onKey(e);
-    const resize = () => { if (!this.destroyed) { this.applyQuality(); this.redrawPdf(); } };
-    // Putting the player back. Registered before anything moves, so a failure half-way
-    // (or the window closing at any point) always brings the player back to the page.
-    let back = false;
-    const putBack = () => {
-      if (back) return;
-      back = true;
-      doc.removeEventListener('keydown', keys, true);
-      pip.removeEventListener('resize', resize);
-      this.popout = null;
-      // The player was destroyed meanwhile (handed over to the original player): only the
-      // placeholder goes; the old player must not come back over the original one.
-      if (this.destroyed) { holder.remove(); return; }
-      const still = !this.video.paused;
-      this.host.classList.remove('in-popout');
-      this.host.style.cssText = css;
-      if (holder.isConnected) holder.replaceWith(this.host);
-      if (still && this.video.paused) this.video.play().catch(() => {});
-      this.$('.popbtn').setAttribute('aria-pressed', 'false');
-      this.applyQuality();
-      this.redrawPdf();
-    };
-    pip.addEventListener('pagehide', putBack, { once: true });
-    this.popout = pip;
-    try {
-      this.host.replaceWith(holder);
-      doc.body.style.cssText = 'margin:0;background:#000;overflow:hidden';
-      doc.title = this.lesson.title;
-      this.host.style.cssText = 'position:fixed;inset:0;width:100%;height:100%';
-      doc.body.append(this.host);
-      this.host.classList.add('in-popout');
-      doc.addEventListener('keydown', keys, true);
-      pip.addEventListener('resize', resize);
-      // Moving can pause the elements in some browsers: carry on as before.
-      if (playing && this.video.paused) this.video.play().catch(() => {});
-      this.$('.popbtn').setAttribute('aria-pressed', 'true');
-    } catch (e) {
-      putBack();
-      try { pip.close(); } catch (err) { /* already closed */ }
-      throw e;
-    }
-  }
-
   toggleFullscreen() {
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     else this.host.requestFullscreen().catch(() => {});
   }
 
   // ---- idle (auto-hide) handling ----
-  menusOpen() {
-    return [...this.root.querySelectorAll('.menu')].some((m) => !m.hidden);
-  }
 
   wake() {
     const wasIdle = this.stage.classList.contains('idle');
@@ -784,110 +629,43 @@ class LitePlayer {
   armIdle() {
     clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(guard(() => {
-      if (!this.video.paused && !this.dragging && !this.menusOpen()) this.stage.classList.add('idle');
+      if (!this.video.paused && !this.ui.dragging && !this.menus.anyOpen()) this.stage.classList.add('idle');
     }), CONTROLS_HIDE_MS);
   }
 
+  // The plain buttons, clicks on the pictures, zoom, the side panel chips.
   bindControls() {
-    this.d.listen(this.$('.kbtn'), 'click', (e) => { e.stopPropagation(); this.showKeys(true); });
-    this.d.listen(this.$('.diagclose'), 'click', (e) => { e.stopPropagation(); this.$('.diagbox').hidden = true; });
-    this.d.listen(this.$('.diagcopy'), 'click', (e) => {
-      e.stopPropagation();
-      navigator.clipboard.writeText(this.$('.diagtext').textContent)
-        .then(() => this.toast(tr('diagCopied')), (err) => this.toast(tr('copyFailed', { msg: (err && err.message) || err })));
-    });
-    // Old analysis results are cleaned up in the background, once the page has settled.
-    this.d.timeout(() => analysisCaches.prune().catch(() => {}), 60000);
-    this.d.listen(this.$('.khclose'), 'click', (e) => { e.stopPropagation(); this.showKeys(false); });
-    this.d.listen(this.$('.keyhelp'), 'click', (e) => { if (e.target === this.$('.keyhelp')) this.showKeys(false); });
-    const $ = (s) => this.$(s);
+    const $ = (sel) => this.$(sel);
     const v = this.video;
     const d = this.d;
+    // Old analysis results are cleaned up in the background, once the page has settled.
+    d.timeout(() => analysisCaches.prune().catch(() => {}), 60000);
     d.add(() => { clearTimeout(this.idleTimer); clearTimeout(this.toastTimer); clearTimeout(this.sharpTimer); clearTimeout(this.prefsTimer); store.set('prefs', this.prefs); });
     d.listen($('.play'), 'click', () => this.togglePlay());
-    d.listen($('.rew'), 'click', () => this.seek(v.currentTime - 10));
-    d.listen($('.fwd'), 'click', () => this.seek(v.currentTime + 10));
+    d.listen($('.rew'), 'click', () => this.seek(this.clock.position() - 10));
+    d.listen($('.fwd'), 'click', () => this.seek(this.clock.position() + 10));
     d.listen($('.mute'), 'click', () => {
       if (v.muted || v.volume === 0) { v.muted = false; if (v.volume === 0) v.volume = 0.5; } else v.muted = true;
     });
     d.listen($('.volume'), 'input', (e) => { v.volume = +e.target.value; v.muted = v.volume === 0; });
     d.listen($('.fs'), 'click', () => this.toggleFullscreen());
-    $('.popbtn').hidden = !this.canPopout();
-    d.listen($('.popbtn'), 'click', () => this.togglePopout());
-    // On teardown: close the window; its pagehide (sync or later) only removes the
-    // placeholder, since the player is destroyed by then.
-    d.add(() => { if (this.popout) { try { this.popout.close(); } catch (e) { /* closed */ } } });
     d.listen($('.swap'), 'click', () => this.swapViews());
     d.listen($('.orig'), 'click', () => this.opts.onFallback('user'));
     d.listen(document, 'fullscreenchange', () => {
       this.setButton('.fs', document.fullscreenElement ? 'exitFullscreen' : 'fullscreen', tr('fullscreen'));
     });
-
-    // Menus (speed, layout): one open at a time, closed by any click elsewhere.
-    const menus = [[$('.speed'), $('.speedmenu')], [$('.layout'), $('.layoutmenu')], [$('.ccbtn'), $('.ccmenu')], [$('.audiobtn'), $('.audiomenu')], [$('.qbtn'), $('.qualitymenu')], [$('.copybtn'), $('.copymenu')], [$('.morebtn'), $('.moremenu')]];
-    for (const [btn, menu] of menus) {
-      d.listen(btn, 'click', (e) => {
-        e.stopPropagation();
-        const open = menu.hidden;
-        for (const [, m] of menus) m.hidden = true;
-        if (open && menu.classList.contains('qualitymenu')) this.renderQualityMenu();
-        if (open && menu.classList.contains('copymenu')) this.renderCopyMenu();
-        if (open && menu.classList.contains('moremenu')) this.renderMoreMenu();
-        menu.hidden = !open;
-        this.wake();
-      });
-    }
-    d.listen($('.copymenu'), 'click', (e) => {
-      e.stopPropagation();
-      const b = e.target.closest('button[data-copy], button[data-span]');
-      if (!b) return;
-      if (b.dataset.span) {
-        this.prefs.copySpan = +b.dataset.span;
-        this.savePrefs();
-        this.renderCopyMenu();
-        return;
-      }
-      $('.copymenu').hidden = true;
-      if (b.dataset.copy === 'frame') this.copyFrame(); else this.copyCaptions();
-    });
-    d.listen($('.qualitymenu'), 'click', (e) => {
-      e.stopPropagation();
-      const b = e.target.closest('button[data-q]');
-      if (b) this.setQuality(b.dataset.role, b.dataset.q);
-    });
     let resizeTimer = 0;
     d.add(() => clearTimeout(resizeTimer));
-    d.listen(window, 'resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(guard(() => { this.applyQuality(); this.redrawPdf(); }), 500); });
-    d.listen($('.speedmenu'), 'click', (e) => {
-      const b = e.target.closest('button[data-rate]');
-      if (b) { this.setRate(+b.dataset.rate); $('.speedmenu').hidden = true; }
-    });
-    d.listen($('.layoutmenu'), 'click', (e) => {
-      const b = e.target.closest('button[data-layout]');
-      if (b) { this.setLayout(b.dataset.layout); $('.layoutmenu').hidden = true; }
-    });
-    d.listen($('.cctoggle'), 'click', () => this.setCaptions(!this.cc.on));
-    d.listen($('.cchidepaused'), 'click', () => {
-      this.prefs.capHidePaused = !this.prefs.capHidePaused;
-      this.savePrefs();
-      this.renderCaptionMenu();
-    });
-    d.listen($('.ccmenu .sizes'), 'click', (e) => {
-      const b = e.target.closest('button[data-size]');
-      if (b) this.setCaptionSize(b.dataset.size);
-    });
+    d.listen(window, 'resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(guard(() => { this.quality.apply(); this.redrawPdf(); }), 500); });
     for (const chip of this.root.querySelectorAll('.top [data-open]')) d.listen(chip, 'click', () => this.sidebar.toggle(chip.dataset.open));
     d.listen($('.panelclose'), 'click', () => this.sidebar.close());
     d.listen($('.bmbtn'), 'click', (e) => { if (this.notes) this.notes.addBookmark(e); });
     d.listen($('.flagbtn'), 'click', (e) => { if (this.notes) this.notes.toggleFlag(e); });
     d.listen($('.pextras button'), 'click', () => this.opts.onFallback('extras'));
     this.bindPanelResize();
-    d.listen(this.root, 'click', (e) => {
-      if (e.target.closest('.menu, .speed, .layout, .ccbtn, .audiobtn, .qbtn, .copybtn, .morebtn')) return;
-      for (const [, m] of menus) m.hidden = true;
-      if (this.loop) this.loop.menu.hidden = true;
-    });
-    this.loop = new ABLoop(this, this.d.feature('A-B loop'));
+    this.loop = new ABLoop({
+      mount: $('.speedmenu').parentElement, rail: $('.seek'), video: v, duration: () => this.duration(), seek: (t) => this.seek(t), toast: (...a) => this.toast(...a),
+    }, this.d.feature('A-B loop'));
 
     // Click on a picture: play/pause; double click: fullscreen. While the controls are
     // hidden, the first click only brings them back (it may be aimed at a hidden button).
@@ -933,223 +711,16 @@ class LitePlayer {
     // Auto-hide
     d.listen(this.stage, 'pointermove', () => this.wake());
     d.listen(this.stage, 'pointerleave', () => { if (!v.paused) this.stage.classList.add('idle'); });
-
-    // Seek bar
-    const seekEl = this.seekEl;
-    const tip = $('.tip');
-    const tipText = tip.querySelector('.tt');
-    const tipImg = tip.querySelector('.pv');
-    let rect = null;
-    let lastSeekAt = 0;
-    const frac = (x) => clamp((x - rect.left) / rect.width, 0, 1);
-    let nearMarker = null;
-    let downX = 0;
-    const hover = (e) => {
-      if (!rect) rect = seekEl.getBoundingClientRect();
-      const f = frac(e.clientX);
-      const dur = this.duration();
-      seekEl.style.setProperty('--h', f.toFixed(4));
-      nearMarker = this.markers.nearest(f, rect.width, 6);
-      const sil = nearMarker ? null : this.skips[silenceIndexAt(this.skips, f * dur)];
-      tipText.textContent = nearMarker
-        ? fmtTime(nearMarker.time, dur >= 3600) + ' \u00b7 ' + (nearMarker.label.length > 70 ? nearMarker.label.slice(0, 67) + '\u2026' : nearMarker.label)
-        : fmtTime(f * dur, dur >= 3600) + (sil ? ' \u00b7 ' + tr(sil.kind + 'Tip', { time: fmtTime(sil.end - sil.start) }) : '');
-      const pv = this.previewAt(nearMarker ? nearMarker.time : f * dur);
-      if (pv) { if (tipImg.getAttribute('src') !== pv) tipImg.src = pv; tipImg.hidden = false; } else tipImg.hidden = true;
-      const half = pv ? 96 : 24;
-      tip.style.left = clamp(f * rect.width, half, rect.width - half) + 'px';
-      return f;
-    };
-    d.listen(seekEl, 'pointerenter', () => { rect = seekEl.getBoundingClientRect(); });
-    d.listen(seekEl, 'pointermove', (e) => {
-      const f = hover(e);
-      if (this.dragging) {
-        seekEl.style.setProperty('--p', f.toFixed(5));
-        const now = performance.now();
-        if (now - lastSeekAt > DRAG_SEEK_MS) { lastSeekAt = now; v.currentTime = f * this.duration(); }
-      }
-    });
-    d.listen(seekEl, 'pointerdown', (e) => {
-      if (e.button !== 0) return;
-      rect = seekEl.getBoundingClientRect();
-      seekEl.setPointerCapture(e.pointerId);
-      downX = e.clientX;
-      this.dragging = true;
-      seekEl.classList.add('dragging');
-      seekEl.style.setProperty('--p', hover(e).toFixed(5));
-    });
-    const endDrag = (e) => {
-      if (!this.dragging) return;
-      this.dragging = false;
-      seekEl.classList.remove('dragging');
-      // A click (not a drag) next to a marker jumps exactly to the marked time.
-      if (nearMarker && Math.abs(e.clientX - downX) < 4) this.seek(nearMarker.time);
-      else this.seek(frac(e.clientX) * this.duration());
-      this.armIdle();
-    };
-    d.listen(seekEl, 'pointerup', endDrag);
-    d.listen(seekEl, 'pointercancel', endDrag);
-    d.listen(seekEl, 'keydown', (e) => {
-      if (e.key === 'Home') { this.seek(0); e.preventDefault(); }
-      if (e.key === 'End') { this.seek(this.duration()); e.preventDefault(); }
-    });
-    d.listen(window, 'resize', () => { rect = null; });
-  }
-
-  // Divider (side by side) and the picture-in-picture window.
-  bindLayoutControls() {
-    const d = this.d;
-    const st = this.stage;
-    const divider = this.$('.divider');
-    const frame = this.$('.pipframe');
-    const grip = this.$('.grip');
-
-    const setRatio = (r) => {
-      this.prefs.ratio = clamp(r, 0.2, 0.8);
-      st.style.setProperty('--ratio', this.prefs.ratio.toFixed(4));
-    };
-    let stageRect = null;
-    d.listen(divider, 'pointerdown', (e) => {
-      if (e.button !== 0) return;
-      e.stopPropagation();
-      stageRect = st.getBoundingClientRect();
-      divider.setPointerCapture(e.pointerId);
-      divider.classList.add('dragging');
-      this.dragging = true;
-    });
-    d.listen(divider, 'pointermove', (e) => {
-      if (!divider.classList.contains('dragging')) return;
-      setRatio((e.clientX - stageRect.left) / stageRect.width);
-    });
-    const endDivider = () => {
-      if (!divider.classList.contains('dragging')) return;
-      divider.classList.remove('dragging');
-      this.dragging = false;
-      this.savePrefs();
-      this.redrawPdf();
-      this.armIdle();
-    };
-    d.listen(divider, 'pointerup', endDivider);
-    d.listen(divider, 'pointercancel', endDivider);
-    d.listen(divider, 'dblclick', () => { setRatio(0.5); this.savePrefs(); });
-    d.listen(divider, 'keydown', (e) => {
-      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-        setRatio(this.prefs.ratio + (e.key === 'ArrowLeft' ? -0.05 : 0.05));
-        this.savePrefs();
-        e.preventDefault();
-        e.stopPropagation();
-      }
-    });
-
-    // PiP: drag to move (snaps to the nearest corner on release), click to swap views,
-    // corner grip to resize. While dragging, both the frame and the video are translated.
-    const pipEls = () => [frame, this.$('.views [data-slot=secondary]')].filter(Boolean);
-    let drag = null;
-    d.listen(frame, 'pointerdown', (e) => {
-      if (e.button !== 0) return;
-      e.stopPropagation();
-      frame.setPointerCapture(e.pointerId);
-      drag = { x: e.clientX, y: e.clientY, moved: false, resize: e.target === grip, rect: frame.getBoundingClientRect(), stage: st.getBoundingClientRect() };
-      this.dragging = true;
-    });
-    d.listen(frame, 'pointermove', (e) => {
-      if (!drag) return;
-      const dx = e.clientX - drag.x;
-      const dy = e.clientY - drag.y;
-      if (!drag.moved && Math.hypot(dx, dy) < 4) return;
-      drag.moved = true;
-      frame.classList.add('dragging');
-      if (drag.resize) {
-        const c = this.prefs.corner;
-        const r = drag.rect;
-        const w = c === 'br' || c === 'tr' ? r.right - e.clientX : e.clientX - r.left;
-        this.prefs.pipw = clamp(w / drag.stage.width, 0.15, 0.6);
-        st.style.setProperty('--pipw', this.prefs.pipw.toFixed(4));
-      } else {
-        for (const elem of pipEls()) elem.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
-      }
-    });
-    const endPip = (e) => {
-      if (!drag) return;
-      const was = drag;
-      drag = null;
-      this.dragging = false;
-      frame.classList.remove('dragging');
-      // A click swaps the two pictures (with the PDF shown: the PDF and the video).
-      if (!was.moved) { if (this.pdfMode) this.swapPdf(); else this.swapViews(); return; }
-      if (was.resize) this.redrawPdf();
-      if (!was.resize) {
-        const cx = was.rect.left + was.rect.width / 2 + (e.clientX - was.x);
-        const cy = was.rect.top + was.rect.height / 2 + (e.clientY - was.y);
-        const right = cx > was.stage.left + was.stage.width / 2;
-        const bottom = cy > was.stage.top + was.stage.height / 2;
-        this.prefs.corner = (bottom ? 'b' : 't') + (right ? 'r' : 'l');
-        for (const elem of pipEls()) elem.style.transform = '';
-        for (const c of CORNERS) st.classList.toggle('c-' + c, c === this.prefs.corner);
-      }
-      this.savePrefs();
-      this.armIdle();
-    };
-    d.listen(frame, 'pointerup', endPip);
-    d.listen(frame, 'pointercancel', endPip);
-  }
-
-  bindKeys() {
-    this.onKey = (e) => {
-      if (e.ctrlKey || e.metaKey || e.altKey || this.destroyed) return;
-      const target = e.composedPath()[0];
-      if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) && target.type !== 'range') return;
-      const v = this.video;
-      let handled = true;
-      switch (e.key) {
-        case ' ': case 'k': case 'K': this.togglePlay(); break;
-        case 'ArrowLeft': if (e.shiftKey) handled = this.stepChapter(-1); else this.seek(v.currentTime - 5); break;
-        case 'ArrowRight': if (e.shiftKey) handled = this.stepChapter(1); else this.seek(v.currentTime + 5); break;
-        case 'j': case 'J': this.seek(v.currentTime - 10); break;
-        case 'l': case 'L': this.seek(v.currentTime + 10); break;
-        case 'ArrowUp': v.muted = false; v.volume = clamp(v.volume + 0.05, 0, 1); break;
-        case 'ArrowDown': v.volume = clamp(v.volume - 0.05, 0, 1); break;
-        case 'm': case 'M': v.muted = !v.muted; break;
-        case 'f': case 'F': this.toggleFullscreen(); break;
-        case 's': case 'S': this.swapViews(); break;
-        case 'c': case 'C': if (this.cues && this.cues.length) this.setCaptions(!this.cc.on); else handled = false; break;
-        case 't': case 'T': if (this.sidebar.has('transcript')) this.sidebar.toggle('transcript'); else handled = false; break;
-        case 'b': case 'B': if (this.notes && this.notesReady) this.notes.addBookmark(e); else handled = false; break;
-        case 'u': case 'U': if (this.notes && this.notesReady && this.notes.canFlag) this.notes.toggleFlag(e); else handled = false; break;
-        case 'g': case 'G': if (this.notes && this.notesReady) this.notes.tagHere(e); else handled = false; break;
-        case 'p': case 'P': this.copyFrame(); break;
-        case 'a': case 'A': this.copyCaptions(); break;
-        case 'Escape':
-          if (!this.$('.diagbox').hidden) this.$('.diagbox').hidden = true;
-          else if (!this.$('.keyhelp').hidden) this.showKeys(false);
-          else if (this.menusOpen()) { for (const m of this.root.querySelectorAll('.menu')) m.hidden = true; } else handled = false;
-          break;
-        case '?': this.showKeys(this.$('.keyhelp').hidden); break;
-        case '+': case '=': this.zoomMain(1.25); break;
-        case '-': case '_': this.zoomMain(0.8); break;
-        case '0': this.zoomMain(0); break;
-        case 'i': case 'I': this.loop.setA(v.currentTime); break;
-        case 'o': case 'O': this.loop.setB(v.currentTime); break;
-        case 'x': case 'X': if (this.loop.a != null) this.loop.clear(); else handled = false; break;
-        case 'w': case 'W': if (this.canPopout()) this.togglePopout(); else handled = false; break;
-        case 'e': case 'E': if (this.notes && this.notesReady) this.notes.openExport(); else handled = false; break;
-        case ']': this.setRate(nextSpeed(v.playbackRate, 1)); break;
-        case '[': this.setRate(nextSpeed(v.playbackRate, -1)); break;
-        default: handled = false;
-      }
-      if (handled) { e.preventDefault(); e.stopPropagation(); this.wake(); }
-    };
-    this.d.listen(document, 'keydown', this.onKey, true);
   }
 
   // ---- captions and transcript ----
 
   loadCues() {
     this.cues = null;
-    if (!this.opts.fetchCues) { this.silence.start([]); return; }
+    if (!this.opts.fetchCues) { if (this.silence) this.silence.start([]); return; }
     this.opts.fetchCues(this.lesson).then((cues) => {
       if (this.destroyed) return;
-      this.silence.start(cues);
+      if (this.silence) this.silence.start(cues);
       if (!cues.length) return;
       this.cues = cues;
       if (this.slidesPane) this.slidesPane.invalidate();
@@ -1157,38 +728,10 @@ class LitePlayer {
       this.cc.setCues(cues);
       this.transcript.setCues(cues);
       this.$('.ccbtn').hidden = false;
-      this.renderCaptionMenu();
-      if (this.prefs.captions) this.setCaptions(true, true);
+      this.menus.renderCaptionMenu();
+      if (this.prefs.captions) this.menus.setCaptions(true, true);
       this.registerTab('transcript', this.transcript);
     });
-  }
-
-  setCaptions(on, restoring) {
-    this.cc.setOn(on);
-    this.cc.update(this.video.currentTime);
-    if (!restoring) { this.prefs.captions = on; this.savePrefs(); }
-    this.$('.ccbtn').classList.toggle('active', on);
-    this.renderCaptionMenu();
-  }
-
-  setCaptionSize(size) {
-    if (!(size in CAPTION_SIZES)) return;
-    this.prefs.capSize = size;
-    this.cc.setSize(size);
-    this.savePrefs();
-    this.renderCaptionMenu();
-  }
-
-  renderCaptionMenu() {
-    const on = this.cc.on;
-    const toggle = this.$('.cctoggle');
-    toggle.setAttribute('aria-checked', String(on));
-    toggle.querySelector('.state').textContent = on ? tr('on') : tr('off');
-    for (const b of this.root.querySelectorAll('.ccmenu .sizes button')) b.setAttribute('aria-checked', String(b.dataset.size === this.prefs.capSize));
-    const hide = this.$('.cchidepaused');
-    hide.setAttribute('aria-checked', String(!!this.prefs.capHidePaused));
-    hide.querySelector('.state').textContent = this.prefs.capHidePaused ? tr('on') : tr('off');
-    this.stage.classList.toggle('hidecc-paused', !!this.prefs.capHidePaused);
   }
 
   // ---- audio processing ----
@@ -1255,11 +798,11 @@ class LitePlayer {
 
   onSlidesChange() {
     const a = this.slides;
-    if (a.uniform !== this.knownUniform) { this.knownUniform = a.uniform; this.updateSkips(); }
+    if (a.uniform !== this.knownUniform) { this.knownUniform = a.uniform; if (this.silence) this.silence.update(); }
     // The screen view is known now: the per-view quality settings may apply differently.
     if (a.screenIndex !== this.knownScreen) {
       this.knownScreen = a.screenIndex;
-      this.applyQuality();
+      this.quality.apply();
       if (this.deck) this.deck.screenKnown();
     }
     this.renderChapterMarks();
@@ -1268,8 +811,7 @@ class LitePlayer {
     if (!this.slidesPane && !a.chapters.length && a.state !== 'done' && a.state !== 'unavailable') return;
     if (a.state === 'unavailable' && this.deck) this.deck.screenKnown();
     if (!this.slidesPane) {
-      this.slidesPane = new SlidesPane(this, this.$('.pane[data-pane=slides]'));
-      this.d.add(() => this.slidesPane.dispose());
+      this.slidesPane = new SlidesPane(this, this.$('.pane[data-pane=slides]'), this.d.child());
       this.registerTab('slides', this.slidesPane);
     }
     const pct = Math.floor(a.progress * 100);
@@ -1324,18 +866,11 @@ class LitePlayer {
   }
 
   renderChapterMarks() {
-    const elem = this.$('.chaps');
-    elem.textContent = '';
-    const dur = this.duration();
-    if (!dur || !this.slides) return;
-    const frag = document.createDocumentFragment();
-    for (const c of this.slides.chapters) {
-      if (c.start <= 0 || c.start >= dur) continue;
-      const i = document.createElement('i');
-      i.style.left = ((c.start / dur) * 100).toFixed(3) + '%';
-      frag.appendChild(i);
-    }
-    elem.appendChild(frag);
+    this.seekBar.renderChapters(this.slides ? this.slides.chapters : []);
+  }
+
+  renderWatched() {
+    if (this.watched.ready) this.seekBar.renderWatched(this.watched.ranges());
   }
 
   // Picture for the seek-bar preview: the slide shown at t if chapters are known,
@@ -1364,168 +899,6 @@ class LitePlayer {
     k = clamp(k + dir, 0, chs.length - 1);
     this.seek(chs[k].start);
     return true;
-  }
-
-  // ---- silence ----
-
-  setupSilence() {
-    const av = this.sources.find((s) => s.av);
-    const p = this.prefs.silence;
-    this.silence = new SilenceAnalyzer({
-      lesson: this.lesson,
-      video: this.video,
-      masterUrl: av ? av.av : null,
-      disposer: this.d.feature('silence detection'),
-      onChange: () => { if (!this.destroyed) { this.updateSkips(); this.renderSilenceMenu(); } },
-    });
-    this.silence.options = { minSec: p.min, sensitivity: p.sens };
-    this.silIdx = -1;
-    this.silAutoSkipped = new Set();
-    this.d.add(() => { clearTimeout(this.skipTimer); clearTimeout(this.endTimer); });
-    this.d.listen(this.$('.endskip'), 'click', (e) => { e.stopPropagation(); this.hideEnd(); this.seek(this.duration()); });
-    this.d.listen(this.$('.endstop'), 'click', (e) => { e.stopPropagation(); this.hideEnd(); this.video.pause(); });
-    this.d.listen(this.$('.endclose'), 'click', (e) => { e.stopPropagation(); this.hideEnd(); });
-    const btn = this.$('.skipsil');
-    this.d.listen(btn, 'click', (e) => {
-      e.stopPropagation();
-      const s = this.skips[this.silIdx];
-      this.hideSkip();
-      if (s) this.seek(s.end);
-    });
-    const menu = this.$('.audiomenu');
-    this.d.listen(menu.querySelector('[data-sil=auto]'), 'click', (e) => {
-      e.stopPropagation();
-      p.auto = !p.auto;
-      this.savePrefs();
-      this.renderSilenceMenu();
-    });
-    this.d.listen(menu.querySelector('.silmin'), 'click', (e) => {
-      e.stopPropagation();
-      const b = e.target.closest('button[data-min]');
-      if (!b) return;
-      p.min = +b.dataset.min;
-      this.savePrefs();
-      this.silence.setOptions({ minSec: p.min });
-    });
-    this.d.listen(menu.querySelector('.silsens'), 'click', (e) => {
-      e.stopPropagation();
-      const b = e.target.closest('button[data-sens]');
-      if (!b) return;
-      p.sens = b.dataset.sens;
-      this.savePrefs();
-      this.silence.setOptions({ sensitivity: p.sens });
-    });
-    this.renderSilenceMenu();
-  }
-
-  // Stretches that can be skipped (silences, empty screen) and where the content ends.
-  updateSkips() {
-    const sil = this.silence;
-    const uniform = this.slides ? this.slides.uniform : [];
-    const audioKnown = !!sil && (sil.source === 'transcript' || sil.source === 'audio');
-    this.skips = skipStretches(sil ? sil.silences : [], uniform, audioKnown, this.prefs.silence.min);
-    const dur = this.duration();
-    this.contentEnd = dur ? contentEndAt(this.skips, dur) : null;
-    if (this.watched) this.watched.contentEnd = this.contentEnd && this.contentEnd < dur ? this.contentEnd : null;
-    this.renderSilences();
-  }
-
-  renderSilences() {
-    const elem = this.$('.sils');
-    elem.textContent = '';
-    const dur = this.duration();
-    if (!dur) return;
-    const frag = document.createDocumentFragment();
-    for (const s of this.skips) {
-      const i = document.createElement('i');
-      if (s.kind !== 'silence') i.className = 'empty';
-      i.style.left = ((s.start / dur) * 100).toFixed(3) + '%';
-      i.style.width = (((Math.min(s.end, dur) - s.start) / dur) * 100).toFixed(3) + '%';
-      frag.appendChild(i);
-    }
-    elem.appendChild(frag);
-    // New results (the analysis refines them as it goes) must not pop the button up again.
-    this.silIdx = silenceIndexAt(this.skips, this.video.currentTime);
-  }
-
-  renderSilenceMenu() {
-    const a = this.silence;
-    const p = this.prefs.silence;
-    const total = a.silences.reduce((n, s) => n + s.end - s.start, 0);
-    const found = a.silences.length
-      ? tr(a.source === 'transcript' ? 'silenceFromTranscript' : 'silenceFound', { n: a.silences.length, time: fmtTime(total) })
-      : tr('silenceNone', { min: p.min < 60 ? p.min + ' s' : p.min / 60 + ' min' });
-    let status;
-    if (a.source === 'pending') status = tr('silenceWaiting');
-    else if (a.source === 'unavailable') status = tr(a.reason === 'saveData' ? 'silenceSaveData' : 'silenceUnavailable');
-    else if (a.source === 'audio' && a.progress < 1) status = tr('silenceAnalysing', { pct: Math.floor(a.progress * 100) }) + (a.silences.length ? ' ' + found : '');
-    else status = found;
-    const menu = this.$('.audiomenu');
-    menu.querySelector('.silstatus').textContent = status;
-    const auto = menu.querySelector('[data-sil=auto]');
-    auto.setAttribute('aria-checked', String(p.auto));
-    auto.querySelector('.state').textContent = p.auto ? tr('on') : tr('off');
-    for (const b of menu.querySelectorAll('.silmin button')) b.setAttribute('aria-checked', String(+b.dataset.min === p.min));
-    for (const b of menu.querySelectorAll('.silsens button')) b.setAttribute('aria-checked', String(b.dataset.sens === p.sens));
-    // Sensitivity only matters when the audio itself is measured.
-    menu.querySelector('.sens').hidden = a.source !== 'audio';
-  }
-
-  // On every time update: entering a silence offers to skip it (or skips it, if the user
-  // turned that on). Only playback running into a silence skips automatically; seeking
-  // into one just shows the button.
-  silenceTick(ct) {
-    const list = this.skips;
-    if (!list.length && this.silIdx === -1) return;
-    const prev = this.silIdx;
-    const i = silenceIndexAt(list, ct);
-    if (i === prev) return;
-    this.silIdx = i;
-    const s = list[i];
-    if (!s) { this.hideSkip(); this.hideEnd(); return; }
-    const ranInto = !this.video.seeking && !this.dragging && ct - s.start < 2;
-    // The empty stretch at the end: the lecture is over.
-    if (s.start === this.contentEnd) { this.hideSkip(); if (ranInto || ct - s.start < 15) this.showEnd(); return; }
-    if (s.end - ct < 5) { this.hideSkip(); return; }
-    // An empty screen with unknown audio is never skipped automatically.
-    if (this.prefs.silence.auto && s.kind !== 'black' && ranInto && !this.silAutoSkipped.has(s.start)) {
-      this.silAutoSkipped.add(s.start);
-      const from = ct;
-      this.hideSkip();
-      this.seek(s.end);
-      this.toast(tr(s.kind === 'blank' ? 'skippedBlank' : 'skippedSilence', { time: fmtTime(s.end - from) }), tr('undo'), () => this.seek(from));
-      return;
-    }
-    this.showSkip(s, ct);
-  }
-
-  showSkip(s, ct) {
-    const btn = this.$('.skipsil');
-    btn.textContent = tr(s.kind === 'silence' ? 'skipSilence' : 'skipBlank', { time: fmtTime(s.end - ct) });
-    btn.classList.remove('fade');
-    btn.tabIndex = 0;
-    clearTimeout(this.skipTimer);
-    this.skipTimer = setTimeout(guard(() => this.hideSkip()), 6000);
-  }
-
-  hideSkip() {
-    const btn = this.$('.skipsil');
-    btn.classList.add('fade');
-    btn.tabIndex = -1;
-    clearTimeout(this.skipTimer);
-  }
-
-  // "The lecture has ended": jump to the end (finishing it) or stop here.
-  showEnd() {
-    const box = this.$('.endnote');
-    box.hidden = false;
-    clearTimeout(this.endTimer);
-    this.endTimer = setTimeout(guard(() => this.hideEnd()), 20000);
-  }
-
-  hideEnd() {
-    this.$('.endnote').hidden = true;
-    clearTimeout(this.endTimer);
   }
 
   // ---- side panel, notes, discussion, markers ----
@@ -1558,7 +931,7 @@ class LitePlayer {
     const canFlag = !!l.sectionId && !l.isAnonymousUser;
     this.tags = new TagStore(l, () => { if (!this.destroyed && this.notes) this.notes.changed(); });
     this.tags.load().catch((e) => log.warn('tags:', e && e.message ? e.message : e));
-    this.notes = new NotesPane(this, this.$('.pane[data-pane=notes]'), api, canFlag);
+    this.notes = new NotesPane(this, this.$('.pane[data-pane=notes]'), api, canFlag, this.d.feature('notes'));
     this.notes.load().then((ok) => {
       if (this.destroyed || !ok) return;
       this.notesReady = true;
@@ -1567,7 +940,7 @@ class LitePlayer {
       this.renderFlagButton();
       this.registerTab('notes', this.notes);
     });
-    this.discussion = new DiscussionPane(this, this.$('.pane[data-pane=discussion]'), api);
+    this.discussion = new DiscussionPane(this, this.$('.pane[data-pane=discussion]'), api, this.d.feature('discussion'));
     this.discussion.load().then((ok) => {
       if (this.destroyed || !ok) return;
       this.registerTab('discussion', this.discussion);
@@ -1621,22 +994,6 @@ class LitePlayer {
     this.d.listen(handle, 'pointercancel', end);
   }
 
-  // Stretches watched on this device (earlier visits and this one), faint on the rail.
-  renderWatched() {
-    const dur = this.duration();
-    const elem = this.$('.wat');
-    if (!dur || !this.watched.ready) return;
-    elem.textContent = '';
-    const frag = document.createDocumentFragment();
-    for (const [a, b] of this.watched.ranges()) {
-      const i = document.createElement('i');
-      i.style.left = ((a / dur) * 100).toFixed(3) + '%';
-      i.style.width = (((Math.min(b, dur) - a) / dur) * 100).toFixed(3) + '%';
-      frag.appendChild(i);
-    }
-    elem.appendChild(frag);
-  }
-
   // Keyboard zoom on the main picture (the primary slot), around its centre; 0 resets.
   zoomMain(factor) {
     const slot = this.root.querySelector('.views [data-slot=primary]');
@@ -1644,46 +1001,6 @@ class LitePlayer {
     if (!elem) return;
     if (!factor) { this.zoom.reset(elem); return; }
     this.zoom.zoomAt(elem, factor, 0.5, 0.5);
-  }
-
-  // The ⋯ menu: analysis results stored on this device (size, clear), diagnostics, keys.
-  renderMoreMenu() {
-    const m = this.$('.moremenu');
-    m.textContent = '';
-    const size = el('span.grow', { text: tr('cachesMeasuring') });
-    const clear = el('button', { text: tr('cachesClear') });
-    clear.addEventListener('click', guard(async (e) => {
-      e.stopPropagation();
-      clear.disabled = true;
-      const n = await analysisCaches.clear();
-      size.textContent = tr('cachesCleared', { n });
-    }));
-    m.append(el('div.head', { text: 'Echo360 Lite ' + VERSION }),
-      el('div.row', { title: tr('cachesInfo') }, size, clear),
-      el('button', { text: tr('diagMenu'), onclick: (e) => { e.stopPropagation(); m.hidden = true; this.showDiagnostics(); } }),
-      el('button', { text: tr('keysTitle') + ' (?)', onclick: (e) => { e.stopPropagation(); m.hidden = true; this.showKeys(true); } }));
-    analysisCaches.usage().then((u) => {
-      size.textContent = tr('cachesSize', { mb: (u.bytes / 1e6).toFixed(u.bytes < 1e7 ? 1 : 0), n: u.count });
-    }).catch(() => { size.textContent = tr('cachesUnknown'); });
-  }
-
-  showDiagnostics() {
-    this.$('.diagtext').textContent = diagnosticsText(this);
-    this.$('.diagbox').hidden = false;
-    this.$('.diagcopy').focus();
-  }
-
-  showKeys(on) {
-    const box = this.$('.keyhelp');
-    if (on) {
-      const list = box.querySelector('.khlist');
-      list.textContent = '';
-      for (const [keys, label] of KEY_HELP) {
-        list.append(el('div', null, ...keys.map((k) => el('kbd', { text: k }))), el('div', { text: tr(label) }));
-      }
-    }
-    box.hidden = !on;
-    if (on) box.querySelector('.khclose').focus();
   }
 
   toast(msg, action, fn) {

@@ -5,6 +5,10 @@
 // value can never stop the player from starting.
 // ===================================================================================
 
+// Layouts of the two views, and corners for the picture-in-picture window.
+const LAYOUTS = ['side', 'pip', 'single'];
+const CORNERS = ['br', 'bl', 'tr', 'tl'];
+
 const COPY_SPANS = [30, 60, 120, 300];
 
 function prefDefaults() {

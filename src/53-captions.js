@@ -122,7 +122,7 @@ class CaptionsView {
 // Transcript tab of the side panel. The list is built once, on first show; rows use
 // `content-visibility: auto`, so off-screen rows cost no layout or paint.
 class TranscriptPanel {
-  constructor(player, elem, marksEl) {
+  constructor(player, elem, marksEl, disposer) {
     this.player = player;
     this.el = elem;
     this.visible = false;
@@ -141,7 +141,7 @@ class TranscriptPanel {
     this.hitPos = -1;
     this.searchTimer = 0;
     this.programmaticScrollUntil = 0;
-    this.d = new Disposer();
+    this.d = disposer || new Disposer();   // owned by whoever created this (parent.child())
     this.bind();
   }
 

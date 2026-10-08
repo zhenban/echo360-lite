@@ -8,7 +8,7 @@
 const NOTE_FILTERS = ['all', 'note', 'bookmark', 'flag'];
 
 class NotesPane {
-  constructor(player, pane, api, canFlag) {
+  constructor(player, pane, api, canFlag, disposer) {
     this.p = player;
     this.pane = pane;
     this.api = api;
@@ -21,7 +21,7 @@ class NotesPane {
     this.managing = false;
     this.visible = false;
     this.dirty = true;
-    this.d = new Disposer();
+    this.d = disposer || new Disposer();   // owned by whoever created this (parent.child())
     this.build();
   }
 
