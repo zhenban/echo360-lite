@@ -154,7 +154,7 @@ class BackgroundGate {
 
   async turn(playingMs, pausedMs, minBuffer) {
     const v = this.video;
-    const need = minBuffer || 20;
+    const need = minBuffer || BG_MIN_BUFFER_SEC;
     for (;;) {
       await this.wait(v.paused ? pausedMs : playingMs);
       if (v.seeking || v.readyState < 2) continue;

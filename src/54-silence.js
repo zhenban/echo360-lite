@@ -3,8 +3,8 @@
 //
 // Data sources, best first:
 //   1. Transcript timing: gaps between cues. Free, because the cues are loaded anyway.
-//   2. The separate audio rendition (about 46 kbps, 40 MB for two hours): fetched in 60 s
-//      byte ranges only while playback has enough buffer, decoded to 16 kHz mono by the
+//   2. The separate audio rendition (about 46 kbps, 40 MB for two hours): fetched in
+//      CHUNK_SEC byte ranges only while playback has enough buffer, decoded to 16 kHz mono by the
 //      browser's decoder (which runs off the main thread), and reduced to a loudness
 //      envelope of one value per 0.1 s. The envelope is cached in IndexedDB, so a later
 //      visit shows it at once and an unfinished analysis continues where it stopped.
@@ -20,13 +20,6 @@
 //   SilenceAnalyzer   source, silences, track, env, progress; onChange
 // ===================================================================================
 
-const AUDIO_RATE = 16000;          // speech models expect this; plenty for loudness
-const CHUNK_SEGMENTS = 6;          // 6 x 10 s HLS segments per request and decode
-const ENV_STEP = 0.1;              // envelope resolution in seconds
-const SILENCE_PAD = 0.5;           // seconds kept at each edge so skipping never clips speech
-const SILENCE_BRIDGE = 1.5;        // a louder blip shorter than this inside a pause stays silent
-const SILENCE_MIN_CHOICES = [15, 30, 60, 120];
-const SILENCE_SENSITIVITY = { low: 0.2, normal: 0.3, high: 0.4 };
 
 // ---- the audio track ----
 
@@ -46,6 +39,19 @@ function pickAudioRendition(master) {
     }
   }
   return best ? best.uri : (groups.size ? groups.values().next().value : null);
+}
+
+// Consecutive segments in groups of about `sec` seconds (segments are never split; a group
+// holds at least one): [{ a, b }] (segment indexes, b exclusive).
+function groupSegments(segments, sec) {
+  const out = [];
+  for (let i = 0; i < segments.length; i++) {
+    const cur = out[out.length - 1];
+    // A segment joins the group while that keeps the group closer to `sec` long.
+    if (cur && segments[i].start + segments[i].dur / 2 - segments[cur.a].start <= sec) cur.b = i + 1;
+    else out.push({ a: i, b: i + 1 });
+  }
+  return out;
 }
 
 // Reads the separate audio rendition of an HLS stream as PCM, one chunk at a time.
@@ -69,26 +75,28 @@ class HlsAudioTrack {
     this.segments = pl.segments;
     const last = pl.segments[pl.segments.length - 1];
     this.duration = last.start + last.dur;
+    this.chunks = groupSegments(pl.segments, CHUNK_SEC);
     return this;
   }
 
-  get chunkCount() { return Math.ceil(this.segments.length / CHUNK_SEGMENTS); }
+  get chunkCount() { return this.chunks.length; }
 
   chunkSpan(i) {
-    const segs = this.segments.slice(i * CHUNK_SEGMENTS, (i + 1) * CHUNK_SEGMENTS);
-    const last = segs[segs.length - 1];
-    return { start: segs[0].start, end: last.start + last.dur };
+    const c = this.chunks[i];
+    const last = this.segments[c.b - 1];
+    return { start: this.segments[c.a].start, end: last.start + last.dur };
   }
 
   chunkAt(t) {
-    return clamp(Math.floor(t / (this.duration / this.segments.length) / CHUNK_SEGMENTS), 0, this.chunkCount - 1);
+    return Math.max(0, sampleIndexAt(this.chunks.map((c) => this.segments[c.a].start), t));
   }
 
   // Decoded audio of chunk i: { start, end, rate, pcm } with pcm a mono Float32Array.
   async readChunk(i, signal, rate) {
     const sampleRate = rate || AUDIO_RATE;
-    const segs = this.segments.slice(i * CHUNK_SEGMENTS, (i + 1) * CHUNK_SEGMENTS);
-    if (!segs.length) throw new Error('no chunk ' + i);
+    const c = this.chunks[i];
+    if (!c) throw new Error('no chunk ' + i);
+    const segs = this.segments.slice(c.a, c.b);
     if (this.init && !this.initBytes) this.initBytes = await fetchRange(this.init.url, this.init.offset, this.init.length, signal);
     // Adjacent byte ranges of the same file are fetched with one request.
     const reqs = [];
@@ -128,6 +136,7 @@ class Envelope {
     this.step = ENV_STEP;
     this.length = Math.max(1, Math.ceil(duration / ENV_STEP));
     this.data = data && data.length === this.length ? data : new Uint8Array(this.length);
+    this.carry = null;   // filter state where the last fill ended: { at: frame, hpIn, hpOut, lp }
   }
 
   known(i) { return this.data[i] !== 0; }
@@ -141,14 +150,18 @@ class Envelope {
 
   fill(start, pcm, rate) {
     const per = Math.round(rate * this.step);
-    // One-pole high-pass and low-pass filters; the state restarts with every chunk.
-    const hpA = Math.exp(-2 * Math.PI * 150 / rate);
-    const lpA = Math.exp(-2 * Math.PI * 4000 / rate);
-    let hpPrevIn = 0;
-    let hpPrevOut = 0;
-    let lp = 0;
+    // One-pole high-pass and low-pass filters. A chunk that continues the one filled last
+    // continues its filter state; any other starts from rest at its first sample (not from
+    // zero, which would be a step at the chunk's start).
+    const hpA = Math.exp(-2 * Math.PI * SPEECH_BAND_HZ[0] / rate);
+    const lpA = Math.exp(-2 * Math.PI * SPEECH_BAND_HZ[1] / rate);
     const first = Math.round(start / this.step);
-    for (let f = 0; (f + 1) * per <= pcm.length; f++) {
+    const c = this.carry && this.carry.at === first ? this.carry : null;
+    let hpPrevIn = c ? c.hpIn : pcm[0] || 0;
+    let hpPrevOut = c ? c.hpOut : 0;
+    let lp = c ? c.lp : 0;
+    let f = 0;
+    for (; (f + 1) * per <= pcm.length; f++) {
       const i = first + f;
       let sum = 0;
       for (let k = f * per, end = k + per; k < end; k++) {
@@ -163,6 +176,7 @@ class Envelope {
       const db = 10 * Math.log10(sum / per + 1e-12);
       this.data[i] = 1 + Math.round((clamp(db, -100, 0) + 100) * 2.54);
     }
+    this.carry = { at: first + f, hpIn: hpPrevIn, hpOut: hpPrevOut, lp };
   }
 
   coverage() {
@@ -197,12 +211,12 @@ function findSilences(env, opts) {
   const result = { silences: [], noiseDb: NaN, speechDb: NaN, thresholdDb: NaN };
   if (vals.length < 60 / env.step) return result; // less than a minute analysed
   vals.sort((a, b) => a - b);
-  const noise = percentile(vals, 0.1);
-  const speech = percentile(vals, 0.9);
+  const noise = percentile(vals, SILENCE_NOISE_PCT);
+  const speech = percentile(vals, SILENCE_SPEECH_PCT);
   const k = SILENCE_SENSITIVITY[o.sensitivity] || SILENCE_SENSITIVITY.normal;
   let thr = noise + (speech - noise) * k;
   // No dynamics at all: either everything is silent (a muted microphone) or nothing is.
-  if (speech - noise < 6) thr = speech < -55 ? 1 : -101;
+  if (speech - noise < SILENCE_MIN_RANGE_DB) thr = speech < SILENCE_MUTED_DB ? 1 : -101;
   Object.assign(result, { noiseDb: noise, speechDb: speech, thresholdDb: thr });
 
   // Quiet runs in frames; unanalysed frames end a run.
@@ -301,10 +315,11 @@ function skipStretches(silences, uniform, audioKnown, minSec) {
 }
 
 // Where the lecture's content ends: the start of an empty stretch (blank or black) that
-// runs to the end of the recording (within `slack` seconds, one sample), else the duration.
+// runs to the end of the recording (within `slack` seconds: by default one and a half
+// chapter samples, as a stretch ends where its last sample does), else the duration.
 function contentEndAt(stretches, duration, slack) {
   const last = stretches[stretches.length - 1];
-  if (last && (last.kind === 'blank' || last.kind === 'black') && last.end >= duration - (slack == null ? 15 : slack)) return last.start;
+  if (last && (last.kind === 'blank' || last.kind === 'black') && last.end >= duration - (slack == null ? 1.5 * CHAPTER_STEP_SEC : slack)) return last.start;
   return duration;
 }
 
@@ -402,7 +417,7 @@ class SilenceAnalyzer {
     if (navigator.connection && navigator.connection.saveData) { this.fail('saveData'); return; }
     const key = 'silence-env:' + this.lesson.mediaId;
     const cached = this.lesson.mediaId ? await idbCache.get(key) : undefined;
-    await this.gate.wait(cached ? 0 : 8000); // let playback start first
+    await this.gate.wait(cached ? 0 : SILENCE_START_DELAY_MS); // let playback start first
     const track = await new HlsAudioTrack(this.masterUrl).open(signal);
     this.track = track;
     const data = cacheValid('silence-env', cached) && cached.step === ENV_STEP ? cached.data : null;
@@ -421,7 +436,7 @@ class SilenceAnalyzer {
     for (const i of order) {
       const span = track.chunkSpan(i);
       if (this.env.coverageOf(span.start, span.end) > 0.9) continue;
-      await this.gate.turn(2000, 400);
+      await this.gate.turn(SILENCE_PACE_MS[0], SILENCE_PACE_MS[1], BG_MIN_BUFFER_SEC);
       // A chunk that cannot be read or decoded is left out (that stretch stays unknown,
       // never "silent"); only several in a row end the analysis, keeping what was found.
       let chunk;

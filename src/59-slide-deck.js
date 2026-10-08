@@ -5,8 +5,8 @@
 // The PDF is the user's: they can page through it freely and remove it at any time.
 // Following the lecture only turns the page for them until they take over.
 //
-// Which page is on screen comes from the text on the screen view, every 10 s across the
-// lecture: 58-slide-ocr.js reads it, 58-slide-text.js decides the pages (in a Worker).
+// Which page is on screen comes from the text on the screen view, every CHAPTER_STEP_SEC
+// across the lecture: 58-slide-ocr.js reads it, 58-slide-text.js decides the pages (in a Worker).
 //
 // Files never leave the browser: they are kept in IndexedDB (by SHA-256), remembered per
 // recording. pdf.js is loaded from jsDelivr (pinned) only when a recording has slide files.
@@ -23,10 +23,6 @@
 // ===================================================================================
 
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.4.299/build/';
-const FOLLOW_MIN_SEC = 15;       // a quick look at another page (shorter than this) does not turn the page
-const FOLLOW_STALE_SEC = 120;    // after this long without a recognised page, say so
-const FOLLOW_UPDATE_MS = 15000;  // while reading, pages are decided again at most this often
-const DECK_RENDER_BUDGET = 40e6;  // rendered pages kept, in pixels (about 160 MB at 4 bytes a pixel)
 
 let pdfjsPromise = null;
 function loadPdfJs() {
@@ -51,12 +47,12 @@ async function sha256Hex(buf) {
   return Array.from(d, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-// The page's title: the largest text in the top 40% of the page.
+// The page's title: the largest text in the top PAGE_TITLE_TOP of the page.
 function pageTitle(items, pageHeight) {
   let size = 0;
-  for (const it of items) if (it.str.trim() && it.transform[5] > pageHeight * 0.6) size = Math.max(size, it.height);
+  for (const it of items) if (it.str.trim() && it.transform[5] > pageHeight * (1 - PAGE_TITLE_TOP)) size = Math.max(size, it.height);
   if (!size) return '';
-  return items.filter((it) => it.str.trim() && it.transform[5] > pageHeight * 0.6 && Math.abs(it.height - size) < 1)
+  return items.filter((it) => it.str.trim() && it.transform[5] > pageHeight * (1 - PAGE_TITLE_TOP) && Math.abs(it.height - size) < 1)
     .map((it) => it.str.trim()).join(' ').replace(/\s+/g, ' ').slice(0, 120);
 }
 
@@ -77,7 +73,8 @@ function renderPdfPage(page, width) {
 function followSamples(times, pages, minSec, end) {
   const min = minSec == null ? FOLLOW_MIN_SEC : minSec;
   const n = pages.length;
-  const tEnd = end == null ? (n ? times[n - 1] + 10 : 0) : end;
+  // Without an end, the last sample lasts as long as the one before it.
+  const tEnd = end == null ? (n ? times[n - 1] + (n > 1 ? times[n - 1] - times[n - 2] : 0) : 0) : end;
   // Stretches of one page: [{ p, a, b }] (samples a..b), ended by anything else.
   const runs = [];
   for (let i = 0; i < n; i++) {
@@ -253,6 +250,8 @@ class SlideDeckController {
       if (this.job !== job) return;
       this.pages = pages;
       this.state = 'reading';
+      // Files in another language need the screen read again in that language.
+      if (this.ocr && this.ocr.lang !== ocrLanguage(pages.map((x) => x.text))) this.stopReading();
       this.startReading();
       this.decide(true);
       this.onChange();
@@ -280,7 +279,8 @@ class SlideDeckController {
     // and its texts, instead of keeping it referenced until the page closes.
     this.ocrD = this.d.child();
     this.ocr = new SlideTextReader({
-      lesson: this.lesson, video: this.video, source, disposer: this.ocrD,
+      lesson: this.lesson, video: this.video, source, disposer: this.ocrD, shared: a || null,
+      lang: ocrLanguage(this.pages.map((x) => x.text)),
       onChange: () => this.readingChanged(),
     });
     this.ocr.start();
@@ -322,6 +322,7 @@ class SlideDeckController {
       texts: r.texts,
       at: Array.from(r.at),
       force: this.forces(r.times),
+      scripts: r.scripts,
     };
     const job = this.job;
     this.deciding = this.worker.run(input).then((res) => {
@@ -351,7 +352,7 @@ class SlideDeckController {
 
   recompute() {
     const r = this.ocr;
-    this.shown = r && this.decided ? followSamples(r.times, this.decided, FOLLOW_MIN_SEC, this.lesson.duration || undefined) : null;
+    this.shown = r && this.decided ? followSamples(r.times, this.decided, FOLLOW_MIN_SEC, this.lesson.duration || r.end || undefined) : null;
   }
 
   // Page i rendered `width` pixels wide. Kept for reuse within a pixel budget (pages can
@@ -388,11 +389,11 @@ class SlideDeckController {
   sampleAt(t) {
     const r = this.ocr;
     if (!r || !r.times.length) return -1;
-    return r.reader.segmentAt(t);
+    return Math.max(0, sampleIndexAt(r.times, t));
   }
 
   // Page to show at time t while following (-1 when nothing is known yet). Samples are
-  // 10 s apart; when the page changes between two of them and the slide analysis found
+  // CHAPTER_STEP_SEC apart; when the page changes between two of them and the slide analysis found
   // the change in between (to about a second), the page turns there.
   pageAt(t) {
     const k = this.sampleAt(t);
@@ -429,7 +430,7 @@ class SlideDeckController {
     const out = [];
     if (!this.decided) return out;
     const times = this.ocr.times;
-    const end = (j) => (j + 1 < times.length ? times[j + 1] : this.lesson.duration || times[j] + 10);
+    const end = (j) => (j + 1 < times.length ? times[j + 1] : this.lesson.duration || this.ocr.end);
     for (let j = 0; j < this.decided.length; j++) {
       if (this.decided[j] !== i) continue;
       const last = out[out.length - 1];
@@ -449,7 +450,7 @@ class SlideDeckController {
     let b = k;
     while (a > 0 && this.decided[a - 1] === v) a--;
     while (b + 1 < this.decided.length && this.decided[b + 1] === v) b++;
-    return { a: times[a], b: b + 1 < times.length ? times[b + 1] : this.lesson.duration || times[b] + 10 };
+    return { a: times[a], b: b + 1 < times.length ? times[b + 1] : this.lesson.duration || this.ocr.end };
   }
 
   // The user's correction for the part playing at time t: a page index, 'none' (not a

@@ -71,11 +71,11 @@
     let tries = 0;
     const check = () => {
       if (booted) return;
-      if (!document.querySelector('video') && ++tries < 4) { setTimeout(check, 8000); return; }
+      if (!document.querySelector('video') && ++tries < 4) { setTimeout(check, BOOT_CHECK_MS); return; }
       log.info('player bootstrap not seen; leaving the original player in place');
       cpuFix.start();
       notice(t('fallbackNotice'));
     };
-    setTimeout(check, 8000);
+    setTimeout(check, BOOT_CHECK_MS);
   });
 })();

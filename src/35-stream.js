@@ -99,13 +99,13 @@ class Stream {
       const hls = new HlsLib({
         startPosition: startAt,
         capLevelToPlayerSize: false,
-        // Assume a good connection until measured, and step up again as soon as the
-        // measured bandwidth allows (defaults: 500 kbps estimate, 0.7 up factor).
-        abrEwmaDefaultEstimate: 5e6,
-        abrBandWidthFactor: this.priority === 'low' ? 0.7 : 0.95,
-        abrBandWidthUpFactor: this.priority === 'low' ? 0.6 : 0.85,
-        backBufferLength: 60,
-        maxBufferLength: 30,
+        // Start from the connection the browser reports (hls.js assumes 500 kbps), and step
+        // up again as soon as the measured bandwidth allows (hls.js: 0.7 up factor).
+        abrEwmaDefaultEstimate: STREAM_START_BPS(),
+        abrBandWidthFactor: STREAM_BW_FACTOR[this.priority === 'low' ? 'low' : 'main'][0],
+        abrBandWidthUpFactor: STREAM_BW_FACTOR[this.priority === 'low' ? 'low' : 'main'][1],
+        backBufferLength: STREAM_BACK_BUFFER_SEC,
+        maxBufferLength: STREAM_MAX_BUFFER_SEC,
         xhrSetup: (xhr) => { xhr.withCredentials = true; },
       });
       this.hls = hls;
@@ -156,13 +156,13 @@ class Stream {
     if ((code === 401 || code === 403) && !data.fatal && this.onAuth) { this.onAuth(); return; }
     if (!data.fatal) return;
     if (code !== 401 && code !== 403) {
-      if (data.type === HlsLib.ErrorTypes.NETWORK_ERROR && this.netRetries < 4) {
+      if (data.type === HlsLib.ErrorTypes.NETWORK_ERROR && this.netRetries < STREAM_NET_RETRIES) {
         this.netRetries++;
         clearTimeout(this.retryTimer);
         this.retryTimer = setTimeout(guardCore(() => this.hls && this.hls.startLoad()), 1000 * this.netRetries);
         return;
       }
-      if (data.type === HlsLib.ErrorTypes.MEDIA_ERROR && this.mediaRecoveries < 2) {
+      if (data.type === HlsLib.ErrorTypes.MEDIA_ERROR && this.mediaRecoveries < STREAM_MEDIA_RECOVERIES) {
         this.mediaRecoveries++;
         this.hls.recoverMediaError();
         return;

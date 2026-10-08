@@ -78,7 +78,8 @@ The stock player keeps one CPU core busy for the whole lecture (loud fans, drain
 - Live lectures and recordings that require a copyright acknowledgement use the original player.
 - Polls, slide decks, attachments and audio description are only in the original player (a button takes you there).
 - If your school sign-in expires during playback, you will be asked to reload; playback continues from the same position. (Echo360's video access itself is renewed in the background.)
-- Slide chapters (without a PDF) use fixed thresholds that do not suit every recording; on some recordings no chapters are found yet.
+- Slide chapters (without a PDF) learn per recording how large a change makes a new slide; recordings where the screen rarely changes as a whole (a whiteboard filmed by a camera) may get few chapters.
+- Reading along with the slide PDF reads the screen in the language of the PDF (English, Chinese, Japanese, Korean, Russian, Greek, Arabic, Hebrew, Thai, Hindi; others as English). A language other than English downloads its text-recognition data (0.6-2.7 MB) once.
 - When a recording has no transcript, silence is detected from the audio, and quiet talk far from the microphone may be marked as silence. Skipping is always your choice unless you turn on auto-skip.
 
 ## Development
@@ -88,7 +89,7 @@ node build.mjs                    # src/*.js -> dist/echo360-lite.user.js (reada
 node --test test/unit.test.mjs    # unit tests
 ```
 
-Source files in `src/` are plain scripts concatenated in name order. Code and comments are in English, and user-facing strings live in `src/01-i18n.js`.
+Source files in `src/` are plain scripts concatenated in name order. Code and comments are in English, user-facing strings live in `src/01-i18n.js`, and every tuning value (with its unit and why it holds) in `src/02-tuning.js`.
 
 ## License
 

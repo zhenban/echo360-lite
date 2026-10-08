@@ -150,7 +150,7 @@ echo360ClassroomAdapter.fetchCues = function (lesson) {
         if (!Array.isArray(raw) || !raw.length) throw new Error('empty transcript');
         return raw
           .filter((c) => typeof c.startMs === 'number' && typeof c.content === 'string' && c.content.trim())
-          .map((c) => ({ start: c.startMs / 1000, end: (typeof c.endMs === 'number' ? c.endMs : c.startMs + 3000) / 1000, text: c.content.trim(), speaker: c.speaker || '' }));
+          .map((c) => ({ start: c.startMs / 1000, end: (typeof c.endMs === 'number' ? c.endMs : c.startMs + CUE_DEFAULT_MS) / 1000, text: c.content.trim(), speaker: c.speaker || '' }));
       });
   };
   const fromVtt = () => {

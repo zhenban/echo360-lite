@@ -4,39 +4,34 @@
 // Sources, best first:
 //   1. Chapter or slide data from Echo360 itself. None of the recordings checked so far had
 //      any (cfg.chapters, slide decks and scenes were all empty), so this is not used yet.
-//   2. Keyframes of the screen view. Every 10 s HLS segment starts with a keyframe; reading
-//      just the start of each segment (about 20 KB at 360p, 15 MB for two hours) and
-//      decoding it with WebCodecs gives the whole lecture at 10 s resolution. Each change is
-//      then pinned to about 1 s by decoding the one segment it happened in. Downloads only
-//      run while playback has enough buffer, and the result is cached in IndexedDB.
+//   2. Keyframes of the screen view. Every HLS segment starts with a keyframe; reading just
+//      the start of a segment every CHAPTER_STEP_SEC (about 20 KB at 360p, 15 MB for two
+//      hours) and decoding it with WebCodecs gives the whole lecture at that resolution.
+//      Each change is then pinned to about 1 s by decoding the stretch it happened in.
+//      Downloads only run while playback has enough buffer, and the result is cached in
+//      IndexedDB.
 //   3. Echo360's preview thumbnails (one per minute), when WebCodecs is not available.
 //      They are also shown at once while the keyframes are being read.
 //
 // Which view is the screen: slides, code and documents have large flat areas, camera
 // pictures do not (sensor noise), so the view with the most flat area is used.
 //
-// Change detection compares tiny 32 x 18 versions of two frames. Small changes (mouse
-// pointer, laser pointer, ink added to a slide, a small animation, scrolling code) touch
-// only a small share of the pixels and are not a new slide. A run of quick changes (scrolling
-// code, flicking through slides) becomes one chapter instead of many.
+// Change detection compares 160 x 90 brightness pictures. How large a change makes a new
+// picture is learnt per recording from its own changes (see learnThreshold): ink, a pointer
+// or scrolling code change fewer pixels than another slide, but how many fewer depends on
+// the lecturer, the slides and the recording, so no fixed share is used. A run of quick
+// changes (scrolling code, flicking through slides) becomes one chapter instead of many,
+// and a short look elsewhere that comes back joins the chapter (see buildScenes).
 //
-// Reusable pieces (slide text recognition will read sharper keyframes the same way):
-//   HlsVideoReader   open(), segments, segmentAt(t), keyframe(i) -> VideoFrame,
-//                    frames(i, stepSec, onFrame)
-//   frameSignature(img), frameDistance(a, b), sameView(a, b)
-//   buildScenes(samples, duration, opts) -> [{ start, end, rep }]
-//   SlideAnalyzer    chapters: [{ start, end, precise, repTime, thumb }], screenIndex, reader
+// Reusable pieces:
+//   HlsVideoReader   open(), segments, segmentAt(t), sampleSegments(step),
+//                    keyframe(i) -> VideoFrame, frames(i, stepSec, onFrame)
+//   lumaThumb(g, img), frameLuma(img), thumbChange(a, b), learnThreshold(changes)
+//   buildScenes(samples, duration, opts) -> [{ start, end, rep, first }]
+//   SlideAnalyzer    chapters: [{ start, end, precise, repTime, thumb }], screenIndex,
+//                    lumaAt(t) (shared with the slide reader)
 // ===================================================================================
 
-const SIG_W = 32;
-const SIG_H = 18;
-const KEYFRAME_PROBE_BYTES = 24 * 1024;  // moof (~2.5 KB) + a 360p keyframe (~17 KB), usually
-const SCENE_MIN_SEC = 20;                // shorter scenes in a row are one chapter
-const SCENE_REVISIT_SEC = 180;           // going back to a view shown this recently is no new chapter
-const SCENE_DETOUR_SEC = 60;             // a shorter excursion that comes back belongs to the chapter
-const SCREEN_CLEARLY = 0.75;             // see findScreen
-const ANALYSIS_MAX_FAILS = 5;            // segments in a row that cannot be read before an analysis gives up
-const CHAPTER_THUMB_W = 192;
 
 // ---- fragmented MP4 ----
 
@@ -164,7 +159,7 @@ class HlsVideoReader {
     this.segments = [];
     this.info = null;
     this.bytes = 0;          // downloaded so far
-    this.lastNeed = 0;       // bytes the last keyframe needed
+    this.lastNeed = 0;       // bytes the last keyframe needed (header included)
   }
 
   static supported() {
@@ -209,6 +204,19 @@ class HlsVideoReader {
     return lo;
   }
 
+  // Segments to sample about every stepSec seconds: [segment index] (the keyframe of each
+  // segment is at its start).
+  sampleSegments(stepSec) {
+    const out = [];
+    let next = -Infinity;
+    this.segments.forEach((sg, i) => {
+      if (sg.start + sg.dur / 2 < next) return;
+      out.push(i);
+      next = sg.start + stepSec;
+    });
+    return out;
+  }
+
   // Decodes encoded samples; onFrame(frame) is called in presentation order and the frame
   // is closed right after it returns.
   async decode(chunks, onFrame) {
@@ -227,28 +235,39 @@ class HlsVideoReader {
     if (failed) throw failed;
   }
 
-  // First frame of segment i, as a signature-ready callback: fn(frame) is called once.
+  // First frame of segment i: fn(frame, seconds) is called once.
   async keyframe(i, signal, fn) {
     const s = this.segments[i];
-    // A keyframe grows with the picture (about 20 KB at 360p) and its content; asking for a
-    // little more than the last one needed usually saves a second request.
-    const base = Math.round(KEYFRAME_PROBE_BYTES * Math.max(1, ((this.info && this.info.height) || 360) / 360) ** 2);
-    const probe = Math.max(base, Math.round((this.lastNeed || 0) * 1.2));
-    let buf = await fetchRange(s.url, s.offset, Math.min(s.length, probe), signal);
-    this.bytes += buf.byteLength;
-    const frag = parseFragment(buf, s.offset);
-    const k = frag.samples[0];
-    if (!k || !k.key) throw new Error('segment does not start with a keyframe');
-    this.lastNeed = k.offset + k.size;
-    if (k.offset + k.size > buf.byteLength) {
-      // Only the rest of it.
-      const more = await fetchRange(s.url, s.offset + buf.byteLength, Math.min(s.length, k.offset + k.size) - buf.byteLength, signal);
+    // Bytes from the start of the segment, fetching only what is still missing.
+    let buf = new ArrayBuffer(0);
+    const upTo = async (n) => {
+      const want = Math.min(s.length, n);
+      if (want <= buf.byteLength) return;
+      const more = await fetchRange(s.url, s.offset + buf.byteLength, want - buf.byteLength, signal);
       this.bytes += more.byteLength;
       const all = new Uint8Array(buf.byteLength + more.byteLength);
       all.set(new Uint8Array(buf), 0);
       all.set(new Uint8Array(more), buf.byteLength);
       buf = all.buffer;
+    };
+    // The fragment header and the keyframe come first; their size is only known once the
+    // header is read. Ask for a little more than the last keyframe needed (keyframes of one
+    // stream are of similar size), the first time for just the start of the header, then
+    // for whatever is still missing: a wrong guess costs a request, never a wrong result.
+    await upTo(this.lastNeed ? Math.round(this.lastNeed * 1.25) : 4096);
+    for (;;) {
+      const boxes = mp4Boxes(new DataView(buf), 0, buf.byteLength);
+      const moof = boxes.find((x) => x.type === 'moof');
+      const last = boxes[boxes.length - 1];
+      const end = moof ? moof.start + moof.size : last ? last.start + last.size + 8 : 8;
+      if (end <= buf.byteLength || buf.byteLength >= s.length) break;
+      await upTo(end);
     }
+    const frag = parseFragment(buf, s.offset);
+    const k = frag.samples[0];
+    if (!k || !k.key) throw new Error('segment does not start with a keyframe');
+    this.lastNeed = k.offset + k.size;
+    await upTo(k.offset + k.size);
     const ts = this.info.timescale;
     const chunk = new EncodedVideoChunk({ type: 'key', timestamp: Math.round((k.time / ts) * 1e6), data: new Uint8Array(buf, k.offset, k.size) });
     let got = false;
@@ -276,73 +295,100 @@ class HlsVideoReader {
 }
 
 // ---- comparing frames ----
+//
+// Frames are compared as 160 x 90 brightness pictures (one pixel is a 2 x 2 block at 360p,
+// 8 x 8 at 720p): fine enough that a changed line of slide text changes several pixels.
 
-let sigCtx = null;
-function sigContext() {
-  if (!sigCtx) {
-    const c = typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(SIG_W, SIG_H) : Object.assign(document.createElement('canvas'), { width: SIG_W, height: SIG_H });
-    sigCtx = c.getContext('2d', { willReadFrequently: true });
+
+// Brightness of a frame at THUMB_W x THUMB_H, drawn with the 2D context g.
+function lumaThumb(g, img) {
+  g.drawImage(img, 0, 0, THUMB_W, THUMB_H);
+  const d = g.getImageData(0, 0, THUMB_W, THUMB_H).data;
+  const out = new Uint8Array(THUMB_W * THUMB_H);
+  for (let i = 0, j = 0; i < out.length; i++, j += 4) out[i] = (d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8;
+  return out;
+}
+
+let thumbCtx = null;
+function thumbContext() {
+  if (!thumbCtx) {
+    const c = typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(THUMB_W, THUMB_H) : Object.assign(document.createElement('canvas'), { width: THUMB_W, height: THUMB_H });
+    thumbCtx = c.getContext('2d', { willReadFrequently: true });
   }
-  return sigCtx;
+  return thumbCtx;
 }
 
-// 32 x 18 RGB thumbnail of any drawable (VideoFrame, ImageBitmap, <video>, <img>).
-function frameSignature(img) {
-  const g = sigContext();
-  g.drawImage(img, 0, 0, SIG_W, SIG_H);
-  return Uint8Array.from(g.getImageData(0, 0, SIG_W, SIG_H).data.filter((x, i) => i % 4 !== 3));
+// Brightness picture of any drawable (VideoFrame, ImageBitmap, <video>, <img>).
+function frameLuma(img) {
+  return lumaThumb(thumbContext(), img);
 }
 
-// corr: correlation of the two pictures; mad: mean absolute difference (0-255); changed:
-// share of pixels whose brightness moved by more than 40.
-function frameDistance(a, b) {
-  const n = a.length;
-  let ma = 0;
-  let mb = 0;
-  let mad = 0;
-  let changed = 0;
-  for (let i = 0; i < n; i += 3) {
-    const la = a[i] * 0.299 + a[i + 1] * 0.587 + a[i + 2] * 0.114;
-    const lb = b[i] * 0.299 + b[i + 1] * 0.587 + b[i + 2] * 0.114;
-    if (Math.abs(la - lb) > 40) changed++;
+// Pixels of two brightness pictures that differ by more than PIXEL_DIFF. Stops counting
+// at `limit` (the caller only needs to know whether that many changed).
+function thumbChange(a, b, limit) {
+  const stop = limit || Infinity;
+  let n = 0;
+  for (let i = 0; i < a.length; i++) if (Math.abs(a[i] - b[i]) > PIXEL_DIFF && ++n >= stop) break;
+  return n;
+}
+
+// The change of each sample against the last earlier sample that differed visibly from the
+// one before it (so that slow changes, ink added a little at a time, still add up), in
+// changed pixels; 0 for the first. samples: [{ luma }], sets sample.change; only samples
+// from `from` on are computed (earlier ones keep theirs).
+function sampleChanges(samples, from) {
+  let ref = null;
+  for (let k = Math.max(0, (from || 0) - 1); k >= 0 && !ref; k--) if (k === 0 || samples[k].change >= SAME_TEXT_MAX) ref = samples[k].luma;
+  for (let k = from || 0; k < samples.length; k++) {
+    const s = samples[k];
+    if (!ref) { s.change = 0; ref = s.luma; continue; }
+    s.change = thumbChange(ref, s.luma);
+    if (s.change >= SAME_TEXT_MAX) ref = s.luma;
   }
-  for (let i = 0; i < n; i++) { ma += a[i]; mb += b[i]; mad += Math.abs(a[i] - b[i]); }
-  ma /= n;
-  mb /= n;
-  let sab = 0;
-  let saa = 0;
-  let sbb = 0;
-  for (let i = 0; i < n; i++) {
-    const x = a[i] - ma;
-    const y = b[i] - mb;
-    sab += x * y; saa += x * x; sbb += y * y;
+}
+
+// How many changed pixels make a new picture, learnt from this recording: its visible
+// changes (SAME_TEXT_MAX or more) split into two groups (small: ink, scrolling, a pointer;
+// large: another slide or program) at the point that separates them best (Otsu's method,
+// on the logarithm, since the sizes span orders of magnitude). Samples without a visible
+// change are left out: they say nothing about the split and, being most of a lecture,
+// would pull it down to ink level (checked on four lectures: the same changes found, a
+// sixth to a quarter fewer false ones). With fewer than two different visible changes
+// there is nothing to split, and every visible change counts as a new picture.
+function learnThreshold(changes) {
+  const v = changes.filter((c) => c >= SAME_TEXT_MAX).map((c) => Math.log1p(c)).sort((a, b) => a - b);
+  const n = v.length;
+  let total = 0;
+  for (const x of v) total += x;
+  let best = -1;
+  let cut = Infinity;
+  let left = 0;
+  for (let i = 1; i < n; i++) {
+    left += v[i - 1];
+    if (v[i] === v[i - 1]) continue;
+    const ma = left / i;
+    const mb = (total - left) / (n - i);
+    const score = i * (n - i) * (mb - ma) ** 2;
+    if (score > best) { best = score; cut = (v[i - 1] + v[i]) / 2; }
   }
-  return { corr: saa && sbb ? sab / Math.sqrt(saa * sbb) : (saa === sbb ? 1 : 0), mad: mad / n, changed: changed / (n / 3) };
+  return cut === Infinity ? SAME_TEXT_MAX : Math.expm1(cut);
 }
 
-// Same slide? Measured on a real lecture (keyframes 10 s apart): ink added to a slide and
-// scrolling or typing in a code editor change 6-15% of the pixels; a new slide changes at
-// least 16%, switching between slides and an editor more than half.
-function sameView(a, b) {
-  const d = frameDistance(a, b);
-  return d.changed < 0.16 || d.mad <= 8 || (d.corr >= 0.9 && d.mad <= 20);
-}
-
-// Stricter test for "back to the same picture" (see buildScenes).
-function sameViewStrict(a, b) {
-  const d = frameDistance(a, b);
-  return d.changed < 0.06 || d.mad <= 6;
+// Mean brightness of 5 x 5 blocks: a 32 x 18 version of a brightness picture.
+function lumaBlocks(luma) {
+  const W = THUMB_W / 5;
+  const H = THUMB_H / 5;
+  const out = new Float32Array(W * H);
+  for (let y = 0; y < THUMB_H; y++) for (let x = 0; x < THUMB_W; x++) out[((y / 5) | 0) * W + ((x / 5) | 0)] += luma[y * THUMB_W + x] / 25;
+  return out;
 }
 
 // A picture of (almost) one colour: a black screen, a "no signal" picture, a blank slide in
 // one colour. Judged by evenness, not darkness, so any kind of empty picture counts: nearly
-// every pixel of the small signature is within noise of the median brightness.
-const UNIFORM_NOISE = 10;     // brightness levels (0-255) of compression noise at 32 x 18
-const UNIFORM_SHARE = 0.985;  // pixels that must be that close (a small logo or a cursor may differ)
-function frameUniform(sig) {
-  const n = sig.length / 3;
-  const l = new Float32Array(n);
-  for (let i = 0, j = 0; i < n; i++, j += 3) l[i] = sig[j] * 0.299 + sig[j + 1] * 0.587 + sig[j + 2] * 0.114;
+// every block of a 32 x 18 version is within noise of the median brightness (UNIFORM_*).
+function frameUniform(luma) {
+  const l = lumaBlocks(luma);
+  const n = l.length;
   const sorted = Float32Array.from(l).sort();
   const med = sorted[n >> 1];
   let close = 0;
@@ -378,7 +424,7 @@ function flatShare(img) {
       const i = (y * W + x) * 4;
       const l = d[i] + d[i + 1] + d[i + 2];
       tot++;
-      if (Math.abs(l - d[i + 4] - d[i + 5] - d[i + 6]) <= 3 && Math.abs(l - d[i + W * 4] - d[i + W * 4 + 1] - d[i + W * 4 + 2]) <= 3) n++;
+      if (Math.abs(l - d[i + 4] - d[i + 5] - d[i + 6]) <= FLAT_LEVELS && Math.abs(l - d[i + W * 4] - d[i + W * 4 + 1] - d[i + W * 4 + 2]) <= FLAT_LEVELS) n++;
     }
   }
   return n / tot;
@@ -386,70 +432,93 @@ function flatShare(img) {
 
 // ---- scenes ----
 
-// samples: [{ t, sig }] in time order. Returns scenes [{ start, end, rep }] where rep is the
-// sample that best shows the chapter: the last sample (ink and builds are complete there)
-// of the view it stays on longest. A scene starts at its first sample; refinement moves
-// it earlier.
+// samples: [{ t, luma, change }] in time order (see sampleChanges). Returns scenes
+// [{ start, end, rep }] where rep is the sample that best shows the chapter: the last sample
+// (ink and builds are complete there) of the view it stays on longest. A scene starts at
+// its first sample; refinement moves it earlier.
 //
-// Lecturers often switch back and forth between a slide and a code editor or a question
-// board. Coming back to something shown in the last few minutes is not a new chapter, and
-// a short excursion (under detourSec) that comes back to the previous chapter becomes part
-// of it. The "back to the same picture" test is stricter than the same-slide test, because
-// different slides with the same layout can pass the latter. Of the remaining scenes,
-// several short ones in a row are one chapter, and a single short one (a transition caught
-// mid-way) joins the next.
+// opts.threshold: changed pixels that make a new picture (default: learnt from the samples).
+// opts.single: merge chapters of a single sample (default true; off for samples a minute
+// apart, where one sample is a long stretch).
+//
+// 1. Runs: a new run starts where a sample changed by the threshold or more.
+// 2. A run that starts with a picture already shown in the current chapter (back to the
+//    slide after a look at the editor) continues the chapter.
+// 3. A look elsewhere between two stays on the same picture, no longer than either of them,
+//    joins them into one chapter (a short demo, then back to the slide; flicking between a
+//    slide and a question board).
+// 4. A chapter of a single sample is shorter than the sampling can tell apart: several in a
+//    row (flicking through slides, scrolling) are one chapter, a lone one (a transition
+//    caught half way) joins the next.
+// All lengths are relative to each other or to the sampling step: no fixed durations.
 function buildScenes(samples, duration, opts) {
-  const o = Object.assign({ minSec: SCENE_MIN_SEC, revisitSec: SCENE_REVISIT_SEC, detourSec: SCENE_DETOUR_SEC, same: sameView, revisit: sameViewStrict }, opts);
+  const o = Object.assign({ single: true }, opts);
   if (!samples.length) return [];
+  if (samples.some((s) => s.change == null)) sampleChanges(samples);
+  const thr = o.threshold != null ? o.threshold : learnThreshold(samples.slice(1).map((s) => s.change));
   const tAt = (k) => (k < samples.length ? samples[k].t : duration);
-  // Runs of the same view.
+  const same = (i, j) => thumbChange(samples[i].luma, samples[j].luma, thr) < thr;
+  // 1. Runs of the same picture.
   const runs = [{ a: 0, b: 0 }];
   for (let k = 1; k < samples.length; k++) {
-    if (o.same(samples[k - 1].sig, samples[k].sig)) runs[runs.length - 1].b = k;
+    if (samples[k].change < thr) runs[runs.length - 1].b = k;
     else runs.push({ a: k, b: k });
   }
-  const raw = [{ a: 0, b: runs[0].b, runs: [runs[0]] }];
-  for (let i = 1; i < runs.length; i++) {
-    const r = runs[i];
-    const t0 = samples[r.a].t;
-    let seen = -1;
-    for (let j = i - 1; j >= 0 && seen < 0 && samples[runs[j].b].t >= t0 - o.revisitSec; j--) {
-      if (o.revisit(samples[runs[j].b].sig, samples[r.a].sig) || o.revisit(samples[runs[j].a].sig, samples[r.a].sig)) seen = j;
-    }
-    const cur = raw[raw.length - 1];
-    if (seen < 0) { raw.push({ a: r.a, b: r.b, runs: [r] }); continue; }
-    cur.b = r.b;
-    cur.runs.push(r);
-    // Back to the chapter before a short excursion: the excursion joins that chapter.
-    if (raw.length >= 2 && runs[seen].b < cur.a && t0 - samples[cur.a].t < o.detourSec) {
-      const prev = raw[raw.length - 2];
-      prev.b = cur.b;
-      prev.runs.push(...cur.runs);
-      raw.pop();
+  // A chapter's pictures: the first and last sample of each of its runs.
+  const shows = (ch, k) => ch.runs.some((r) => same(r.a, k) || (r.b !== r.a && same(r.b, k)));
+  const len = (ch) => tAt(ch.b + 1) - samples[ch.a].t;
+  // 2. Chapters; a return within the current chapter continues it.
+  let chs = [];
+  for (const r of runs) {
+    const cur = chs[chs.length - 1];
+    if (cur && shows(cur, r.a)) { cur.b = r.b; cur.runs.push(r); } else chs.push({ a: r.a, b: r.b, runs: [r] });
+  }
+  // 3. Short looks elsewhere between two stays on the same picture.
+  for (let i = 1; i + 1 < chs.length; i++) {
+    const [x, y, z] = [chs[i - 1], chs[i], chs[i + 1]];
+    if (len(y) <= len(x) && len(y) <= len(z) && shows(x, z.a)) {
+      chs.splice(i - 1, 3, { a: x.a, b: z.b, runs: x.runs.concat(y.runs, z.runs) });
+      i = Math.max(0, i - 2);
     }
   }
-  const len = (r) => tAt(r.b + 1) - samples[r.a].t;
-  const merged = [];
-  for (let i = 0; i < raw.length; i++) {
-    const r = { a: raw[i].a, b: raw[i].b, runs: raw[i].runs.slice() };
-    const absorb = (x) => { r.b = x.b; r.runs.push(...x.runs); };
-    if (len(r) < o.minSec) {
-      // Absorb following short scenes into one busy stretch.
-      let j = i;
-      while (j + 1 < raw.length && len(raw[j + 1]) < o.minSec) j++;
-      if (j > i) { for (let q = i + 1; q <= j; q++) absorb(raw[q]); i = j; } else if (i + 1 < raw.length) { absorb(raw[i + 1]); i++; }
+  // 4. Chapters of one sample.
+  if (o.single) {
+    const out = [];
+    const one = (ch) => ch.a === ch.b;
+    for (let i = 0; i < chs.length; i++) {
+      const ch = { a: chs[i].a, b: chs[i].b, runs: chs[i].runs.slice() };
+      const absorb = (x) => { ch.b = x.b; ch.runs.push(...x.runs); };
+      if (one(ch)) {
+        let j = i;
+        while (j + 1 < chs.length && one(chs[j + 1])) j++;
+        if (j > i) { for (let q = i + 1; q <= j; q++) absorb(chs[q]); i = j; } else if (i + 1 < chs.length) { absorb(chs[i + 1]); i++; }
+      }
+      out.push(ch);
     }
-    merged.push(r);
+    chs = out;
   }
-  return merged.map((r, i) => {
-    let best = r.runs[0];
-    for (const x of r.runs) if (tAt(x.b + 1) - samples[x.a].t >= tAt(best.b + 1) - samples[best.a].t) best = x;
+  return chs.map((ch, i) => {
+    let best = ch.runs[0];
+    for (const x of ch.runs) if (tAt(x.b + 1) - samples[x.a].t >= tAt(best.b + 1) - samples[best.a].t) best = x;
     return {
-      start: i === 0 ? 0 : samples[r.a].t,
-      end: i + 1 < merged.length ? samples[merged[i + 1].a].t : duration,
+      start: i === 0 ? 0 : samples[ch.a].t,
+      end: i + 1 < chs.length ? samples[chs[i + 1].a].t : duration,
       rep: best.b,
+      first: ch.a,
     };
   });
+}
+
+// Index of the last of the ascending times that is at or before t (-1 if none).
+function sampleIndexAt(times, t) {
+  let lo = 0;
+  let hi = times.length - 1;
+  let k = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (times[mid] <= t) { k = mid; lo = mid + 1; } else hi = mid - 1;
+  }
+  return k;
 }
 
 function chapterIndexAt(chapters, t) {
@@ -463,9 +532,12 @@ function chapterIndexAt(chapters, t) {
   return k;
 }
 
-// A small copy of a frame, made synchronously (a VideoFrame is only valid in its callback).
+// A small copy of a frame, made synchronously (a VideoFrame is only valid in its callback),
+// in the frame's own shape (a 4:3 screen stays 4:3).
 function smallBitmap(img, w) {
-  const c = new OffscreenCanvas(w, Math.round((w * 9) / 16));
+  const iw = img.displayWidth || img.width || 16;
+  const ih = img.displayHeight || img.height || 9;
+  const c = new OffscreenCanvas(w, Math.max(1, Math.round((w * ih) / iw)));
   c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
   return c;
 }
@@ -556,7 +628,7 @@ class SlideAnalyzer {
     if (!screen) { this.state = 'unavailable'; this.onChange(); return; }
     this.screenIndex = screen.source.index;
     this.onChange();
-    await this.gate.wait(5000); // let playback start first
+    await this.gate.wait(BG_START_DELAY_MS); // let playback start first
     if (screen.thumbs) this.fromThumbnails(screen.thumbs);
     if (!HlsVideoReader.supported() || (navigator.connection && navigator.connection.saveData)) {
       if (this.chapters.length) { this.state = 'done'; this.progress = 1; this.onChange(); }
@@ -581,8 +653,8 @@ class SlideAnalyzer {
       if (!set || !Array.isArray(set.timesInSeconds) || !set.timesInSeconds.length) continue;
       const ts = set.timesInSeconds;
       const vals = [];
-      for (let k = 0; k < 6; k++) {
-        const t = ts[Math.floor(((k + 0.5) * ts.length) / 6)];
+      for (let k = 0; k < SCREEN_PROBES; k++) {
+        const t = ts[Math.floor(((k + 0.5) * ts.length) / SCREEN_PROBES)];
         // One picture that cannot be read does not decide anything.
         let img = null;
         try { img = await this.loadThumb(set, t, signal); } catch (e) { if (signal.aborted) throw e; }
@@ -590,7 +662,7 @@ class SlideAnalyzer {
         vals.push(flatShare(img));
         img.close();
       }
-      if (vals.length >= 3) scored.push({ source: src, set, vals });
+      if (vals.length >= SCREEN_PROBES / 2) scored.push({ source: src, set, vals });
     }
     // No usable thumbnails for some view: a few keyframes of each view instead (360p,
     // about 20 KB each).
@@ -601,11 +673,11 @@ class SlideAnalyzer {
         try {
           const rd = await new HlsVideoReader(src.v || src.av, 360).open(signal);
           const n = rd.segments.length;
-          for (let k = 0; k < 6; k++) {
-            await rd.keyframe(Math.floor(((k + 0.5) * n) / 6), signal, (f) => vals.push(flatShare(f)));
+          for (let k = 0; k < SCREEN_PROBES; k++) {
+            await rd.keyframe(Math.floor(((k + 0.5) * n) / SCREEN_PROBES), signal, (f) => vals.push(flatShare(f)));
           }
         } catch (e) { if (signal.aborted) throw e; }
-        if (vals.length >= 3) scored.push({ source: src, set: null, vals });
+        if (vals.length >= SCREEN_PROBES / 2) scored.push({ source: src, set: null, vals });
       }
     }
     if (!scored.length) {
@@ -656,21 +728,18 @@ class SlideAnalyzer {
         if (this.ac.signal.aborted || ++fails >= ANALYSIS_MAX_FAILS) throw e;
         continue;
       }
-      samples.push({ t, sig: frameSignature(img) });
+      samples.push({ t, luma: frameLuma(img) });
       img.close();
     }
     if (samples.length < 2) return;
-    const scenes = buildScenes(samples, this.duration(), { minSec: 0 });
-    this.chapters = scenes.map((s, i) => {
-      const first = chapterSampleStart(samples, s);
-      return {
-        start: i === 0 ? 0 : (samples[first].t + samples[first - 1].t) / 2,
-        end: s.end,
-        precise: false,
-        repTime: samples[s.rep].t,
-        thumb: set.baseUri + '/' + samples[s.rep].t + '.' + set.extension,
-      };
-    });
+    const scenes = buildScenes(samples, this.duration(), { single: false });
+    this.chapters = scenes.map((sc, i) => ({
+      start: i === 0 ? 0 : (samples[sc.first].t + samples[sc.first - 1].t) / 2,
+      end: sc.end,
+      precise: false,
+      repTime: samples[sc.rep].t,
+      thumb: set.baseUri + '/' + samples[sc.rep].t + '.' + set.extension,
+    }));
     for (let i = 1; i < this.chapters.length; i++) this.chapters[i - 1].end = this.chapters[i].start;
     this.state = 'thumbnails';
     this.onChange();
@@ -680,64 +749,89 @@ class SlideAnalyzer {
     this.thumbsDone = this.fromThumbnailsAsync(set).catch((e) => { if (!this.ac.signal.aborted) log.warn('thumbnails:', e.message); });
   }
 
+  // The 360p brightness picture of the screen view at sample time t, while the scan keeps
+  // them (see shareLumas), else null. The slide reader compares the same pictures; sharing
+  // saves downloading them twice.
+  lumaAt(t) {
+    return (this.lumas && this.lumas.get(Math.round(t * 10))) || null;
+  }
+
+  // The slide reader of `source` wants the pictures (true) or no longer does (false). They
+  // are kept while either the scan runs or a reader of the scanned view uses them.
+  shareLumas(on, source) {
+    this.sharing = !!on && !!source && source.index === this.screenIndex;
+    if (!this.sharing && this.state === 'done') this.lumas = null;
+    return this.sharing;
+  }
+
   async fromKeyframes(source, signal) {
     const reader = await new HlsVideoReader(source.v || source.av, 360).open(signal);
     this.reader = reader;
     if (this.thumbsDone) await this.thumbsDone;
-    const n = reader.segments.length;
+    const picks = reader.sampleSegments(CHAPTER_STEP_SEC);
+    const n = picks.length;
     const samples = [];
+    this.lumas = new Map();
     if (store.get('debug', false)) this.samples = samples; // for tuning, development only
     const thumbs = new Map();
     let lastBuild = 0;
     let fails = 0;
-    for (let i = 0; i < n; i++) {
-      await this.gate.turn(300, 120, 20);
-      let sig = null;
+    for (let q = 0; q < n; q++) {
+      const i = picks[q];
+      await this.gate.turn(CHAPTER_PACE_MS[0], CHAPTER_PACE_MS[1], BG_MIN_BUFFER_SEC);
+      let luma = null;
       let pic = null;
       // One segment that cannot be read (a missing keyframe, a failed request) does not end
       // the analysis: it counts as "same picture as before"; only several in a row do.
       try {
-        await reader.keyframe(i, signal, (f) => { sig = frameSignature(f); pic = smallBitmap(f, CHAPTER_THUMB_W); });
+        await reader.keyframe(i, signal, (f) => { luma = frameLuma(f); pic = smallBitmap(f, CHAPTER_THUMB_W); });
         fails = 0;
       } catch (e) {
         if (signal.aborted) throw e;
         if (++fails >= ANALYSIS_MAX_FAILS) {
-          if (samples.length) this.applyScenes(samples, thumbs, false);
+          if (samples.length) this.applyScenes(samples, thumbs, reader.segments[i].start);
           throw e;
         }
         log.warn('slide chapters: segment ' + i + ' skipped:', e);
       }
       const j = samples.length;
-      if (!sig) {
-        if (j) samples.push({ t: reader.segments[i].start, sig: samples[j - 1].sig, uniform: samples[j - 1].uniform });
+      const t = reader.segments[i].start;
+      if (!luma) {
+        if (j) samples.push({ t, luma: samples[j - 1].luma, uniform: samples[j - 1].uniform, change: 0 });
         continue;
       }
-      samples.push({ t: reader.segments[i].start, sig, uniform: frameUniform(sig) });
-      // Keep a small picture only for the last frame of each run of identical frames.
-      if (thumbs.has(j - 1) && sameView(samples[j - 1].sig, sig)) thumbs.delete(j - 1);
+      samples.push({ t, luma, uniform: frameUniform(luma) });
+      this.lumas.set(Math.round(t * 10), luma);
+      sampleChanges(samples, j);
+      // Keep a small picture only for the last frame of each run of the same picture.
+      if (thumbs.has(j - 1) && samples[j].change < SAME_TEXT_MAX) thumbs.delete(j - 1);
       thumbs.set(j, await bitmapToBlob(pic));
-      this.progress = ((i + 1) / n) * 0.8;
-      if (i - lastBuild >= 30) {
-        lastBuild = i;
+      this.progress = ((q + 1) / n) * 0.8;
+      if (q - lastBuild >= 30) {
+        lastBuild = q;
         // With per-minute chapters on screen, partial results would only show fewer.
-        if (this.state !== 'thumbnails') this.applyScenes(samples, thumbs, false);
+        if (this.state !== 'thumbnails') this.applyScenes(samples, thumbs, q + 1 < n ? reader.segments[picks[q + 1]].start : this.duration());
         else this.onChange();
       }
     }
     this.state = 'keyframes';
     this.uniform = uniformStretches(samples, this.duration());
-    this.applyScenes(samples, thumbs, true);
-    // Pin each change to about a second inside the segment where it happened.
+    const thr = this.applyScenes(samples, thumbs, this.duration());
+    // Pin each change to about a second: the first frame between the last sample before it
+    // and the first one after it that differs from the one before as much as a new picture.
     const chs = this.chapters;
+    const g = thumbContext();
     for (let c = 1; c < chs.length; c++) {
       const k = chs[c].firstSample;
       if (k <= 0) continue;
-      await this.gate.turn(1000, 300, 30);
-      const before = samples[k - 1].sig;
+      await this.gate.turn(CHAPTER_REFINE_PACE_MS[0], CHAPTER_REFINE_PACE_MS[1], STREAM_MAX_BUFFER_SEC);
+      const before = samples[k - 1].luma;
       let at = null;
-      // A segment that cannot be read keeps the coarse (10 s) time.
+      // A segment that cannot be read keeps the coarse time.
       try {
-        await reader.frames(reader.segmentAt(samples[k - 1].t), 1, signal, (f, t) => { if (at === null && !sameView(before, frameSignature(f))) at = t; });
+        for (let i = reader.segmentAt(samples[k - 1].t); at === null && i < reader.segments.length && reader.segments[i].start < samples[k].t; i++) {
+          await reader.frames(i, 1, signal, (f, ft) => { if (at === null && thumbChange(before, lumaThumb(g, f), thr) >= thr) at = ft; });
+        }
       } catch (e) {
         if (signal.aborted) throw e;
         at = null;
@@ -753,22 +847,26 @@ class SlideAnalyzer {
       if (c % 5 === 0) this.onChange();
     }
     this.state = 'done';
+    if (!this.sharing) this.lumas = null;
     this.progress = 1;
     this.onChange();
   }
 
-  applyScenes(samples, thumbs, final) {
-    const total = final ? this.duration() : samples[samples.length - 1].t + 10;
-    const scenes = buildScenes(samples, total);
-    this.chapters = scenes.map((s) => {
-      const first = chapterSampleStart(samples, s);
+  // Chapters from the samples so far (end: when the last one ends). Returns the threshold
+  // used.
+  applyScenes(samples, thumbs, end) {
+    const thr = learnThreshold(samples.slice(1).map((x) => x.change));
+    const scenes = buildScenes(samples, end, { threshold: thr });
+    this.chapters = scenes.map((sc) => {
       let blob = null;
       // The newest picture of this scene that is still kept.
-      for (let k = s.rep; k >= first && !blob; k--) blob = thumbs.get(k) || null;
-      return { start: s.start, end: s.end, precise: false, repTime: samples[s.rep].t, firstSample: first, blob, thumb: blob ? this.thumbUrl(blob) : '' };
+      for (let k = sc.rep; k >= sc.first && !blob; k--) blob = thumbs.get(k) || null;
+      return { start: sc.start, end: sc.end, precise: false, repTime: samples[sc.rep].t, firstSample: sc.first, blob, thumb: blob ? this.thumbUrl(blob) : '' };
     });
+    this.threshold = thr;
     this.pruneThumbs();
     this.onChange();
+    return thr;
   }
 
   save(key) {
@@ -782,11 +880,4 @@ class SlideAnalyzer {
       chapters: this.chapters.map((c) => ({ start: c.start, end: c.end, precise: c.precise, repTime: c.repTime, blob: c.blob || null, thumb: c.blob ? '' : c.thumb })),
     });
   }
-}
-
-// Index of the first sample of a scene.
-function chapterSampleStart(samples, scene) {
-  let k = scene.rep;
-  while (k > 0 && samples[k - 1].t >= scene.start) k--;
-  return k;
 }

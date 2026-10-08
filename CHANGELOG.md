@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.13.0
+Works for more courses (M8.9 C: no settings tuned to one course).
+- Slide chapters without a PDF: each recording now learns for itself how large a change of the screen is a new slide (ink, a pointer or scrolling are smaller), instead of using fixed percentages and times. Every slide change found on two hand-checked lectures; one 3-hour lecture went from 12 chapters to 87. Quick switches (a look at the code editor and back, flicking through slides) still make one chapter. Chapter pictures keep the screen's shape (4:3 screens are no longer stretched).
+- Recordings cut into segments other than 10 s: chapters, slide reading and silence detection now work in seconds, so they cost the same and stay as precise with any segment length.
+- Reading along with slides in other languages: the screen is read in the language of the PDF (Chinese, Japanese, Korean, Russian, Greek, Arabic, Hebrew, Thai, Hindi, or English). Other languages need their text-recognition data once (0.6–2.7 MB); the Slides tab says which and how large while it loads. Words are compared in any script, with accents and PDF ligatures handled, which also makes English slides match slightly better.
+- With a slide PDF, the slide reader reuses the pictures already fetched for chapters instead of downloading them again.
+- Silence detection no longer has a small glitch at each one-minute boundary of the audio.
+- Playback starts from the connection speed the browser reports instead of assuming 5 Mbps.
+
+For developers: every tuning value is in `src/02-tuning.js` with its unit and why it holds across courses; two hand-labelled lectures are replayed in the unit tests (as hashed word bags, no slide text) with a minimum accuracy.
+
 ## 0.12.0
 New:
 - Empty parts: a black screen, a "no signal" picture or any one-colour screen while nobody speaks is found from the slide analysis (no extra download) and marked on the progress bar like silences, with the same Skip button and setting (hover says "silence", "black screen and silence" or "black screen"). An empty screen while someone is still speaking is left alone.

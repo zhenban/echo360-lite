@@ -6,10 +6,6 @@
 //     for large drift. The check only runs while the clock is playing.
 // ===================================================================================
 
-const SYNC_TOLERANCE = 0.08;   // seconds of drift that are ignored
-const SYNC_SEEK_AT = 1.0;      // seconds of drift corrected by seeking instead of nudging
-const SYNC_MAX_NUDGE = 0.1;    // max relative rate change while catching up
-
 class FollowerSync {
   constructor(clock, follower) {
     this.clock = clock;

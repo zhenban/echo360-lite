@@ -105,7 +105,7 @@ class SlideReader {
     const p = deck.pages[i];
     const dpr = window.devicePixelRatio || 1;
     // As wide as fits the place at the page's aspect ratio.
-    const ar = p.ar || 0.5625;
+    const ar = p.ar || PAGE_AR_DEFAULT;
     const w = stage.clientWidth || 320;
     const hgt = stage.clientHeight || w * ar;
     // Zoomed in (picture-area view): sharper, up to a canvas the browser handles easily.
@@ -221,7 +221,12 @@ class SlidesPane {
     files.append(h('button.sfadd', { text: deck.files.length ? t('addMoreSlides') : t('addSlides'), onclick: () => input.click() }), input);
     let msg = '';
     if (deck.state === 'loading') msg = t('deckLoading');
-    else if (deck.state === 'reading') msg = deck.ocr ? t('deckReading', { pct: Math.floor(deck.progress * 100) }) : t('deckWaiting');
+    else if (deck.state === 'reading') {
+      const r = deck.ocr;
+      msg = !r ? t('deckWaiting')
+        : r.state === 'reading' && !r.engineReady && r.stats.read === 0 ? t('deckLangLoading', { lang: languageName(r.lang), mb: (TESS_LANGS[r.lang].bytes / 1e6).toFixed(1) })
+          : t('deckReading', { pct: Math.floor(deck.progress * 100) });
+    }
     else if (deck.state === 'error') msg = deck.error;
     else if (!deck.files.length) msg = t('slidesLocal');
     box.append(files);

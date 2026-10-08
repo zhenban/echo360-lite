@@ -24,8 +24,46 @@ const SLIDE_STOP = new Set(('the and for are but not you all any can had her was
   + 'what about which when your then them these some into more than only other such also each just like been were said very where while here '
   + 'should could does using used use get got let its how why who may might must shall ours yours his him she hers').split(' '));
 
-function slideWords(text) {
-  return (String(text || '').toLowerCase().match(/[a-z][a-z0-9]{2,}/g) || []).filter((w) => !SLIDE_STOP.has(w));
+// Words of a text, in the scripts that text recognition can read (`scripts`, script
+// names as in Unicode, 'Han' for Chinese and Japanese; Latin when not given): a word in
+// another script (Greek letters of a formula in a PDF, when reading English) can only be on
+// a page, never on screen, and would only blur the comparison.
+// - runs of letters (and digits after them) of one script, in lower case: a change of
+//   script inside a "word" is a formula (jωL) or recognition noise, not a word;
+// - accents on Latin, Greek and Cyrillic letters dropped (text recognition often misses
+//   them; the slide file has them), and compatibility forms unified (the "fi" ligature and
+//   the maths italic letters of a PDF are plain letters);
+// - words of three or more characters: shorter pieces are mostly recognition noise (two
+//   capitals such as AI or ML were tried as words and cost a tenth of the pages on a
+//   circuits lecture, where text recognition makes many of them out of drawings);
+// - Chinese and Japanese text has no spaces: every two neighbouring characters are a word
+//   (a lone character is one);
+// - common English words (SLIDE_STOP) are left out; in other languages common words weigh
+//   little anyway, being on many pages and pictures.
+const WORD_SCRIPTS = ['Latin', 'Greek', 'Cyrillic', 'Armenian', 'Georgian', 'Hebrew', 'Arabic', 'Thai', 'Lao', 'Khmer', 'Myanmar', 'Hangul',
+  'Devanagari', 'Bengali', 'Gurmukhi', 'Gujarati', 'Oriya', 'Tamil', 'Telugu', 'Kannada', 'Malayalam', 'Sinhala', 'Ethiopic'];
+const WORD_RE = new RegExp('[\\p{sc=Han}\\p{sc=Hiragana}\\p{sc=Katakana}]+|'
+  + WORD_SCRIPTS.map((x) => '\\p{sc=' + x + '}[\\p{sc=' + x + '}\\p{M}\\p{N}]*').join('|') + '|\\p{L}[\\p{L}\\p{M}\\p{N}]*', 'gu');
+function slideWords(text, scripts) {
+  const key = (scripts || ['Latin']).join(',');
+  if (!slideWords.allowed || slideWords.allowed.key !== key) {
+    slideWords.allowed = new RegExp('^(?:' + key.split(',').map((x) => (x === 'Han' ? '[\\p{sc=Han}\\p{sc=Hiragana}\\p{sc=Katakana}]' : '\\p{sc=' + x + '}')).join('|') + ')', 'u');
+    slideWords.allowed.key = key;
+  }
+  const allowed = slideWords.allowed;
+  const s = String(text || '').normalize('NFKD').replace(/([\p{sc=Latin}\p{sc=Greek}\p{sc=Cyrillic}])\p{M}+/gu, '$1').normalize('NFKC');
+  const out = [];
+  for (const [w] of s.matchAll(WORD_RE)) {
+    if (!allowed.test(w)) continue;
+    if (/^[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}]/u.test(w)) {
+      if (w.length === 1) out.push(w);
+      for (let i = 0; i + 1 < w.length; i++) out.push(w.slice(i, i + 2));
+      continue;
+    }
+    const l = w.toLowerCase();
+    if (w.length >= 3 && !SLIDE_STOP.has(l)) out.push(l);
+  }
+  return out;
 }
 
 function wordBag(words) {
@@ -39,12 +77,12 @@ function wordBag(words) {
 // pictures, so the viewer's own words count little): a slide on screen, even zoomed in,
 // explains much of what is readable; a code editor showing the slide's code next to a file
 // tree, menus and other code does not. words[f]: distinct page words in picture f.
-function textScores(pageTexts, frameTexts) {
+function textScores(pageTexts, frameTexts, scripts) {
   const P = pageTexts.length;
   const F = frameTexts.length;
   const pdf = new Map();
   const pageBags = pageTexts.map((t) => {
-    const b = wordBag(slideWords(t));
+    const b = wordBag(slideWords(t, scripts));
     for (const w of b.keys()) pdf.set(w, (pdf.get(w) || 0) + 1);
     return b;
   });
@@ -64,7 +102,7 @@ function textScores(pageTexts, frameTexts) {
   });
   for (let p = 0; p < P; p++) pnorm[p] = Math.sqrt(pnorm[p]) || 1;
   const raw = new Int32Array(F);
-  const allBags = frameTexts.map((t, f) => { const ws = slideWords(t); raw[f] = ws.length; return wordBag(ws); });
+  const allBags = frameTexts.map((t, f) => { const ws = slideWords(t, scripts); raw[f] = ws.length; return wordBag(ws); });
   const frameBags = allBags.map((b) => new Map([...b].filter(([w]) => post.has(w))));
   const fdf = new Map();
   for (const b of allBags) for (const w of b.keys()) fdf.set(w, (fdf.get(w) || 0) + 1);
@@ -103,14 +141,12 @@ function textScores(pageTexts, frameTexts) {
 }
 
 // Cosine similarity between every two pages (P x P), from their text alone.
-function pageSimilarity(pageTexts) {
-  const r = textScores(pageTexts, pageTexts);
+function pageSimilarity(pageTexts, scripts) {
+  const r = textScores(pageTexts, pageTexts, scripts);
   return r.scores;
 }
 
 // ---- evidence ----
-
-const EVIDENCE_GRID = 101;
 
 // Log-likelihood ratio "this page is on screen" vs "it is not", learnt from the lecture's
 // own scores (see the top of the file), from two measures of a picture and a page: the
@@ -141,7 +177,7 @@ function scoreModel(ts, pageSim) {
     let sxx = 0;
     xs.forEach((x, i) => { const w = ws ? ws[i] : 1; sw += w; sx += w * x[d]; sxx += w * x[d] * x[d]; });
     const mean = sw ? sx / sw : 0;
-    return { mean, sd: Math.max(Math.sqrt(Math.max(0, sxx / (sw || 1) - mean * mean)), 0.01), w: sw };
+    return { mean, sd: Math.max(Math.sqrt(Math.max(0, sxx / (sw || 1) - mean * mean)), EVIDENCE_MIN_SD), w: sw };
   };
   const pdf = (d, x) => Math.exp(-0.5 * ((x - d.mean) / d.sd) ** 2) / d.sd;
   const fit2 = (xs, ws) => [fit(xs, ws, 0), fit(xs, ws, 1)];
@@ -151,7 +187,7 @@ function scoreModel(ts, pageSim) {
   let share = 0.5;
   const resp = new Float64Array(best.length);
   const ones = second.map(() => 1);
-  for (let it = 0; it < 200 && best.length; it++) {
+  for (let it = 0; it < EVIDENCE_EM_ROUNDS && best.length; it++) {
     best.forEach((x, i) => {
       const a = share * pdf2(right, x);
       const b = (1 - share) * pdf2(wrong, x);
@@ -170,8 +206,8 @@ function scoreModel(ts, pageSim) {
     const g = new Float64Array(n);
     for (let i = 0; i < n; i++) {
       const x = Math.min(i / (n - 1), r.mean);
-      const v = share > 0 ? Math.log(pdf(r, x)) - Math.log(pdf(q, x)) : -25;
-      g[i] = Math.max(i ? g[i - 1] : -Infinity, isFinite(v) ? v : -25);
+      const v = share > 0 ? Math.log(pdf(r, x)) - Math.log(pdf(q, x)) : EVIDENCE_FLOOR;
+      g[i] = Math.max(i ? g[i - 1] : -Infinity, isFinite(v) ? v : EVIDENCE_FLOOR);
     }
     return g;
   };
@@ -200,21 +236,7 @@ function slideEvidence(ts, model) {
 
 // ---- sequence ----
 
-// Log-probabilities of moving between two pictures in a row (the second picture differs
-// from the first, so something changed on screen).
-const SLIDE_MOVES = {
-  stay: Math.log(0.45),      // same page (ink, pointer, a build step)
-  next: Math.log(0.30),      // next page
-  back: Math.log(0.05),      // previous page
-  jump: Math.log(0.04),      // any other page of the same file (spread over the file)
-  file: Math.log(0.01),      // a page of another file (spread over that file)
-  off: Math.log(0.15),       // something that is not a slide
-  offStay: Math.log(0.60),   // still not a slide
-  offBack: Math.log(0.20),   // back to the page shown before
-  offNext: Math.log(0.10),   // back to the slides, one page on
-  offJump: Math.log(0.07),   // back to the slides at another page of the same file
-  offFile: Math.log(0.03),   // back to the slides in another file
-};
+// Moves between two pictures in a row: SLIDE_MOVES (02-tuning.js).
 
 // ev: evidence per picture (F x P); fileOf[p]: file of page p; seq[t]: picture shown at
 // step t (time order, one step per distinct picture); force[t] (optional): the user's
@@ -306,8 +328,9 @@ function decodeSlides(ev, P, fileOf, seq, force) {
 // ---- one lecture ----
 
 // input: { pageTexts: [string], fileOf: [file index per page], texts: [string] (each
-// distinct picture read), at: [per 10 s sample: index into texts, -1 = not read yet],
-// force: [per sample: page, FORCE_OFF or -1] (optional) }.
+// distinct picture read), at: [per sample: index into texts, -1 = not read yet],
+// force: [per sample: page, FORCE_OFF or -1] (optional), scripts: what text recognition
+// reads (see slideWords; optional) }.
 // Returns { pages: Int32Array per sample (page index, -1 = not a slide, -2 = not read yet),
 // model }.
 function followLecture(input) {
@@ -316,8 +339,8 @@ function followLecture(input) {
   const force = input.force || [];
   const out = new Int32Array(at.length).fill(-2);
   if (!P || !input.texts.length) return { pages: out, model: null };
-  const ts = textScores(input.pageTexts, input.texts);
-  const model = scoreModel(ts, pageSimilarity(input.pageTexts));
+  const ts = textScores(input.pageTexts, input.texts, input.scripts);
+  const model = scoreModel(ts, pageSimilarity(input.pageTexts, input.scripts));
   const ev = slideEvidence(ts, model);
   // One step per run of samples showing the same picture (with the same correction).
   const seq = [];
@@ -345,8 +368,12 @@ function slideTextWorkerSource() {
   const fns = [slideWords, wordBag, textScores, pageSimilarity, scoreModel, slideEvidence, decodeSlides, followLecture];
   return '"use strict";\n'
     + 'const SLIDE_STOP = new Set(' + JSON.stringify([...SLIDE_STOP]) + ');\n'
+    + 'const WORD_RE = new RegExp(' + JSON.stringify(WORD_RE.source) + ', ' + JSON.stringify(WORD_RE.flags) + ');\n'
     + 'const SLIDE_MOVES = ' + JSON.stringify(SLIDE_MOVES) + ';\n'
     + 'const EVIDENCE_GRID = ' + EVIDENCE_GRID + ';\n'
+    + 'const EVIDENCE_MIN_SD = ' + EVIDENCE_MIN_SD + ';\n'
+    + 'const EVIDENCE_FLOOR = ' + EVIDENCE_FLOOR + ';\n'
+    + 'const EVIDENCE_EM_ROUNDS = ' + EVIDENCE_EM_ROUNDS + ';\n'
     + 'const FORCE_OFF = ' + FORCE_OFF + ';\n'
     + fns.map((f) => f.toString()).join('\n\n') + '\n'
     + 'self.onmessage = (e) => {\n'

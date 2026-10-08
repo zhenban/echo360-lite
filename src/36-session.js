@@ -20,8 +20,6 @@
 // mediaSession.renew() is what fetchOk() (53-media-io.js) calls for background downloads.
 // ===================================================================================
 
-const SESSION_RETRY_MS = [2000, 5000];        // waits before the two retries
-const SESSION_DEFAULT_RENEW_MS = 3600000;
 
 const mediaSession = { renew: null };
 
@@ -56,7 +54,7 @@ class SessionKeeper {
   schedule() {
     if (this.disposed) return;
     clearTimeout(this.timer);
-    this.timer = setTimeout(() => this.renew(false).catch(() => {}), Math.max(60000, this.renewMs - (Date.now() - this.last)));
+    this.timer = setTimeout(() => this.renew(false).catch(() => {}), Math.max(SESSION_MIN_RENEW_MS, this.renewMs - (Date.now() - this.last)));
   }
 
   // Renews the cookies. `afterFailure`: something was refused, so the user may notice a

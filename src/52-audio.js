@@ -12,18 +12,11 @@
 //
 //   source -> [mono] -> [highpass -> presence] -> [leveller -> makeup -> limiter -> trim] -> out
 //
-// Tuned offline on real lecture audio: a recording 20 dB too quiet comes
-// out at about -20 dBFS RMS without clipping; normal recordings are nearly unchanged; input
-// peaking above full scale is held about 4 dB below it. The voice stage lowers 50 Hz hum
-// by about 10 dB.
+// The settings are in 02-tuning.js (VOICE_FILTERS, LEVELLER, LIMITER, LEVEL_*). The voice
+// stage lowers 50 Hz hum by about 10 dB.
 // ===================================================================================
 
 const AUDIO_FEATURES = ['level', 'voice', 'mono'];
-const LEVEL_TARGET_DB = -20;     // target short-term RMS after levelling
-const LEVEL_MAX_GAIN_DB = 18;    // never boost more than this
-const LEVEL_TICK_MS = 500;
-const LIMIT_THRESHOLD_DB = -6;
-const LIMIT_TRIM_DB = -3;        // offsets the compressor's built-in makeup gain
 
 class AudioChain {
   constructor(video) {
@@ -61,26 +54,19 @@ class AudioChain {
     n.mono.channelInterpretation = 'speakers';
     n.highpass = ctx.createBiquadFilter();
     n.highpass.type = 'highpass';
-    n.highpass.frequency.value = 100;
-    n.highpass.Q.value = 0.7;
+    n.highpass.frequency.value = VOICE_FILTERS.highpassHz;
+    n.highpass.Q.value = VOICE_FILTERS.highpassQ;
     n.presence = ctx.createBiquadFilter();
     n.presence.type = 'peaking';
-    n.presence.frequency.value = 3000;
-    n.presence.Q.value = 0.9;
-    n.presence.gain.value = 4;
+    n.presence.frequency.value = VOICE_FILTERS.presenceHz;
+    n.presence.Q.value = VOICE_FILTERS.presenceQ;
+    n.presence.gain.value = VOICE_FILTERS.presenceDb;
     n.leveller = ctx.createDynamicsCompressor();
-    n.leveller.threshold.value = -34;
-    n.leveller.knee.value = 12;
-    n.leveller.ratio.value = 3.5;
-    n.leveller.attack.value = 0.02;
-    n.leveller.release.value = 0.4;
+    for (const k of ['threshold', 'knee', 'ratio', 'attack', 'release']) n.leveller[k].value = LEVELLER[k];
     n.makeup = ctx.createGain();
     n.limiter = ctx.createDynamicsCompressor();
     n.limiter.threshold.value = LIMIT_THRESHOLD_DB;
-    n.limiter.knee.value = 0;
-    n.limiter.ratio.value = 20;
-    n.limiter.attack.value = 0.001;
-    n.limiter.release.value = 0.1;
+    for (const k of ['knee', 'ratio', 'attack', 'release']) n.limiter[k].value = LIMITER[k];
     n.trim = ctx.createGain();
     n.trim.gain.value = Math.pow(10, LIMIT_TRIM_DB / 20);
     n.analyser = ctx.createAnalyser();
@@ -138,11 +124,11 @@ class AudioChain {
     let sum = 0;
     for (let i = 0; i < b.length; i++) sum += b[i] * b[i];
     const pow = sum / b.length;
-    if (pow < 1e-8) return; // silence: leave the gain alone
-    this.avgPow = this.avgPow ? this.avgPow * 0.85 + pow * 0.15 : pow;
+    if (pow < LEVEL_SILENT_POW) return; // silence: leave the gain alone
+    this.avgPow = this.avgPow ? this.avgPow * LEVEL_SMOOTHING + pow * (1 - LEVEL_SMOOTHING) : pow;
     const levelDb = 10 * Math.log10(this.avgPow);
     const wanted = clamp(LEVEL_TARGET_DB - levelDb, 0, LEVEL_MAX_GAIN_DB);
-    this.makeupDb += clamp(wanted - this.makeupDb, -1.5, 0.75);
+    this.makeupDb += clamp(wanted - this.makeupDb, LEVEL_STEP_DB[0], LEVEL_STEP_DB[1]);
     this.n.makeup.gain.setTargetAtTime(Math.pow(10, this.makeupDb / 20), this.ctx.currentTime, 0.3);
   }
 

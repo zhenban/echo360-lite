@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Echo360 Lite Player
 // @namespace    echo360-lite
-// @version      0.12.0
+// @version      0.13.0
 // @description  Replaces the Echo360 lecture player with a lightweight native player (far lower CPU use). Falls back to the original player automatically if anything is not recognised.
 // @license      MIT
 // @match        https://echo360.net.au/lesson/*
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.12.0';
+  const VERSION = '0.13.0';
 
 // ---- 00-util.js ----
 // ===================================================================================
@@ -383,6 +383,7 @@ const STRINGS = {
     deckLoading: 'Opening the slide files…',
     deckReading: 'Reading the slides on screen: {pct}%',
     deckWaiting: 'Waiting to find the screen view…',
+    deckLangLoading: 'Getting text recognition for {lang} ({mb} MB, once)…',
     deckError: 'Could not read the slide file ({msg}).',
     deckSaveFailed: 'Could not store {name} on this device ({msg}). Is the disk full?',
     prevPage: 'Previous page',
@@ -558,6 +559,194 @@ function t(key, vars) {
   return s;
 }
 
+// ---- 02-tuning.js ----
+// ===================================================================================
+// Tuning: every number that sets how the analyses, playback and background work behave, in
+// one place, with its unit, what it does and why it holds beyond the recordings it was
+// checked on. Values that depend on the recording are not here: they are learnt from it
+// (the chapter threshold, the silence threshold, the slide evidence model, the language
+// of the slides). Product choices without a "right" value (speeds offered, caption sizes,
+// tag colours) stay with their feature.
+//
+// Checked on: ELEC2134 (3 h, slides in a browser PDF viewer, circuit drawings), COMP2511
+// (2 h, slides, code editor, video calls, black screen at the end), COMP1521 (2 h, slides
+// and terminal), MATH1081 (2 h, printed notes under a camera with handwriting). The
+// labelled ones are replayed by the unit tests (test/fixtures).
+// ===================================================================================
+
+// ---- background work (53-media-io.js BackgroundGate) ----
+// Background downloads wait until playback has this much buffered ahead: two thirds of what
+// the player itself keeps (STREAM_MAX_BUFFER_SEC), so they never take bandwidth playback
+// is waiting for. Pauses between steps are in milliseconds, [while playing, while paused].
+const BG_MIN_BUFFER_SEC = 20;
+const BG_START_DELAY_MS = 5000;        // before an analysis starts its downloads: playback starts first
+
+// ---- slide chapters (56-slides.js) ----
+// Seconds between the keyframes compared. Echo360's segments are 10 s long, so this reads
+// every keyframe there; with shorter segments the cost stays one keyframe per this many
+// seconds, with longer ones every keyframe is read. A resolution choice: refinement pins
+// each change to about a second anyway.
+const CHAPTER_STEP_SEC = 10;
+const CHAPTER_PACE_MS = [300, 120];    // between keyframes (about 20 KB each)
+const CHAPTER_REFINE_PACE_MS = [1000, 300];   // between refinements (a whole segment each)
+// Frames are compared as brightness pictures this size: one pixel is a 2 x 2 block at
+// 360p, 8 x 8 at 720p, so a changed line of slide text changes several pixels.
+const THUMB_W = 160;
+const THUMB_H = 90;
+// A pixel has changed if its brightness moved by more than this (0-255). Re-encoding the
+// same picture moves a pixel by a few levels; a letter of slide text drawn or removed by
+// far more (dark on light or light on dark both differ by over 100). Sits well between.
+const PIXEL_DIFF = 24;
+// Fewer changed pixels than a short word of the smallest readable slide text covers (about
+// 3 x 6 at 160 x 90) is the same picture: a mouse pointer, a blinking caret, the clock in a
+// menu bar change fewer. Above it, how many changed pixels make a new picture is learnt
+// per recording (learnThreshold).
+const SAME_TEXT_MAX = 12;
+// An (almost) one-coloured picture (black screen, "no signal", a blank slide): nearly every
+// 5 x 5 block of the brightness picture within compression noise of the median. A small
+// logo or a cursor may differ.
+const UNIFORM_NOISE = 10;              // brightness levels of compression noise in a block mean
+const UNIFORM_SHARE = 0.985;           // blocks that must be that close
+// Which view is the screen: its pictures are flatter than every other view's in at least
+// this share of pairs (a probability of superiority; 0.5 would be a coin toss). Measured
+// within the recording, so no fixed flatness level is needed.
+const SCREEN_CLEARLY = 0.75;
+const SCREEN_PROBES = 6;               // pictures compared per view (spread over the recording)
+const FLAT_LEVELS = 3;                 // brightness (sum of R, G, B) within which neighbours are "equal" (compression noise)
+const CHAPTER_THUMB_W = 192;           // width of chapter pictures (the list shows them at about 96 CSS px)
+// Segments (or chunks) in a row that cannot be read before an analysis stops (one is
+// skipped: a dropped request or a damaged segment; several in a row is the network gone).
+const ANALYSIS_MAX_FAILS = 5;
+
+// ---- reading the screen (58-slide-ocr.js) ----
+// Text recognition reads the smallest rendition at least this tall (or the tallest):
+// slide text in 360p is not readable, 720p reads body text of slides shown full screen.
+const OCR_HEIGHT = 720;
+const OCR_PACE_MS = [200, 0];          // between samples; while playing a reading also rests as long as it took
+const OCR_SAVE_EVERY = 10;             // readings between cache writes
+
+// ---- which slide is on screen (58-slide-text.js) ----
+// The evidence model (scoreModel) is fitted to each lecture. These only set its numerics:
+// the grid its log-likelihood ratios are tabulated on (scores are 0-1, so a step of 0.01),
+// the smallest spread a fitted distribution may have (one grid step, so a distribution is
+// never narrower than the grid can show), the floor of a log-likelihood ratio (a page
+// that cannot be right gets this instead of minus infinity, so that a forced correction
+// can still choose it) and the most EM rounds (it converges in a few dozen).
+const EVIDENCE_GRID = 101;
+const EVIDENCE_MIN_SD = 1 / (EVIDENCE_GRID - 1);
+const EVIDENCE_FLOOR = -25;
+const EVIDENCE_EM_ROUNDS = 200;
+// How lecturers move through slides: prior chances for the sequence model, per step from
+// one picture to the next different one (so independent of how often the screen is
+// sampled). They describe lecturing, not a course: mostly staying or moving on,
+// sometimes going back, rarely jumping or changing file. The evidence from the text on
+// screen outweighs them wherever it is clear; they decide only where the screen says
+// little (a page without text, a blurry camera picture).
+const SLIDE_MOVES = {
+  stay: Math.log(0.45),      // same page (ink, pointer, a build step)
+  next: Math.log(0.30),      // next page
+  back: Math.log(0.05),      // previous page
+  jump: Math.log(0.04),      // any other page of the same file (spread over the file)
+  file: Math.log(0.01),      // a page of another file (spread over that file)
+  off: Math.log(0.15),       // something that is not a slide
+  offStay: Math.log(0.60),   // still not a slide
+  offBack: Math.log(0.20),   // back to the page shown before
+  offNext: Math.log(0.10),   // back to the slides, one page on
+  offJump: Math.log(0.07),   // back to the slides at another page of the same file
+  offFile: Math.log(0.03),   // back to the slides in another file
+};
+
+// ---- following the slides (59-slide-deck.js) ----
+// A look at another page shorter than this (one sample) between two stretches of the same
+// page does not turn the page.
+const FOLLOW_MIN_SEC = 1.5 * CHAPTER_STEP_SEC;
+const FOLLOW_STALE_SEC = 120;          // after this long without a recognised page, the reader says so (a product choice)
+const FOLLOW_UPDATE_MS = 15000;        // while reading, pages are decided again at most this often (each run takes 0.1-1 s)
+const DECK_RENDER_BUDGET = 40e6;       // rendered pages kept, in pixels (about 160 MB at 4 bytes a pixel)
+const PAGE_TITLE_TOP = 0.4;            // a page's title is the largest text in this top share of the page
+const PAGE_AR_DEFAULT = 9 / 16;        // height / width of a page not opened yet (slides are mostly 16:9)
+
+// ---- silence (54-silence.js) ----
+// Speech recognisers and loudness measures need nothing above 8 kHz: 16 kHz holds it.
+const AUDIO_RATE = 16000;
+const CHUNK_SEC = 60;                  // audio per request and decode (whole segments, about 350 KB)
+const ENV_STEP = 0.1;                  // envelope resolution in seconds
+const SPEECH_BAND_HZ = [150, 4000];    // the band of speech: rumble (air conditioning, projector fans) and hiss count as quiet
+// The silence threshold is learnt per recording: a point between its noise floor and its
+// speech level, taken as these percentiles of its levels (a lecture is mostly speech with
+// pauses, so the 10th percentile is a pause and the 90th speech, whatever the volume).
+const SILENCE_NOISE_PCT = 0.1;
+const SILENCE_SPEECH_PCT = 0.9;
+const SILENCE_SENSITIVITY = { low: 0.2, normal: 0.3, high: 0.4 };   // where between the two (user setting)
+// With less than this between noise and speech (dB) there is no speech to tell apart: a
+// muted microphone if it is all quieter than SILENCE_MUTED_DB, else nothing is silent.
+const SILENCE_MIN_RANGE_DB = 6;
+const SILENCE_MUTED_DB = -55;
+const SILENCE_PAD = 0.5;               // seconds kept at each edge so skipping never clips speech
+const SILENCE_BRIDGE = 1.5;            // a louder blip shorter than this (s) inside a pause stays silent
+const SILENCE_MIN_CHOICES = [15, 30, 60, 120];   // shortest silence offered for skipping (s, user setting)
+const SILENCE_START_DELAY_MS = 8000;   // before the first audio download: playback starts first
+const SILENCE_PACE_MS = [2000, 400];   // between chunks (about 350 KB each)
+
+// ---- audio processing (52-audio.js) ----
+// Standard voice processing, set by ear on lecture recordings and checked by measurement:
+// a recording 20 dB too quiet comes out at about -20 dBFS RMS without clipping, normal
+// recordings are nearly unchanged, input above full scale is held about 4 dB below it.
+const LEVEL_TARGET_DB = -20;           // target short-term RMS after levelling
+const LEVEL_MAX_GAIN_DB = 18;          // never boost more than this
+const LEVEL_TICK_MS = 500;             // how often the levelling gain is adjusted
+const LEVEL_STEP_DB = [-1.5, 0.75];    // largest change per tick: down faster than up (no pumping)
+const LEVEL_SMOOTHING = 0.85;          // weight of the past in the level average (about 3 s)
+const LEVEL_SILENT_POW = 1e-8;         // below this mean power (-80 dBFS) the gain is left alone
+const LIMIT_THRESHOLD_DB = -6;
+const LIMIT_TRIM_DB = -3;              // offsets the compressor's built-in makeup gain
+const VOICE_FILTERS = {
+  highpassHz: 100, highpassQ: 0.7,     // below the voice: hum and handling noise
+  presenceHz: 3000, presenceQ: 0.9, presenceDb: 4,   // consonants, for intelligibility
+};
+const LEVELLER = { threshold: -34, knee: 12, ratio: 3.5, attack: 0.02, release: 0.4 };
+const LIMITER = { knee: 0, ratio: 20, attack: 0.001, release: 0.1 };
+
+// ---- playback (35-stream.js, 38-sync.js, 40-player.js) ----
+// Bandwidth assumed before hls.js has measured any: what the browser reports, else a
+// broadband guess (the first segments of the top rendition are then fetched; hls.js steps
+// down after a few seconds if that was too optimistic).
+const STREAM_START_BPS = () => {
+  const c = typeof navigator !== 'undefined' && navigator.connection;
+  return c && c.downlink > 0 ? c.downlink * 1e6 : 5e6;
+};
+const STREAM_MAX_BUFFER_SEC = 30;      // ahead of the playhead (hls.js default)
+const STREAM_BACK_BUFFER_SEC = 60;     // kept behind it, for short jumps back
+// Share of the measured bandwidth the quality may use (stay below, step up): hls.js'
+// defaults for the main view; the second view leaves room for it.
+const STREAM_BW_FACTOR = { main: [0.95, 0.85], low: [0.7, 0.6] };
+const STREAM_NET_RETRIES = 4;          // network errors retried (1, 2, 3, 4 s apart) before giving up
+const STREAM_MEDIA_RECOVERIES = 2;     // decoder errors recovered before giving up
+const SYNC_TOLERANCE = 0.08;           // seconds of drift between the views that are ignored
+const SYNC_SEEK_AT = 1.0;              // seconds of drift corrected by seeking instead of nudging
+const SYNC_MAX_NUDGE = 0.1;            // max relative rate change while catching up
+const STALL_CHECK_MS = 2000;           // how often the stall watchdog looks
+const STALL_SEC = 12;                  // playing, not seeking, time unmoved this long: restart loading
+const POSITION_SAVE_EVERY = 5;         // watchdog ticks between saves of the resume position (10 s)
+const RENEW_REFUSAL_MS = 30000;        // a refusal this soon after a renewal is not fixed by renewing again
+const CONTROLS_HIDE_MS = 2500;         // controls hide after this long without the pointer moving
+const DOUBLE_CLICK_MS = 200;           // a click is single once no second one follows within this
+const DRAG_SEEK_MS = 200;              // seeking at most this often while dragging the progress bar
+const RESUME_END_SEC = 10;             // a resume point this close to the end starts over instead (nothing left to watch)
+
+// ---- session (36-session.js) ----
+const SESSION_RETRY_MS = [2000, 5000]; // waits before the two retries of a failed renewal
+const SESSION_DEFAULT_RENEW_MS = 3600000;   // when Echo360 does not say (it says 1 h; access lasts about 2 h)
+const SESSION_MIN_RENEW_MS = 60000;    // never renew more often than this
+
+// ---- page and course list (10-adapter-echo360.js, 80-course-list.js, 90-main.js) ----
+const CUE_DEFAULT_MS = 3000;           // length of a transcript line without an end time
+const LIST_CONCURRENT = 2;             // course page: player requests at a time
+const LIST_GAP_MS = 150;               // and between them
+const LIST_DEBOUNCE_MS = 300;          // redraws of the list waited for before labelling
+const LIST_DONE_PCT = 99;              // watched share shown as complete
+const BOOT_CHECK_MS = 8000;            // the page's own player not started this long after load: check why
+
 // ---- 10-adapter-echo360.js ----
 // ===================================================================================
 // Site adapters. Everything that knows about a particular Echo360 deployment lives here;
@@ -711,7 +900,7 @@ echo360ClassroomAdapter.fetchCues = function (lesson) {
         if (!Array.isArray(raw) || !raw.length) throw new Error('empty transcript');
         return raw
           .filter((c) => typeof c.startMs === 'number' && typeof c.content === 'string' && c.content.trim())
-          .map((c) => ({ start: c.startMs / 1000, end: (typeof c.endMs === 'number' ? c.endMs : c.startMs + 3000) / 1000, text: c.content.trim(), speaker: c.speaker || '' }));
+          .map((c) => ({ start: c.startMs / 1000, end: (typeof c.endMs === 'number' ? c.endMs : c.startMs + CUE_DEFAULT_MS) / 1000, text: c.content.trim(), speaker: c.speaker || '' }));
       });
   };
   const fromVtt = () => {
@@ -1327,7 +1516,7 @@ select.input option { background: #1b1b20; }
 .sils { position: absolute; inset: 0; }
 .chaps { position: absolute; inset: 0; }
 .chaps i { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: rgba(0,0,0,.75); }
-.tip .pv { display: block; width: 176px; aspect-ratio: 16 / 9; object-fit: cover; margin: 2px 0 4px; border-radius: 4px; background: #000; }
+.tip .pv { display: block; width: 176px; aspect-ratio: 16 / 9; object-fit: contain; margin: 2px 0 4px; border-radius: 4px; background: #000; }
 .tip .pv[hidden] { display: none; }
 .pane[data-pane=slides] { overflow-y: auto; padding: 0 12px 16px; overscroll-behavior: contain; }
 .sstatus { padding: 4px 2px 8px; font-size: 12px; opacity: .65; }
@@ -1335,7 +1524,7 @@ select.input option { background: #1b1b20; }
 .scard { display: flex; gap: 10px; align-items: flex-start; width: 100%; padding: 6px; border-radius: 10px; text-align: left; }
 .scard:hover { background: rgba(255,255,255,.07); }
 .scard.cur { background: rgba(79,140,255,.18); box-shadow: inset 0 0 0 1px rgba(79,140,255,.6); }
-.scard img, .scard .noimg { flex: none; width: 128px; aspect-ratio: 16 / 9; border-radius: 6px; background: #222; object-fit: cover; }
+.scard img, .scard .noimg { flex: none; width: 128px; aspect-ratio: 16 / 9; border-radius: 6px; background: #222; object-fit: contain; }
 .slist[hidden], .sstatus[hidden], .reader[hidden], .chaptoggle[hidden] { display: none; }
 .reader { padding: 4px 0 8px; }
 .rstage { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 6px; overflow: hidden; background: #fff; }
@@ -1834,13 +2023,13 @@ class Stream {
       const hls = new HlsLib({
         startPosition: startAt,
         capLevelToPlayerSize: false,
-        // Assume a good connection until measured, and step up again as soon as the
-        // measured bandwidth allows (defaults: 500 kbps estimate, 0.7 up factor).
-        abrEwmaDefaultEstimate: 5e6,
-        abrBandWidthFactor: this.priority === 'low' ? 0.7 : 0.95,
-        abrBandWidthUpFactor: this.priority === 'low' ? 0.6 : 0.85,
-        backBufferLength: 60,
-        maxBufferLength: 30,
+        // Start from the connection the browser reports (hls.js assumes 500 kbps), and step
+        // up again as soon as the measured bandwidth allows (hls.js: 0.7 up factor).
+        abrEwmaDefaultEstimate: STREAM_START_BPS(),
+        abrBandWidthFactor: STREAM_BW_FACTOR[this.priority === 'low' ? 'low' : 'main'][0],
+        abrBandWidthUpFactor: STREAM_BW_FACTOR[this.priority === 'low' ? 'low' : 'main'][1],
+        backBufferLength: STREAM_BACK_BUFFER_SEC,
+        maxBufferLength: STREAM_MAX_BUFFER_SEC,
         xhrSetup: (xhr) => { xhr.withCredentials = true; },
       });
       this.hls = hls;
@@ -1891,13 +2080,13 @@ class Stream {
     if ((code === 401 || code === 403) && !data.fatal && this.onAuth) { this.onAuth(); return; }
     if (!data.fatal) return;
     if (code !== 401 && code !== 403) {
-      if (data.type === HlsLib.ErrorTypes.NETWORK_ERROR && this.netRetries < 4) {
+      if (data.type === HlsLib.ErrorTypes.NETWORK_ERROR && this.netRetries < STREAM_NET_RETRIES) {
         this.netRetries++;
         clearTimeout(this.retryTimer);
         this.retryTimer = setTimeout(guardCore(() => this.hls && this.hls.startLoad()), 1000 * this.netRetries);
         return;
       }
-      if (data.type === HlsLib.ErrorTypes.MEDIA_ERROR && this.mediaRecoveries < 2) {
+      if (data.type === HlsLib.ErrorTypes.MEDIA_ERROR && this.mediaRecoveries < STREAM_MEDIA_RECOVERIES) {
         this.mediaRecoveries++;
         this.hls.recoverMediaError();
         return;
@@ -1962,8 +2151,6 @@ class Stream {
 // mediaSession.renew() is what fetchOk() (53-media-io.js) calls for background downloads.
 // ===================================================================================
 
-const SESSION_RETRY_MS = [2000, 5000];        // waits before the two retries
-const SESSION_DEFAULT_RENEW_MS = 3600000;
 
 const mediaSession = { renew: null };
 
@@ -1998,7 +2185,7 @@ class SessionKeeper {
   schedule() {
     if (this.disposed) return;
     clearTimeout(this.timer);
-    this.timer = setTimeout(() => this.renew(false).catch(() => {}), Math.max(60000, this.renewMs - (Date.now() - this.last)));
+    this.timer = setTimeout(() => this.renew(false).catch(() => {}), Math.max(SESSION_MIN_RENEW_MS, this.renewMs - (Date.now() - this.last)));
   }
 
   // Renews the cookies. `afterFailure`: something was refused, so the user may notice a
@@ -2063,10 +2250,6 @@ class SessionKeeper {
 //   - a 1 s check while playing nudges the follower's rate for small drift and seeks it
 //     for large drift. The check only runs while the clock is playing.
 // ===================================================================================
-
-const SYNC_TOLERANCE = 0.08;   // seconds of drift that are ignored
-const SYNC_SEEK_AT = 1.0;      // seconds of drift corrected by seeking instead of nudging
-const SYNC_MAX_NUDGE = 0.1;    // max relative rate change while catching up
 
 class FollowerSync {
   constructor(clock, follower) {
@@ -2423,7 +2606,7 @@ class LitePlayer {
       const local = sanitizePos(store.get('pos:' + this.lesson.id, null));
       t0 = local ? local.t : 0;
     }
-    if (!(t0 > 0) || (isFinite(dur) && t0 > dur - 10)) t0 = 0;
+    if (!(t0 > 0) || (isFinite(dur) && t0 > dur - RESUME_END_SEC)) t0 = 0;
     return t0;
   }
 
@@ -2708,7 +2891,7 @@ class LitePlayer {
   // or a renewal that fails, ends in `fail`.
   recoverAccess(stream, fail) {
     const now = Date.now();
-    if (stream.renewedAt && now - stream.renewedAt < 30000) { fail(); return; }
+    if (stream.renewedAt && now - stream.renewedAt < RENEW_REFUSAL_MS) { fail(); return; }
     // The stream may be reloaded (views swapped) while renewing: resume only the instance
     // that failed; a new one has started loading by itself.
     const engine = stream.hls;
@@ -2795,23 +2978,23 @@ class LitePlayer {
     d.listen(document, 'visibilitychange', () => { if (!document.hidden) this.render(true); });
     d.listen(window, 'hashchange', () => { const tm = this.linkTime(); if (tm != null) this.seek(tm); });
 
-    // Every 2 s: stall watchdog (playing, not seeking, time has not moved for 12 s) and,
-    // every fifth tick, the local resume position as a fallback for the server-side one.
+    // Stall watchdog (playing, not seeking, time has not moved for STALL_SEC) and, every
+    // few ticks, the local resume position as a fallback for the server-side one.
     let lastT = -1;
     let still = 0;
     let tick = 0;
     d.interval(() => {
       if (v.paused || v.seeking || v.ended) { still = 0; lastT = v.currentTime; return; }
       if (v.currentTime === lastT) {
-        still += 2;
-        if (still >= 12) {
+        still += STALL_CHECK_MS / 1000;
+        if (still >= STALL_SEC) {
           log.warn('playback stalled, restarting loader at', v.currentTime.toFixed(1));
           this.clock.kick(v.currentTime);
           still = 0;
         }
       } else { still = 0; lastT = v.currentTime; }
-      if (++tick % 5 === 0) { this.savePosition(); this.watched.save(this.duration()); this.renderWatched(); }
-    }, 2000);
+      if (++tick % POSITION_SAVE_EVERY === 0) { this.savePosition(); this.watched.save(this.duration()); this.renderWatched(); }
+    }, STALL_CHECK_MS);
   }
 
   setButton(sel, icon, label) {
@@ -2997,7 +3180,7 @@ class LitePlayer {
     clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(guard(() => {
       if (!this.video.paused && !this.dragging && !this.menusOpen()) this.stage.classList.add('idle');
-    }), 2500);
+    }), CONTROLS_HIDE_MS);
   }
 
   bindControls() {
@@ -3131,7 +3314,7 @@ class LitePlayer {
       if (this.zoom.dragged) return;
       if (wokeByPress) { wokeByPress = false; return; }
       clearTimeout(clickTimer);
-      clickTimer = setTimeout(guard(() => this.togglePlay()), 200);
+      clickTimer = setTimeout(guard(() => this.togglePlay()), DOUBLE_CLICK_MS);
     });
     d.listen(views, 'dblclick', (e) => {
       // Zoomed in: back to the whole picture; otherwise full screen.
@@ -3178,7 +3361,7 @@ class LitePlayer {
       if (this.dragging) {
         seekEl.style.setProperty('--p', f.toFixed(5));
         const now = performance.now();
-        if (now - lastSeekAt > 200) { lastSeekAt = now; v.currentTime = f * this.duration(); }
+        if (now - lastSeekAt > DRAG_SEEK_MS) { lastSeekAt = now; v.currentTime = f * this.duration(); }
       }
     });
     d.listen(seekEl, 'pointerdown', (e) => {
@@ -5702,18 +5885,11 @@ function notice(text) {
 //
 //   source -> [mono] -> [highpass -> presence] -> [leveller -> makeup -> limiter -> trim] -> out
 //
-// Tuned offline on real lecture audio: a recording 20 dB too quiet comes
-// out at about -20 dBFS RMS without clipping; normal recordings are nearly unchanged; input
-// peaking above full scale is held about 4 dB below it. The voice stage lowers 50 Hz hum
-// by about 10 dB.
+// The settings are in 02-tuning.js (VOICE_FILTERS, LEVELLER, LIMITER, LEVEL_*). The voice
+// stage lowers 50 Hz hum by about 10 dB.
 // ===================================================================================
 
 const AUDIO_FEATURES = ['level', 'voice', 'mono'];
-const LEVEL_TARGET_DB = -20;     // target short-term RMS after levelling
-const LEVEL_MAX_GAIN_DB = 18;    // never boost more than this
-const LEVEL_TICK_MS = 500;
-const LIMIT_THRESHOLD_DB = -6;
-const LIMIT_TRIM_DB = -3;        // offsets the compressor's built-in makeup gain
 
 class AudioChain {
   constructor(video) {
@@ -5751,26 +5927,19 @@ class AudioChain {
     n.mono.channelInterpretation = 'speakers';
     n.highpass = ctx.createBiquadFilter();
     n.highpass.type = 'highpass';
-    n.highpass.frequency.value = 100;
-    n.highpass.Q.value = 0.7;
+    n.highpass.frequency.value = VOICE_FILTERS.highpassHz;
+    n.highpass.Q.value = VOICE_FILTERS.highpassQ;
     n.presence = ctx.createBiquadFilter();
     n.presence.type = 'peaking';
-    n.presence.frequency.value = 3000;
-    n.presence.Q.value = 0.9;
-    n.presence.gain.value = 4;
+    n.presence.frequency.value = VOICE_FILTERS.presenceHz;
+    n.presence.Q.value = VOICE_FILTERS.presenceQ;
+    n.presence.gain.value = VOICE_FILTERS.presenceDb;
     n.leveller = ctx.createDynamicsCompressor();
-    n.leveller.threshold.value = -34;
-    n.leveller.knee.value = 12;
-    n.leveller.ratio.value = 3.5;
-    n.leveller.attack.value = 0.02;
-    n.leveller.release.value = 0.4;
+    for (const k of ['threshold', 'knee', 'ratio', 'attack', 'release']) n.leveller[k].value = LEVELLER[k];
     n.makeup = ctx.createGain();
     n.limiter = ctx.createDynamicsCompressor();
     n.limiter.threshold.value = LIMIT_THRESHOLD_DB;
-    n.limiter.knee.value = 0;
-    n.limiter.ratio.value = 20;
-    n.limiter.attack.value = 0.001;
-    n.limiter.release.value = 0.1;
+    for (const k of ['knee', 'ratio', 'attack', 'release']) n.limiter[k].value = LIMITER[k];
     n.trim = ctx.createGain();
     n.trim.gain.value = Math.pow(10, LIMIT_TRIM_DB / 20);
     n.analyser = ctx.createAnalyser();
@@ -5828,11 +5997,11 @@ class AudioChain {
     let sum = 0;
     for (let i = 0; i < b.length; i++) sum += b[i] * b[i];
     const pow = sum / b.length;
-    if (pow < 1e-8) return; // silence: leave the gain alone
-    this.avgPow = this.avgPow ? this.avgPow * 0.85 + pow * 0.15 : pow;
+    if (pow < LEVEL_SILENT_POW) return; // silence: leave the gain alone
+    this.avgPow = this.avgPow ? this.avgPow * LEVEL_SMOOTHING + pow * (1 - LEVEL_SMOOTHING) : pow;
     const levelDb = 10 * Math.log10(this.avgPow);
     const wanted = clamp(LEVEL_TARGET_DB - levelDb, 0, LEVEL_MAX_GAIN_DB);
-    this.makeupDb += clamp(wanted - this.makeupDb, -1.5, 0.75);
+    this.makeupDb += clamp(wanted - this.makeupDb, LEVEL_STEP_DB[0], LEVEL_STEP_DB[1]);
     this.n.makeup.gain.setTargetAtTime(Math.pow(10, this.makeupDb / 20), this.ctx.currentTime, 0.3);
   }
 
@@ -6000,7 +6169,7 @@ class BackgroundGate {
 
   async turn(playingMs, pausedMs, minBuffer) {
     const v = this.video;
-    const need = minBuffer || 20;
+    const need = minBuffer || BG_MIN_BUFFER_SEC;
     for (;;) {
       await this.wait(v.paused ? pausedMs : playingMs);
       if (v.seeking || v.readyState < 2) continue;
@@ -6029,8 +6198,8 @@ function idle() {
 //
 // Data sources, best first:
 //   1. Transcript timing: gaps between cues. Free, because the cues are loaded anyway.
-//   2. The separate audio rendition (about 46 kbps, 40 MB for two hours): fetched in 60 s
-//      byte ranges only while playback has enough buffer, decoded to 16 kHz mono by the
+//   2. The separate audio rendition (about 46 kbps, 40 MB for two hours): fetched in
+//      CHUNK_SEC byte ranges only while playback has enough buffer, decoded to 16 kHz mono by the
 //      browser's decoder (which runs off the main thread), and reduced to a loudness
 //      envelope of one value per 0.1 s. The envelope is cached in IndexedDB, so a later
 //      visit shows it at once and an unfinished analysis continues where it stopped.
@@ -6046,13 +6215,6 @@ function idle() {
 //   SilenceAnalyzer   source, silences, track, env, progress; onChange
 // ===================================================================================
 
-const AUDIO_RATE = 16000;          // speech models expect this; plenty for loudness
-const CHUNK_SEGMENTS = 6;          // 6 x 10 s HLS segments per request and decode
-const ENV_STEP = 0.1;              // envelope resolution in seconds
-const SILENCE_PAD = 0.5;           // seconds kept at each edge so skipping never clips speech
-const SILENCE_BRIDGE = 1.5;        // a louder blip shorter than this inside a pause stays silent
-const SILENCE_MIN_CHOICES = [15, 30, 60, 120];
-const SILENCE_SENSITIVITY = { low: 0.2, normal: 0.3, high: 0.4 };
 
 // ---- the audio track ----
 
@@ -6072,6 +6234,19 @@ function pickAudioRendition(master) {
     }
   }
   return best ? best.uri : (groups.size ? groups.values().next().value : null);
+}
+
+// Consecutive segments in groups of about `sec` seconds (segments are never split; a group
+// holds at least one): [{ a, b }] (segment indexes, b exclusive).
+function groupSegments(segments, sec) {
+  const out = [];
+  for (let i = 0; i < segments.length; i++) {
+    const cur = out[out.length - 1];
+    // A segment joins the group while that keeps the group closer to `sec` long.
+    if (cur && segments[i].start + segments[i].dur / 2 - segments[cur.a].start <= sec) cur.b = i + 1;
+    else out.push({ a: i, b: i + 1 });
+  }
+  return out;
 }
 
 // Reads the separate audio rendition of an HLS stream as PCM, one chunk at a time.
@@ -6095,26 +6270,28 @@ class HlsAudioTrack {
     this.segments = pl.segments;
     const last = pl.segments[pl.segments.length - 1];
     this.duration = last.start + last.dur;
+    this.chunks = groupSegments(pl.segments, CHUNK_SEC);
     return this;
   }
 
-  get chunkCount() { return Math.ceil(this.segments.length / CHUNK_SEGMENTS); }
+  get chunkCount() { return this.chunks.length; }
 
   chunkSpan(i) {
-    const segs = this.segments.slice(i * CHUNK_SEGMENTS, (i + 1) * CHUNK_SEGMENTS);
-    const last = segs[segs.length - 1];
-    return { start: segs[0].start, end: last.start + last.dur };
+    const c = this.chunks[i];
+    const last = this.segments[c.b - 1];
+    return { start: this.segments[c.a].start, end: last.start + last.dur };
   }
 
   chunkAt(t) {
-    return clamp(Math.floor(t / (this.duration / this.segments.length) / CHUNK_SEGMENTS), 0, this.chunkCount - 1);
+    return Math.max(0, sampleIndexAt(this.chunks.map((c) => this.segments[c.a].start), t));
   }
 
   // Decoded audio of chunk i: { start, end, rate, pcm } with pcm a mono Float32Array.
   async readChunk(i, signal, rate) {
     const sampleRate = rate || AUDIO_RATE;
-    const segs = this.segments.slice(i * CHUNK_SEGMENTS, (i + 1) * CHUNK_SEGMENTS);
-    if (!segs.length) throw new Error('no chunk ' + i);
+    const c = this.chunks[i];
+    if (!c) throw new Error('no chunk ' + i);
+    const segs = this.segments.slice(c.a, c.b);
     if (this.init && !this.initBytes) this.initBytes = await fetchRange(this.init.url, this.init.offset, this.init.length, signal);
     // Adjacent byte ranges of the same file are fetched with one request.
     const reqs = [];
@@ -6154,6 +6331,7 @@ class Envelope {
     this.step = ENV_STEP;
     this.length = Math.max(1, Math.ceil(duration / ENV_STEP));
     this.data = data && data.length === this.length ? data : new Uint8Array(this.length);
+    this.carry = null;   // filter state where the last fill ended: { at: frame, hpIn, hpOut, lp }
   }
 
   known(i) { return this.data[i] !== 0; }
@@ -6167,14 +6345,18 @@ class Envelope {
 
   fill(start, pcm, rate) {
     const per = Math.round(rate * this.step);
-    // One-pole high-pass and low-pass filters; the state restarts with every chunk.
-    const hpA = Math.exp(-2 * Math.PI * 150 / rate);
-    const lpA = Math.exp(-2 * Math.PI * 4000 / rate);
-    let hpPrevIn = 0;
-    let hpPrevOut = 0;
-    let lp = 0;
+    // One-pole high-pass and low-pass filters. A chunk that continues the one filled last
+    // continues its filter state; any other starts from rest at its first sample (not from
+    // zero, which would be a step at the chunk's start).
+    const hpA = Math.exp(-2 * Math.PI * SPEECH_BAND_HZ[0] / rate);
+    const lpA = Math.exp(-2 * Math.PI * SPEECH_BAND_HZ[1] / rate);
     const first = Math.round(start / this.step);
-    for (let f = 0; (f + 1) * per <= pcm.length; f++) {
+    const c = this.carry && this.carry.at === first ? this.carry : null;
+    let hpPrevIn = c ? c.hpIn : pcm[0] || 0;
+    let hpPrevOut = c ? c.hpOut : 0;
+    let lp = c ? c.lp : 0;
+    let f = 0;
+    for (; (f + 1) * per <= pcm.length; f++) {
       const i = first + f;
       let sum = 0;
       for (let k = f * per, end = k + per; k < end; k++) {
@@ -6189,6 +6371,7 @@ class Envelope {
       const db = 10 * Math.log10(sum / per + 1e-12);
       this.data[i] = 1 + Math.round((clamp(db, -100, 0) + 100) * 2.54);
     }
+    this.carry = { at: first + f, hpIn: hpPrevIn, hpOut: hpPrevOut, lp };
   }
 
   coverage() {
@@ -6223,12 +6406,12 @@ function findSilences(env, opts) {
   const result = { silences: [], noiseDb: NaN, speechDb: NaN, thresholdDb: NaN };
   if (vals.length < 60 / env.step) return result; // less than a minute analysed
   vals.sort((a, b) => a - b);
-  const noise = percentile(vals, 0.1);
-  const speech = percentile(vals, 0.9);
+  const noise = percentile(vals, SILENCE_NOISE_PCT);
+  const speech = percentile(vals, SILENCE_SPEECH_PCT);
   const k = SILENCE_SENSITIVITY[o.sensitivity] || SILENCE_SENSITIVITY.normal;
   let thr = noise + (speech - noise) * k;
   // No dynamics at all: either everything is silent (a muted microphone) or nothing is.
-  if (speech - noise < 6) thr = speech < -55 ? 1 : -101;
+  if (speech - noise < SILENCE_MIN_RANGE_DB) thr = speech < SILENCE_MUTED_DB ? 1 : -101;
   Object.assign(result, { noiseDb: noise, speechDb: speech, thresholdDb: thr });
 
   // Quiet runs in frames; unanalysed frames end a run.
@@ -6327,10 +6510,11 @@ function skipStretches(silences, uniform, audioKnown, minSec) {
 }
 
 // Where the lecture's content ends: the start of an empty stretch (blank or black) that
-// runs to the end of the recording (within `slack` seconds, one sample), else the duration.
+// runs to the end of the recording (within `slack` seconds: by default one and a half
+// chapter samples, as a stretch ends where its last sample does), else the duration.
 function contentEndAt(stretches, duration, slack) {
   const last = stretches[stretches.length - 1];
-  if (last && (last.kind === 'blank' || last.kind === 'black') && last.end >= duration - (slack == null ? 15 : slack)) return last.start;
+  if (last && (last.kind === 'blank' || last.kind === 'black') && last.end >= duration - (slack == null ? 1.5 * CHAPTER_STEP_SEC : slack)) return last.start;
   return duration;
 }
 
@@ -6428,7 +6612,7 @@ class SilenceAnalyzer {
     if (navigator.connection && navigator.connection.saveData) { this.fail('saveData'); return; }
     const key = 'silence-env:' + this.lesson.mediaId;
     const cached = this.lesson.mediaId ? await idbCache.get(key) : undefined;
-    await this.gate.wait(cached ? 0 : 8000); // let playback start first
+    await this.gate.wait(cached ? 0 : SILENCE_START_DELAY_MS); // let playback start first
     const track = await new HlsAudioTrack(this.masterUrl).open(signal);
     this.track = track;
     const data = cacheValid('silence-env', cached) && cached.step === ENV_STEP ? cached.data : null;
@@ -6447,7 +6631,7 @@ class SilenceAnalyzer {
     for (const i of order) {
       const span = track.chunkSpan(i);
       if (this.env.coverageOf(span.start, span.end) > 0.9) continue;
-      await this.gate.turn(2000, 400);
+      await this.gate.turn(SILENCE_PACE_MS[0], SILENCE_PACE_MS[1], BG_MIN_BUFFER_SEC);
       // A chunk that cannot be read or decoded is left out (that stretch stays unknown,
       // never "silent"); only several in a row end the analysis, keeping what was found.
       let chunk;
@@ -6498,7 +6682,7 @@ class SilenceAnalyzer {
 // ===================================================================================
 
 const CACHE_KINDS = {
-  slides: 3,          // chapters (2: screen view chosen per recording, tolerant scanning; 3: uniform stretches)
+  slides: 4,          // chapters (2: screen view chosen per recording, tolerant scanning; 3: uniform stretches; 4: 160 x 90, learnt threshold)
   'silence-env': 1,   // audio level envelope
   ocr: 1,             // text read on screen
 };
@@ -6587,39 +6771,34 @@ const analysisCaches = {
 // Sources, best first:
 //   1. Chapter or slide data from Echo360 itself. None of the recordings checked so far had
 //      any (cfg.chapters, slide decks and scenes were all empty), so this is not used yet.
-//   2. Keyframes of the screen view. Every 10 s HLS segment starts with a keyframe; reading
-//      just the start of each segment (about 20 KB at 360p, 15 MB for two hours) and
-//      decoding it with WebCodecs gives the whole lecture at 10 s resolution. Each change is
-//      then pinned to about 1 s by decoding the one segment it happened in. Downloads only
-//      run while playback has enough buffer, and the result is cached in IndexedDB.
+//   2. Keyframes of the screen view. Every HLS segment starts with a keyframe; reading just
+//      the start of a segment every CHAPTER_STEP_SEC (about 20 KB at 360p, 15 MB for two
+//      hours) and decoding it with WebCodecs gives the whole lecture at that resolution.
+//      Each change is then pinned to about 1 s by decoding the stretch it happened in.
+//      Downloads only run while playback has enough buffer, and the result is cached in
+//      IndexedDB.
 //   3. Echo360's preview thumbnails (one per minute), when WebCodecs is not available.
 //      They are also shown at once while the keyframes are being read.
 //
 // Which view is the screen: slides, code and documents have large flat areas, camera
 // pictures do not (sensor noise), so the view with the most flat area is used.
 //
-// Change detection compares tiny 32 x 18 versions of two frames. Small changes (mouse
-// pointer, laser pointer, ink added to a slide, a small animation, scrolling code) touch
-// only a small share of the pixels and are not a new slide. A run of quick changes (scrolling
-// code, flicking through slides) becomes one chapter instead of many.
+// Change detection compares 160 x 90 brightness pictures. How large a change makes a new
+// picture is learnt per recording from its own changes (see learnThreshold): ink, a pointer
+// or scrolling code change fewer pixels than another slide, but how many fewer depends on
+// the lecturer, the slides and the recording, so no fixed share is used. A run of quick
+// changes (scrolling code, flicking through slides) becomes one chapter instead of many,
+// and a short look elsewhere that comes back joins the chapter (see buildScenes).
 //
-// Reusable pieces (slide text recognition will read sharper keyframes the same way):
-//   HlsVideoReader   open(), segments, segmentAt(t), keyframe(i) -> VideoFrame,
-//                    frames(i, stepSec, onFrame)
-//   frameSignature(img), frameDistance(a, b), sameView(a, b)
-//   buildScenes(samples, duration, opts) -> [{ start, end, rep }]
-//   SlideAnalyzer    chapters: [{ start, end, precise, repTime, thumb }], screenIndex, reader
+// Reusable pieces:
+//   HlsVideoReader   open(), segments, segmentAt(t), sampleSegments(step),
+//                    keyframe(i) -> VideoFrame, frames(i, stepSec, onFrame)
+//   lumaThumb(g, img), frameLuma(img), thumbChange(a, b), learnThreshold(changes)
+//   buildScenes(samples, duration, opts) -> [{ start, end, rep, first }]
+//   SlideAnalyzer    chapters: [{ start, end, precise, repTime, thumb }], screenIndex,
+//                    lumaAt(t) (shared with the slide reader)
 // ===================================================================================
 
-const SIG_W = 32;
-const SIG_H = 18;
-const KEYFRAME_PROBE_BYTES = 24 * 1024;  // moof (~2.5 KB) + a 360p keyframe (~17 KB), usually
-const SCENE_MIN_SEC = 20;                // shorter scenes in a row are one chapter
-const SCENE_REVISIT_SEC = 180;           // going back to a view shown this recently is no new chapter
-const SCENE_DETOUR_SEC = 60;             // a shorter excursion that comes back belongs to the chapter
-const SCREEN_CLEARLY = 0.75;             // see findScreen
-const ANALYSIS_MAX_FAILS = 5;            // segments in a row that cannot be read before an analysis gives up
-const CHAPTER_THUMB_W = 192;
 
 // ---- fragmented MP4 ----
 
@@ -6747,7 +6926,7 @@ class HlsVideoReader {
     this.segments = [];
     this.info = null;
     this.bytes = 0;          // downloaded so far
-    this.lastNeed = 0;       // bytes the last keyframe needed
+    this.lastNeed = 0;       // bytes the last keyframe needed (header included)
   }
 
   static supported() {
@@ -6792,6 +6971,19 @@ class HlsVideoReader {
     return lo;
   }
 
+  // Segments to sample about every stepSec seconds: [segment index] (the keyframe of each
+  // segment is at its start).
+  sampleSegments(stepSec) {
+    const out = [];
+    let next = -Infinity;
+    this.segments.forEach((sg, i) => {
+      if (sg.start + sg.dur / 2 < next) return;
+      out.push(i);
+      next = sg.start + stepSec;
+    });
+    return out;
+  }
+
   // Decodes encoded samples; onFrame(frame) is called in presentation order and the frame
   // is closed right after it returns.
   async decode(chunks, onFrame) {
@@ -6810,28 +7002,39 @@ class HlsVideoReader {
     if (failed) throw failed;
   }
 
-  // First frame of segment i, as a signature-ready callback: fn(frame) is called once.
+  // First frame of segment i: fn(frame, seconds) is called once.
   async keyframe(i, signal, fn) {
     const s = this.segments[i];
-    // A keyframe grows with the picture (about 20 KB at 360p) and its content; asking for a
-    // little more than the last one needed usually saves a second request.
-    const base = Math.round(KEYFRAME_PROBE_BYTES * Math.max(1, ((this.info && this.info.height) || 360) / 360) ** 2);
-    const probe = Math.max(base, Math.round((this.lastNeed || 0) * 1.2));
-    let buf = await fetchRange(s.url, s.offset, Math.min(s.length, probe), signal);
-    this.bytes += buf.byteLength;
-    const frag = parseFragment(buf, s.offset);
-    const k = frag.samples[0];
-    if (!k || !k.key) throw new Error('segment does not start with a keyframe');
-    this.lastNeed = k.offset + k.size;
-    if (k.offset + k.size > buf.byteLength) {
-      // Only the rest of it.
-      const more = await fetchRange(s.url, s.offset + buf.byteLength, Math.min(s.length, k.offset + k.size) - buf.byteLength, signal);
+    // Bytes from the start of the segment, fetching only what is still missing.
+    let buf = new ArrayBuffer(0);
+    const upTo = async (n) => {
+      const want = Math.min(s.length, n);
+      if (want <= buf.byteLength) return;
+      const more = await fetchRange(s.url, s.offset + buf.byteLength, want - buf.byteLength, signal);
       this.bytes += more.byteLength;
       const all = new Uint8Array(buf.byteLength + more.byteLength);
       all.set(new Uint8Array(buf), 0);
       all.set(new Uint8Array(more), buf.byteLength);
       buf = all.buffer;
+    };
+    // The fragment header and the keyframe come first; their size is only known once the
+    // header is read. Ask for a little more than the last keyframe needed (keyframes of one
+    // stream are of similar size), the first time for just the start of the header, then
+    // for whatever is still missing: a wrong guess costs a request, never a wrong result.
+    await upTo(this.lastNeed ? Math.round(this.lastNeed * 1.25) : 4096);
+    for (;;) {
+      const boxes = mp4Boxes(new DataView(buf), 0, buf.byteLength);
+      const moof = boxes.find((x) => x.type === 'moof');
+      const last = boxes[boxes.length - 1];
+      const end = moof ? moof.start + moof.size : last ? last.start + last.size + 8 : 8;
+      if (end <= buf.byteLength || buf.byteLength >= s.length) break;
+      await upTo(end);
     }
+    const frag = parseFragment(buf, s.offset);
+    const k = frag.samples[0];
+    if (!k || !k.key) throw new Error('segment does not start with a keyframe');
+    this.lastNeed = k.offset + k.size;
+    await upTo(k.offset + k.size);
     const ts = this.info.timescale;
     const chunk = new EncodedVideoChunk({ type: 'key', timestamp: Math.round((k.time / ts) * 1e6), data: new Uint8Array(buf, k.offset, k.size) });
     let got = false;
@@ -6859,73 +7062,100 @@ class HlsVideoReader {
 }
 
 // ---- comparing frames ----
+//
+// Frames are compared as 160 x 90 brightness pictures (one pixel is a 2 x 2 block at 360p,
+// 8 x 8 at 720p): fine enough that a changed line of slide text changes several pixels.
 
-let sigCtx = null;
-function sigContext() {
-  if (!sigCtx) {
-    const c = typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(SIG_W, SIG_H) : Object.assign(document.createElement('canvas'), { width: SIG_W, height: SIG_H });
-    sigCtx = c.getContext('2d', { willReadFrequently: true });
+
+// Brightness of a frame at THUMB_W x THUMB_H, drawn with the 2D context g.
+function lumaThumb(g, img) {
+  g.drawImage(img, 0, 0, THUMB_W, THUMB_H);
+  const d = g.getImageData(0, 0, THUMB_W, THUMB_H).data;
+  const out = new Uint8Array(THUMB_W * THUMB_H);
+  for (let i = 0, j = 0; i < out.length; i++, j += 4) out[i] = (d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8;
+  return out;
+}
+
+let thumbCtx = null;
+function thumbContext() {
+  if (!thumbCtx) {
+    const c = typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(THUMB_W, THUMB_H) : Object.assign(document.createElement('canvas'), { width: THUMB_W, height: THUMB_H });
+    thumbCtx = c.getContext('2d', { willReadFrequently: true });
   }
-  return sigCtx;
+  return thumbCtx;
 }
 
-// 32 x 18 RGB thumbnail of any drawable (VideoFrame, ImageBitmap, <video>, <img>).
-function frameSignature(img) {
-  const g = sigContext();
-  g.drawImage(img, 0, 0, SIG_W, SIG_H);
-  return Uint8Array.from(g.getImageData(0, 0, SIG_W, SIG_H).data.filter((x, i) => i % 4 !== 3));
+// Brightness picture of any drawable (VideoFrame, ImageBitmap, <video>, <img>).
+function frameLuma(img) {
+  return lumaThumb(thumbContext(), img);
 }
 
-// corr: correlation of the two pictures; mad: mean absolute difference (0-255); changed:
-// share of pixels whose brightness moved by more than 40.
-function frameDistance(a, b) {
-  const n = a.length;
-  let ma = 0;
-  let mb = 0;
-  let mad = 0;
-  let changed = 0;
-  for (let i = 0; i < n; i += 3) {
-    const la = a[i] * 0.299 + a[i + 1] * 0.587 + a[i + 2] * 0.114;
-    const lb = b[i] * 0.299 + b[i + 1] * 0.587 + b[i + 2] * 0.114;
-    if (Math.abs(la - lb) > 40) changed++;
+// Pixels of two brightness pictures that differ by more than PIXEL_DIFF. Stops counting
+// at `limit` (the caller only needs to know whether that many changed).
+function thumbChange(a, b, limit) {
+  const stop = limit || Infinity;
+  let n = 0;
+  for (let i = 0; i < a.length; i++) if (Math.abs(a[i] - b[i]) > PIXEL_DIFF && ++n >= stop) break;
+  return n;
+}
+
+// The change of each sample against the last earlier sample that differed visibly from the
+// one before it (so that slow changes, ink added a little at a time, still add up), in
+// changed pixels; 0 for the first. samples: [{ luma }], sets sample.change; only samples
+// from `from` on are computed (earlier ones keep theirs).
+function sampleChanges(samples, from) {
+  let ref = null;
+  for (let k = Math.max(0, (from || 0) - 1); k >= 0 && !ref; k--) if (k === 0 || samples[k].change >= SAME_TEXT_MAX) ref = samples[k].luma;
+  for (let k = from || 0; k < samples.length; k++) {
+    const s = samples[k];
+    if (!ref) { s.change = 0; ref = s.luma; continue; }
+    s.change = thumbChange(ref, s.luma);
+    if (s.change >= SAME_TEXT_MAX) ref = s.luma;
   }
-  for (let i = 0; i < n; i++) { ma += a[i]; mb += b[i]; mad += Math.abs(a[i] - b[i]); }
-  ma /= n;
-  mb /= n;
-  let sab = 0;
-  let saa = 0;
-  let sbb = 0;
-  for (let i = 0; i < n; i++) {
-    const x = a[i] - ma;
-    const y = b[i] - mb;
-    sab += x * y; saa += x * x; sbb += y * y;
+}
+
+// How many changed pixels make a new picture, learnt from this recording: its visible
+// changes (SAME_TEXT_MAX or more) split into two groups (small: ink, scrolling, a pointer;
+// large: another slide or program) at the point that separates them best (Otsu's method,
+// on the logarithm, since the sizes span orders of magnitude). Samples without a visible
+// change are left out: they say nothing about the split and, being most of a lecture,
+// would pull it down to ink level (checked on four lectures: the same changes found, a
+// sixth to a quarter fewer false ones). With fewer than two different visible changes
+// there is nothing to split, and every visible change counts as a new picture.
+function learnThreshold(changes) {
+  const v = changes.filter((c) => c >= SAME_TEXT_MAX).map((c) => Math.log1p(c)).sort((a, b) => a - b);
+  const n = v.length;
+  let total = 0;
+  for (const x of v) total += x;
+  let best = -1;
+  let cut = Infinity;
+  let left = 0;
+  for (let i = 1; i < n; i++) {
+    left += v[i - 1];
+    if (v[i] === v[i - 1]) continue;
+    const ma = left / i;
+    const mb = (total - left) / (n - i);
+    const score = i * (n - i) * (mb - ma) ** 2;
+    if (score > best) { best = score; cut = (v[i - 1] + v[i]) / 2; }
   }
-  return { corr: saa && sbb ? sab / Math.sqrt(saa * sbb) : (saa === sbb ? 1 : 0), mad: mad / n, changed: changed / (n / 3) };
+  return cut === Infinity ? SAME_TEXT_MAX : Math.expm1(cut);
 }
 
-// Same slide? Measured on a real lecture (keyframes 10 s apart): ink added to a slide and
-// scrolling or typing in a code editor change 6-15% of the pixels; a new slide changes at
-// least 16%, switching between slides and an editor more than half.
-function sameView(a, b) {
-  const d = frameDistance(a, b);
-  return d.changed < 0.16 || d.mad <= 8 || (d.corr >= 0.9 && d.mad <= 20);
-}
-
-// Stricter test for "back to the same picture" (see buildScenes).
-function sameViewStrict(a, b) {
-  const d = frameDistance(a, b);
-  return d.changed < 0.06 || d.mad <= 6;
+// Mean brightness of 5 x 5 blocks: a 32 x 18 version of a brightness picture.
+function lumaBlocks(luma) {
+  const W = THUMB_W / 5;
+  const H = THUMB_H / 5;
+  const out = new Float32Array(W * H);
+  for (let y = 0; y < THUMB_H; y++) for (let x = 0; x < THUMB_W; x++) out[((y / 5) | 0) * W + ((x / 5) | 0)] += luma[y * THUMB_W + x] / 25;
+  return out;
 }
 
 // A picture of (almost) one colour: a black screen, a "no signal" picture, a blank slide in
 // one colour. Judged by evenness, not darkness, so any kind of empty picture counts: nearly
-// every pixel of the small signature is within noise of the median brightness.
-const UNIFORM_NOISE = 10;     // brightness levels (0-255) of compression noise at 32 x 18
-const UNIFORM_SHARE = 0.985;  // pixels that must be that close (a small logo or a cursor may differ)
-function frameUniform(sig) {
-  const n = sig.length / 3;
-  const l = new Float32Array(n);
-  for (let i = 0, j = 0; i < n; i++, j += 3) l[i] = sig[j] * 0.299 + sig[j + 1] * 0.587 + sig[j + 2] * 0.114;
+// every block of a 32 x 18 version is within noise of the median brightness (UNIFORM_*).
+function frameUniform(luma) {
+  const l = lumaBlocks(luma);
+  const n = l.length;
   const sorted = Float32Array.from(l).sort();
   const med = sorted[n >> 1];
   let close = 0;
@@ -6961,7 +7191,7 @@ function flatShare(img) {
       const i = (y * W + x) * 4;
       const l = d[i] + d[i + 1] + d[i + 2];
       tot++;
-      if (Math.abs(l - d[i + 4] - d[i + 5] - d[i + 6]) <= 3 && Math.abs(l - d[i + W * 4] - d[i + W * 4 + 1] - d[i + W * 4 + 2]) <= 3) n++;
+      if (Math.abs(l - d[i + 4] - d[i + 5] - d[i + 6]) <= FLAT_LEVELS && Math.abs(l - d[i + W * 4] - d[i + W * 4 + 1] - d[i + W * 4 + 2]) <= FLAT_LEVELS) n++;
     }
   }
   return n / tot;
@@ -6969,70 +7199,93 @@ function flatShare(img) {
 
 // ---- scenes ----
 
-// samples: [{ t, sig }] in time order. Returns scenes [{ start, end, rep }] where rep is the
-// sample that best shows the chapter: the last sample (ink and builds are complete there)
-// of the view it stays on longest. A scene starts at its first sample; refinement moves
-// it earlier.
+// samples: [{ t, luma, change }] in time order (see sampleChanges). Returns scenes
+// [{ start, end, rep }] where rep is the sample that best shows the chapter: the last sample
+// (ink and builds are complete there) of the view it stays on longest. A scene starts at
+// its first sample; refinement moves it earlier.
 //
-// Lecturers often switch back and forth between a slide and a code editor or a question
-// board. Coming back to something shown in the last few minutes is not a new chapter, and
-// a short excursion (under detourSec) that comes back to the previous chapter becomes part
-// of it. The "back to the same picture" test is stricter than the same-slide test, because
-// different slides with the same layout can pass the latter. Of the remaining scenes,
-// several short ones in a row are one chapter, and a single short one (a transition caught
-// mid-way) joins the next.
+// opts.threshold: changed pixels that make a new picture (default: learnt from the samples).
+// opts.single: merge chapters of a single sample (default true; off for samples a minute
+// apart, where one sample is a long stretch).
+//
+// 1. Runs: a new run starts where a sample changed by the threshold or more.
+// 2. A run that starts with a picture already shown in the current chapter (back to the
+//    slide after a look at the editor) continues the chapter.
+// 3. A look elsewhere between two stays on the same picture, no longer than either of them,
+//    joins them into one chapter (a short demo, then back to the slide; flicking between a
+//    slide and a question board).
+// 4. A chapter of a single sample is shorter than the sampling can tell apart: several in a
+//    row (flicking through slides, scrolling) are one chapter, a lone one (a transition
+//    caught half way) joins the next.
+// All lengths are relative to each other or to the sampling step: no fixed durations.
 function buildScenes(samples, duration, opts) {
-  const o = Object.assign({ minSec: SCENE_MIN_SEC, revisitSec: SCENE_REVISIT_SEC, detourSec: SCENE_DETOUR_SEC, same: sameView, revisit: sameViewStrict }, opts);
+  const o = Object.assign({ single: true }, opts);
   if (!samples.length) return [];
+  if (samples.some((s) => s.change == null)) sampleChanges(samples);
+  const thr = o.threshold != null ? o.threshold : learnThreshold(samples.slice(1).map((s) => s.change));
   const tAt = (k) => (k < samples.length ? samples[k].t : duration);
-  // Runs of the same view.
+  const same = (i, j) => thumbChange(samples[i].luma, samples[j].luma, thr) < thr;
+  // 1. Runs of the same picture.
   const runs = [{ a: 0, b: 0 }];
   for (let k = 1; k < samples.length; k++) {
-    if (o.same(samples[k - 1].sig, samples[k].sig)) runs[runs.length - 1].b = k;
+    if (samples[k].change < thr) runs[runs.length - 1].b = k;
     else runs.push({ a: k, b: k });
   }
-  const raw = [{ a: 0, b: runs[0].b, runs: [runs[0]] }];
-  for (let i = 1; i < runs.length; i++) {
-    const r = runs[i];
-    const t0 = samples[r.a].t;
-    let seen = -1;
-    for (let j = i - 1; j >= 0 && seen < 0 && samples[runs[j].b].t >= t0 - o.revisitSec; j--) {
-      if (o.revisit(samples[runs[j].b].sig, samples[r.a].sig) || o.revisit(samples[runs[j].a].sig, samples[r.a].sig)) seen = j;
-    }
-    const cur = raw[raw.length - 1];
-    if (seen < 0) { raw.push({ a: r.a, b: r.b, runs: [r] }); continue; }
-    cur.b = r.b;
-    cur.runs.push(r);
-    // Back to the chapter before a short excursion: the excursion joins that chapter.
-    if (raw.length >= 2 && runs[seen].b < cur.a && t0 - samples[cur.a].t < o.detourSec) {
-      const prev = raw[raw.length - 2];
-      prev.b = cur.b;
-      prev.runs.push(...cur.runs);
-      raw.pop();
+  // A chapter's pictures: the first and last sample of each of its runs.
+  const shows = (ch, k) => ch.runs.some((r) => same(r.a, k) || (r.b !== r.a && same(r.b, k)));
+  const len = (ch) => tAt(ch.b + 1) - samples[ch.a].t;
+  // 2. Chapters; a return within the current chapter continues it.
+  let chs = [];
+  for (const r of runs) {
+    const cur = chs[chs.length - 1];
+    if (cur && shows(cur, r.a)) { cur.b = r.b; cur.runs.push(r); } else chs.push({ a: r.a, b: r.b, runs: [r] });
+  }
+  // 3. Short looks elsewhere between two stays on the same picture.
+  for (let i = 1; i + 1 < chs.length; i++) {
+    const [x, y, z] = [chs[i - 1], chs[i], chs[i + 1]];
+    if (len(y) <= len(x) && len(y) <= len(z) && shows(x, z.a)) {
+      chs.splice(i - 1, 3, { a: x.a, b: z.b, runs: x.runs.concat(y.runs, z.runs) });
+      i = Math.max(0, i - 2);
     }
   }
-  const len = (r) => tAt(r.b + 1) - samples[r.a].t;
-  const merged = [];
-  for (let i = 0; i < raw.length; i++) {
-    const r = { a: raw[i].a, b: raw[i].b, runs: raw[i].runs.slice() };
-    const absorb = (x) => { r.b = x.b; r.runs.push(...x.runs); };
-    if (len(r) < o.minSec) {
-      // Absorb following short scenes into one busy stretch.
-      let j = i;
-      while (j + 1 < raw.length && len(raw[j + 1]) < o.minSec) j++;
-      if (j > i) { for (let q = i + 1; q <= j; q++) absorb(raw[q]); i = j; } else if (i + 1 < raw.length) { absorb(raw[i + 1]); i++; }
+  // 4. Chapters of one sample.
+  if (o.single) {
+    const out = [];
+    const one = (ch) => ch.a === ch.b;
+    for (let i = 0; i < chs.length; i++) {
+      const ch = { a: chs[i].a, b: chs[i].b, runs: chs[i].runs.slice() };
+      const absorb = (x) => { ch.b = x.b; ch.runs.push(...x.runs); };
+      if (one(ch)) {
+        let j = i;
+        while (j + 1 < chs.length && one(chs[j + 1])) j++;
+        if (j > i) { for (let q = i + 1; q <= j; q++) absorb(chs[q]); i = j; } else if (i + 1 < chs.length) { absorb(chs[i + 1]); i++; }
+      }
+      out.push(ch);
     }
-    merged.push(r);
+    chs = out;
   }
-  return merged.map((r, i) => {
-    let best = r.runs[0];
-    for (const x of r.runs) if (tAt(x.b + 1) - samples[x.a].t >= tAt(best.b + 1) - samples[best.a].t) best = x;
+  return chs.map((ch, i) => {
+    let best = ch.runs[0];
+    for (const x of ch.runs) if (tAt(x.b + 1) - samples[x.a].t >= tAt(best.b + 1) - samples[best.a].t) best = x;
     return {
-      start: i === 0 ? 0 : samples[r.a].t,
-      end: i + 1 < merged.length ? samples[merged[i + 1].a].t : duration,
+      start: i === 0 ? 0 : samples[ch.a].t,
+      end: i + 1 < chs.length ? samples[chs[i + 1].a].t : duration,
       rep: best.b,
+      first: ch.a,
     };
   });
+}
+
+// Index of the last of the ascending times that is at or before t (-1 if none).
+function sampleIndexAt(times, t) {
+  let lo = 0;
+  let hi = times.length - 1;
+  let k = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (times[mid] <= t) { k = mid; lo = mid + 1; } else hi = mid - 1;
+  }
+  return k;
 }
 
 function chapterIndexAt(chapters, t) {
@@ -7046,9 +7299,12 @@ function chapterIndexAt(chapters, t) {
   return k;
 }
 
-// A small copy of a frame, made synchronously (a VideoFrame is only valid in its callback).
+// A small copy of a frame, made synchronously (a VideoFrame is only valid in its callback),
+// in the frame's own shape (a 4:3 screen stays 4:3).
 function smallBitmap(img, w) {
-  const c = new OffscreenCanvas(w, Math.round((w * 9) / 16));
+  const iw = img.displayWidth || img.width || 16;
+  const ih = img.displayHeight || img.height || 9;
+  const c = new OffscreenCanvas(w, Math.max(1, Math.round((w * ih) / iw)));
   c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
   return c;
 }
@@ -7139,7 +7395,7 @@ class SlideAnalyzer {
     if (!screen) { this.state = 'unavailable'; this.onChange(); return; }
     this.screenIndex = screen.source.index;
     this.onChange();
-    await this.gate.wait(5000); // let playback start first
+    await this.gate.wait(BG_START_DELAY_MS); // let playback start first
     if (screen.thumbs) this.fromThumbnails(screen.thumbs);
     if (!HlsVideoReader.supported() || (navigator.connection && navigator.connection.saveData)) {
       if (this.chapters.length) { this.state = 'done'; this.progress = 1; this.onChange(); }
@@ -7164,8 +7420,8 @@ class SlideAnalyzer {
       if (!set || !Array.isArray(set.timesInSeconds) || !set.timesInSeconds.length) continue;
       const ts = set.timesInSeconds;
       const vals = [];
-      for (let k = 0; k < 6; k++) {
-        const t = ts[Math.floor(((k + 0.5) * ts.length) / 6)];
+      for (let k = 0; k < SCREEN_PROBES; k++) {
+        const t = ts[Math.floor(((k + 0.5) * ts.length) / SCREEN_PROBES)];
         // One picture that cannot be read does not decide anything.
         let img = null;
         try { img = await this.loadThumb(set, t, signal); } catch (e) { if (signal.aborted) throw e; }
@@ -7173,7 +7429,7 @@ class SlideAnalyzer {
         vals.push(flatShare(img));
         img.close();
       }
-      if (vals.length >= 3) scored.push({ source: src, set, vals });
+      if (vals.length >= SCREEN_PROBES / 2) scored.push({ source: src, set, vals });
     }
     // No usable thumbnails for some view: a few keyframes of each view instead (360p,
     // about 20 KB each).
@@ -7184,11 +7440,11 @@ class SlideAnalyzer {
         try {
           const rd = await new HlsVideoReader(src.v || src.av, 360).open(signal);
           const n = rd.segments.length;
-          for (let k = 0; k < 6; k++) {
-            await rd.keyframe(Math.floor(((k + 0.5) * n) / 6), signal, (f) => vals.push(flatShare(f)));
+          for (let k = 0; k < SCREEN_PROBES; k++) {
+            await rd.keyframe(Math.floor(((k + 0.5) * n) / SCREEN_PROBES), signal, (f) => vals.push(flatShare(f)));
           }
         } catch (e) { if (signal.aborted) throw e; }
-        if (vals.length >= 3) scored.push({ source: src, set: null, vals });
+        if (vals.length >= SCREEN_PROBES / 2) scored.push({ source: src, set: null, vals });
       }
     }
     if (!scored.length) {
@@ -7239,21 +7495,18 @@ class SlideAnalyzer {
         if (this.ac.signal.aborted || ++fails >= ANALYSIS_MAX_FAILS) throw e;
         continue;
       }
-      samples.push({ t, sig: frameSignature(img) });
+      samples.push({ t, luma: frameLuma(img) });
       img.close();
     }
     if (samples.length < 2) return;
-    const scenes = buildScenes(samples, this.duration(), { minSec: 0 });
-    this.chapters = scenes.map((s, i) => {
-      const first = chapterSampleStart(samples, s);
-      return {
-        start: i === 0 ? 0 : (samples[first].t + samples[first - 1].t) / 2,
-        end: s.end,
-        precise: false,
-        repTime: samples[s.rep].t,
-        thumb: set.baseUri + '/' + samples[s.rep].t + '.' + set.extension,
-      };
-    });
+    const scenes = buildScenes(samples, this.duration(), { single: false });
+    this.chapters = scenes.map((sc, i) => ({
+      start: i === 0 ? 0 : (samples[sc.first].t + samples[sc.first - 1].t) / 2,
+      end: sc.end,
+      precise: false,
+      repTime: samples[sc.rep].t,
+      thumb: set.baseUri + '/' + samples[sc.rep].t + '.' + set.extension,
+    }));
     for (let i = 1; i < this.chapters.length; i++) this.chapters[i - 1].end = this.chapters[i].start;
     this.state = 'thumbnails';
     this.onChange();
@@ -7263,64 +7516,89 @@ class SlideAnalyzer {
     this.thumbsDone = this.fromThumbnailsAsync(set).catch((e) => { if (!this.ac.signal.aborted) log.warn('thumbnails:', e.message); });
   }
 
+  // The 360p brightness picture of the screen view at sample time t, while the scan keeps
+  // them (see shareLumas), else null. The slide reader compares the same pictures; sharing
+  // saves downloading them twice.
+  lumaAt(t) {
+    return (this.lumas && this.lumas.get(Math.round(t * 10))) || null;
+  }
+
+  // The slide reader of `source` wants the pictures (true) or no longer does (false). They
+  // are kept while either the scan runs or a reader of the scanned view uses them.
+  shareLumas(on, source) {
+    this.sharing = !!on && !!source && source.index === this.screenIndex;
+    if (!this.sharing && this.state === 'done') this.lumas = null;
+    return this.sharing;
+  }
+
   async fromKeyframes(source, signal) {
     const reader = await new HlsVideoReader(source.v || source.av, 360).open(signal);
     this.reader = reader;
     if (this.thumbsDone) await this.thumbsDone;
-    const n = reader.segments.length;
+    const picks = reader.sampleSegments(CHAPTER_STEP_SEC);
+    const n = picks.length;
     const samples = [];
+    this.lumas = new Map();
     if (store.get('debug', false)) this.samples = samples; // for tuning, development only
     const thumbs = new Map();
     let lastBuild = 0;
     let fails = 0;
-    for (let i = 0; i < n; i++) {
-      await this.gate.turn(300, 120, 20);
-      let sig = null;
+    for (let q = 0; q < n; q++) {
+      const i = picks[q];
+      await this.gate.turn(CHAPTER_PACE_MS[0], CHAPTER_PACE_MS[1], BG_MIN_BUFFER_SEC);
+      let luma = null;
       let pic = null;
       // One segment that cannot be read (a missing keyframe, a failed request) does not end
       // the analysis: it counts as "same picture as before"; only several in a row do.
       try {
-        await reader.keyframe(i, signal, (f) => { sig = frameSignature(f); pic = smallBitmap(f, CHAPTER_THUMB_W); });
+        await reader.keyframe(i, signal, (f) => { luma = frameLuma(f); pic = smallBitmap(f, CHAPTER_THUMB_W); });
         fails = 0;
       } catch (e) {
         if (signal.aborted) throw e;
         if (++fails >= ANALYSIS_MAX_FAILS) {
-          if (samples.length) this.applyScenes(samples, thumbs, false);
+          if (samples.length) this.applyScenes(samples, thumbs, reader.segments[i].start);
           throw e;
         }
         log.warn('slide chapters: segment ' + i + ' skipped:', e);
       }
       const j = samples.length;
-      if (!sig) {
-        if (j) samples.push({ t: reader.segments[i].start, sig: samples[j - 1].sig, uniform: samples[j - 1].uniform });
+      const t = reader.segments[i].start;
+      if (!luma) {
+        if (j) samples.push({ t, luma: samples[j - 1].luma, uniform: samples[j - 1].uniform, change: 0 });
         continue;
       }
-      samples.push({ t: reader.segments[i].start, sig, uniform: frameUniform(sig) });
-      // Keep a small picture only for the last frame of each run of identical frames.
-      if (thumbs.has(j - 1) && sameView(samples[j - 1].sig, sig)) thumbs.delete(j - 1);
+      samples.push({ t, luma, uniform: frameUniform(luma) });
+      this.lumas.set(Math.round(t * 10), luma);
+      sampleChanges(samples, j);
+      // Keep a small picture only for the last frame of each run of the same picture.
+      if (thumbs.has(j - 1) && samples[j].change < SAME_TEXT_MAX) thumbs.delete(j - 1);
       thumbs.set(j, await bitmapToBlob(pic));
-      this.progress = ((i + 1) / n) * 0.8;
-      if (i - lastBuild >= 30) {
-        lastBuild = i;
+      this.progress = ((q + 1) / n) * 0.8;
+      if (q - lastBuild >= 30) {
+        lastBuild = q;
         // With per-minute chapters on screen, partial results would only show fewer.
-        if (this.state !== 'thumbnails') this.applyScenes(samples, thumbs, false);
+        if (this.state !== 'thumbnails') this.applyScenes(samples, thumbs, q + 1 < n ? reader.segments[picks[q + 1]].start : this.duration());
         else this.onChange();
       }
     }
     this.state = 'keyframes';
     this.uniform = uniformStretches(samples, this.duration());
-    this.applyScenes(samples, thumbs, true);
-    // Pin each change to about a second inside the segment where it happened.
+    const thr = this.applyScenes(samples, thumbs, this.duration());
+    // Pin each change to about a second: the first frame between the last sample before it
+    // and the first one after it that differs from the one before as much as a new picture.
     const chs = this.chapters;
+    const g = thumbContext();
     for (let c = 1; c < chs.length; c++) {
       const k = chs[c].firstSample;
       if (k <= 0) continue;
-      await this.gate.turn(1000, 300, 30);
-      const before = samples[k - 1].sig;
+      await this.gate.turn(CHAPTER_REFINE_PACE_MS[0], CHAPTER_REFINE_PACE_MS[1], STREAM_MAX_BUFFER_SEC);
+      const before = samples[k - 1].luma;
       let at = null;
-      // A segment that cannot be read keeps the coarse (10 s) time.
+      // A segment that cannot be read keeps the coarse time.
       try {
-        await reader.frames(reader.segmentAt(samples[k - 1].t), 1, signal, (f, t) => { if (at === null && !sameView(before, frameSignature(f))) at = t; });
+        for (let i = reader.segmentAt(samples[k - 1].t); at === null && i < reader.segments.length && reader.segments[i].start < samples[k].t; i++) {
+          await reader.frames(i, 1, signal, (f, ft) => { if (at === null && thumbChange(before, lumaThumb(g, f), thr) >= thr) at = ft; });
+        }
       } catch (e) {
         if (signal.aborted) throw e;
         at = null;
@@ -7336,22 +7614,26 @@ class SlideAnalyzer {
       if (c % 5 === 0) this.onChange();
     }
     this.state = 'done';
+    if (!this.sharing) this.lumas = null;
     this.progress = 1;
     this.onChange();
   }
 
-  applyScenes(samples, thumbs, final) {
-    const total = final ? this.duration() : samples[samples.length - 1].t + 10;
-    const scenes = buildScenes(samples, total);
-    this.chapters = scenes.map((s) => {
-      const first = chapterSampleStart(samples, s);
+  // Chapters from the samples so far (end: when the last one ends). Returns the threshold
+  // used.
+  applyScenes(samples, thumbs, end) {
+    const thr = learnThreshold(samples.slice(1).map((x) => x.change));
+    const scenes = buildScenes(samples, end, { threshold: thr });
+    this.chapters = scenes.map((sc) => {
       let blob = null;
       // The newest picture of this scene that is still kept.
-      for (let k = s.rep; k >= first && !blob; k--) blob = thumbs.get(k) || null;
-      return { start: s.start, end: s.end, precise: false, repTime: samples[s.rep].t, firstSample: first, blob, thumb: blob ? this.thumbUrl(blob) : '' };
+      for (let k = sc.rep; k >= sc.first && !blob; k--) blob = thumbs.get(k) || null;
+      return { start: sc.start, end: sc.end, precise: false, repTime: samples[sc.rep].t, firstSample: sc.first, blob, thumb: blob ? this.thumbUrl(blob) : '' };
     });
+    this.threshold = thr;
     this.pruneThumbs();
     this.onChange();
+    return thr;
   }
 
   save(key) {
@@ -7365,13 +7647,6 @@ class SlideAnalyzer {
       chapters: this.chapters.map((c) => ({ start: c.start, end: c.end, precise: c.precise, repTime: c.repTime, blob: c.blob || null, thumb: c.blob ? '' : c.thumb })),
     });
   }
-}
-
-// Index of the first sample of a scene.
-function chapterSampleStart(samples, scene) {
-  let k = scene.rep;
-  while (k > 0 && samples[k - 1].t >= scene.start) k--;
-  return k;
 }
 
 // ---- 57-slides-pane.js ----
@@ -7482,7 +7757,7 @@ class SlideReader {
     const p = deck.pages[i];
     const dpr = window.devicePixelRatio || 1;
     // As wide as fits the place at the page's aspect ratio.
-    const ar = p.ar || 0.5625;
+    const ar = p.ar || PAGE_AR_DEFAULT;
     const w = stage.clientWidth || 320;
     const hgt = stage.clientHeight || w * ar;
     // Zoomed in (picture-area view): sharper, up to a canvas the browser handles easily.
@@ -7598,7 +7873,12 @@ class SlidesPane {
     files.append(h('button.sfadd', { text: deck.files.length ? t('addMoreSlides') : t('addSlides'), onclick: () => input.click() }), input);
     let msg = '';
     if (deck.state === 'loading') msg = t('deckLoading');
-    else if (deck.state === 'reading') msg = deck.ocr ? t('deckReading', { pct: Math.floor(deck.progress * 100) }) : t('deckWaiting');
+    else if (deck.state === 'reading') {
+      const r = deck.ocr;
+      msg = !r ? t('deckWaiting')
+        : r.state === 'reading' && !r.engineReady && r.stats.read === 0 ? t('deckLangLoading', { lang: languageName(r.lang), mb: (TESS_LANGS[r.lang].bytes / 1e6).toFixed(1) })
+          : t('deckReading', { pct: Math.floor(deck.progress * 100) });
+    }
     else if (deck.state === 'error') msg = deck.error;
     else if (!deck.files.length) msg = t('slidesLocal');
     box.append(files);
@@ -7706,15 +7986,16 @@ class SlidesPane {
 // ===================================================================================
 // Reading the text on the screen view, for following the lecturer's slides (M7.5).
 //
-// Runs only while the recording has slide files. Every 10 s HLS segment starts with a
-// keyframe; the keyframes of the screen view are read at 720p (the smallest rendition at
+// Runs only while the recording has slide files. Every HLS segment starts with a keyframe;
+// one keyframe every CHAPTER_STEP_SEC of the screen view is read at 720p (the smallest rendition at
 // least that tall, or the tallest there is: text in 360p is not readable) and their text is
 // recognised with Tesseract.js (pinned, from jsDelivr, loaded on first use).
 //
 // - A keyframe that looks like the previous one reuses its text: most of a lecture is the
-//   same slide for many segments in a row. The comparison (at 160 x 90) uses the 360p
-//   keyframe (about 20 KB); the 720p one (about 100 KB for a detailed screen) is only
-//   downloaded where something changed.
+//   same slide for many samples in a row. The comparison (at 160 x 90, see thumbChange)
+//   uses the 360p keyframe (about 20 KB), taken from the slide analysis when it has it;
+//   the 720p one (about 100 KB for a detailed screen) is only downloaded where something
+//   changed.
 // - Order: from the playback position onward; a seek starts again there; then the rest.
 // - Pace: while playing, each reading is followed by a rest as long as it took (about half
 //   of one core); while paused, readings follow each other. Downloads wait for the
@@ -7726,6 +8007,10 @@ class SlidesPane {
 // sample, -1 = not read, OCR_FAILED], stats }.
 // For later features (M10 text recognition reuses the keyframes and their text):
 //   reader.times[i], reader.texts, reader.at[i].
+// Language: chosen from the slide files' text (ocrLanguage); English data is about 3 MB,
+// other languages 0.6 to 2.7 MB; each is downloaded when first needed (Tesseract.js then
+// keeps it in the browser's storage), and the slides tab says which and how large while
+// it loads.
 // ===================================================================================
 
 const TESS_BASE = 'https://cdn.jsdelivr.net/npm/';
@@ -7733,12 +8018,68 @@ const TESS_FILES = {
   lib: 'tesseract.js@7.0.0/dist/tesseract.esm.min.js',
   worker: 'tesseract.js@7.0.0/dist/worker.min.js',
   core: 'tesseract.js-core@7.0.0',
-  lang: '@tesseract.js-data/eng@1.0.0/4.0.0_best_int',
 };
-const OCR_HEIGHT = 720;
-const OCR_CMP_W = 160;
-const OCR_CMP_H = 90;
-const OCR_SAVE_EVERY = 10;     // readings between cache writes
+// Language data (pinned, from jsDelivr, 4.0.0_best_int): the scripts each one reads (the
+// non-Latin ones read Latin letters too, for the English terms on such slides), the size
+// of its download, and the language tag for its name. One language per engine: Tesseract.js
+// loads every language of an engine from one place, and each is its own package.
+const TESS_LANGS = {
+  eng: { scripts: ['Latin'], bytes: 2952873, tag: 'en' },
+  chi_sim: { scripts: ['Han', 'Latin'], bytes: 1718768, tag: 'zh-Hans' },
+  chi_tra: { scripts: ['Han', 'Latin'], bytes: 1656239, tag: 'zh-Hant' },
+  jpn: { scripts: ['Han', 'Latin'], bytes: 2030256, tag: 'ja' },
+  kor: { scripts: ['Hangul', 'Latin'], bytes: 1572336, tag: 'ko' },
+  rus: { scripts: ['Cyrillic', 'Latin'], bytes: 2679598, tag: 'ru' },
+  ell: { scripts: ['Greek', 'Latin'], bytes: 1324749, tag: 'el' },
+  ara: { scripts: ['Arabic', 'Latin'], bytes: 1661906, tag: 'ar' },
+  heb: { scripts: ['Hebrew', 'Latin'], bytes: 580576, tag: 'he' },
+  tha: { scripts: ['Thai', 'Latin'], bytes: 896631, tag: 'th' },
+  hin: { scripts: ['Devanagari', 'Latin'], bytes: 1389692, tag: 'hi' },
+};
+const TESS_LANG_PATH = (lang) => TESS_BASE + '@tesseract.js-data/' + lang + '@1.0.0/4.0.0_best_int';
+
+// Characters written differently in simplified and traditional Chinese (common ones, in
+// matching order), to tell the two apart.
+const HANS_ONLY = '\u8fd9\u4eec\u4e2a\u65f6\u6765\u4e3a\u8bf4\u56fd\u8fc7\u53d1\u540e\u4f1a\u5bf9\u5b66\u52a8\u5b9e\u73b0\u70b9\u7ecf\u5173\u5e94\u8fdb\u79cd\u673a\u6570\u636e\u53d8\u8ba1\u7535\u538b\u7ea7\u4ea7\u7ebf\u56fe\u5f53\u8fd8\u65e0\u4e48\u95ee\u9898\u957f\u95f4\u89c1';
+const HANT_ONLY = '\u9019\u5011\u500b\u6642\u4f86\u70ba\u8aaa\u570b\u904e\u767c\u5f8c\u6703\u5c0d\u5b78\u52d5\u5be6\u73fe\u9ede\u7d93\u95dc\u61c9\u9032\u7a2e\u6a5f\u6578\u64da\u8b8a\u8a08\u96fb\u58d3\u7d1a\u7522\u7dda\u5716\u7576\u9084\u7121\u9ebc\u554f\u984c\u9577\u9593\u898b';
+
+// The language to read the screen in, from the text of the slide files: the script most of
+// their words are in (a Chinese or Japanese character counts as a word), English for Latin
+// and for scripts without language data here. Japanese if a tenth or more of the Chinese
+// characters are kana (Japanese prose is about a third or more kana, Chinese has none);
+// simplified or traditional Chinese by which characters it uses.
+function ocrLanguage(pageTexts) {
+  const words = {};
+  let kana = 0;
+  let hans = 0;
+  let hant = 0;
+  for (const text of pageTexts) {
+    for (const [w] of String(text || '').normalize('NFKC').matchAll(WORD_RE)) {
+      if (/^[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}]/u.test(w)) {
+        words.Han = (words.Han || 0) + w.length;
+        for (const ch of w) {
+          if (/[\p{sc=Hiragana}\p{sc=Katakana}]/u.test(ch)) kana++;
+          else if (HANS_ONLY.includes(ch) && !HANT_ONLY.includes(ch)) hans++;
+          else if (HANT_ONLY.includes(ch) && !HANS_ONLY.includes(ch)) hant++;
+        }
+        continue;
+      }
+      const sc = WORD_SCRIPTS.find((x) => new RegExp('^\\p{sc=' + x + '}', 'u').test(w));
+      if (sc) words[sc] = (words[sc] || 0) + 1;
+    }
+  }
+  let top = 'Latin';
+  for (const k of Object.keys(words)) if (words[k] > (words[top] || 0)) top = k;
+  if (top === 'Han') return kana >= 0.1 * words.Han ? 'jpn' : hant > hans ? 'chi_tra' : 'chi_sim';
+  return Object.keys(TESS_LANGS).find((l) => l !== 'eng' && TESS_LANGS[l].scripts[0] === top) || 'eng';
+}
+
+// The name of a language for messages ("Chinese (Simplified)"), in the page's language.
+function languageName(lang) {
+  const tag = (TESS_LANGS[lang] || TESS_LANGS.eng).tag;
+  try { return new Intl.DisplayNames([navigator.language || 'en'], { type: 'language' }).of(tag) || tag; } catch (e) { return tag; }
+}
+
 const OCR_FAILED = -3;         // a sample whose keyframe could not be read
 
 let tesseractPromise = null;
@@ -7749,30 +8090,6 @@ function loadTesseract() {
   }
   return tesseractPromise;
 }
-
-// Brightness of a frame at 160 x 90.
-function lumaThumb(g, img) {
-  g.drawImage(img, 0, 0, OCR_CMP_W, OCR_CMP_H);
-  const d = g.getImageData(0, 0, OCR_CMP_W, OCR_CMP_H).data;
-  const out = new Uint8Array(OCR_CMP_W * OCR_CMP_H);
-  for (let i = 0, j = 0; i < out.length; i++, j += 4) out[i] = (d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8;
-  return out;
-}
-
-// Pixels of two 160 x 90 thumbnails whose brightness differs by more than OCR_PIXEL_DIFF.
-// One pixel is an 8 x 8 block of a 720p frame: a word of slide text changes several of them
-// by much more than that, while re-encoding the same picture changes them by a few levels.
-const OCR_PIXEL_DIFF = 24;
-function thumbChange(a, b) {
-  let n = 0;
-  for (let i = 0; i < a.length; i++) if (Math.abs(a[i] - b[i]) > OCR_PIXEL_DIFF) n++;
-  return n;
-}
-
-// The same text, if fewer pixels changed than a short word of text covers (about 3 x 6 at
-// 160 x 90 for the smallest readable slide text): a mouse pointer, a blinking caret or the
-// clock in a menu bar change fewer.
-const OCR_SAME_MAX = 12;
 
 class SlideTextReader {
   // opts: { lesson, video, source (the screen view), disposer, onChange }
@@ -7788,7 +8105,9 @@ class SlideTextReader {
     opts.disposer.add(() => this.stop());
     this.gate = new BackgroundGate(this.video, this.ac.signal);
     this.reader = null;
-    this.times = [];         // start of each sample (segment)
+    this.times = [];         // start of each sample
+    this.picks = [];         // segment of each sample
+    this.end = 0;            // end of the recording (of the last sample)
     this.texts = [];
     this.at = null;          // Int32Array: text index per sample, -1 = not read
     this.state = 'idle';     // idle | loading | reading | done | unavailable
@@ -7796,9 +8115,15 @@ class SlideTextReader {
     this.stats = { read: 0, same: 0, failed: 0, ms: 0, bytes: 0, wall: 0 };
     this.debug = store.get('debug', false) ? { changes: [] } : null;
     this.engine = null;
+    this.shared = opts.shared || null;   // the slide analysis, if it shares its pictures
+    this.lang = TESS_LANGS[opts.lang] ? opts.lang : 'eng';
+    this.engineReady = false;
   }
 
-  get key() { return 'ocr:' + this.lesson.mediaId + ':' + this.source.index; }
+  // The scripts this reader can read (for matching words, see slideWords).
+  get scripts() { return TESS_LANGS[this.lang].scripts; }
+
+  get key() { return 'ocr:' + this.lesson.mediaId + ':' + this.source.index + (this.lang === 'eng' ? '' : ':' + this.lang); }
 
   done() {
     return this.at ? this.at.reduce((n, x) => n + (x !== -1 ? 1 : 0), 0) : 0;
@@ -7820,6 +8145,7 @@ class SlideTextReader {
 
   stop() {
     this.ac.abort();
+    if (this.shared) this.shared.shareLumas(false);
     if (this.engine) this.engine.then((w) => w.terminate()).catch(() => {});
     this.engine = null;
   }
@@ -7833,8 +8159,14 @@ class SlideTextReader {
     const url = this.source.v || this.source.av;
     this.reader = await new HlsVideoReader(url, Infinity, OCR_HEIGHT).open(signal);
     this.probe = await new HlsVideoReader(url, 360).open(signal);
-    this.times = this.reader.segments.map((s) => s.start);
-    if (this.probe.segments.length !== this.times.length) this.probe = this.reader;
+    this.picks = this.reader.sampleSegments(CHAPTER_STEP_SEC);
+    this.times = this.picks.map((i) => this.reader.segments[i].start);
+    this.end = this.reader.duration;
+    // The 360p keyframe of each sample: the probe's segment starting at the same time, or
+    // the 720p one itself if the renditions are cut differently.
+    this.probePicks = this.times.map((t) => this.probe.segmentAt(t + 0.01));
+    if (this.probePicks.some((k, q) => Math.abs(this.probe.segments[k].start - this.times[q]) > 0.05)) { this.probe = this.reader; this.probePicks = this.picks; }
+    const lumaOf = this.shared && this.shared.shareLumas(true, this.source) ? (t) => this.shared.lumaAt(t) : () => null;
     const n = this.times.length;
     const cached = this.lesson.mediaId ? await idbCache.get(this.key) : undefined;
     if (cacheValid('ocr', cached) && cached.height === this.reader.info.height && Array.isArray(cached.at) && cached.at.length === n) {
@@ -7845,12 +8177,12 @@ class SlideTextReader {
     } else {
       this.at = new Int32Array(n).fill(-1);
     }
-    if (this.done() === n) { this.state = 'done'; this.onChange(); return; }
+    if (this.done() === n) { this.state = 'done'; if (this.shared) this.shared.shareLumas(false); this.onChange(); return; }
     this.state = 'reading';
     this.onChange();
     const canvas = new OffscreenCanvas(this.reader.info.width, this.reader.info.height);
     const g = canvas.getContext('2d');
-    const small = new OffscreenCanvas(OCR_CMP_W, OCR_CMP_H).getContext('2d', { willReadFrequently: true });
+    const small = new OffscreenCanvas(THUMB_W, THUMB_H).getContext('2d', { willReadFrequently: true });
     // The previous sample of this pass, and the thumbnail of the last one whose text was
     // read: changes are measured against that, so that slow changes (ink added a little at
     // a time) still add up.
@@ -7862,21 +8194,23 @@ class SlideTextReader {
     const t0 = performance.now();
     const wall0 = this.stats.wall;
     for (let i = this.next(); i >= 0; i = this.next()) {
-      await this.gate.turn(200, 0, 20);
-      let thumb = null;
+      await this.gate.turn(OCR_PACE_MS[0], OCR_PACE_MS[1], BG_MIN_BUFFER_SEC);
+      let thumb = lumaOf(this.times[i]);
       let full = false;
       const bytes0 = bytes();
-      try {
-        await this.probe.keyframe(i, signal, (f) => { thumb = lumaThumb(small, f); });
-      } catch (e) {
-        if (signal.aborted) throw e;
+      if (!thumb) {
+        try {
+          await this.probe.keyframe(this.probePicks[i], signal, (f) => { thumb = lumaThumb(small, f); });
+        } catch (e) {
+          if (signal.aborted) throw e;
+        }
       }
       const change = thumb && prev === i - 1 && ref ? thumbChange(ref, thumb) : -1;
-      const same = change >= 0 && change < OCR_SAME_MAX;
+      const same = change >= 0 && change < SAME_TEXT_MAX;
       if (this.debug) this.debug.changes[i] = change;
       if (thumb && !same) {
         try {
-          await this.reader.keyframe(i, signal, (f) => { g.drawImage(f, 0, 0, canvas.width, canvas.height); full = true; });
+          await this.reader.keyframe(this.picks[i], signal, (f) => { g.drawImage(f, 0, 0, canvas.width, canvas.height); full = true; });
         } catch (e) {
           if (signal.aborted) throw e;
         }
@@ -7912,6 +8246,7 @@ class SlideTextReader {
       this.onChange();
     }
     this.state = 'done';
+    if (this.shared) this.shared.shareLumas(false);
     this.save();
     this.onChange();
   }
@@ -7925,7 +8260,7 @@ class SlideTextReader {
   // first unread one. -1 when all are read.
   next() {
     const at = this.at;
-    const here = this.reader.segmentAt(this.video.currentTime || 0);
+    const here = Math.max(0, sampleIndexAt(this.times, this.video.currentTime || 0));
     for (let i = here; i < at.length; i++) if (at[i] === -1) return i;
     for (let i = 0; i < here; i++) if (at[i] === -1) return i;
     return -1;
@@ -7937,12 +8272,14 @@ class SlideTextReader {
     if (this.ac.signal.aborted) throw new Error('aborted');
     if (!this.engine) {
       const signal = this.ac.signal;
-      this.engine = loadTesseract().then((T) => T.createWorker('eng', 1, {
+      this.engine = loadTesseract().then((T) => T.createWorker(this.lang, 1, {
         workerPath: TESS_BASE + TESS_FILES.worker,
         corePath: TESS_BASE + TESS_FILES.core,
-        langPath: TESS_BASE + TESS_FILES.lang,
+        langPath: TESS_LANG_PATH(this.lang),
       })).then((w) => {
         if (signal.aborted) { w.terminate(); throw new Error('aborted'); }
+        this.engineReady = true;
+        this.onChange();
         return w;
       });
       this.engine.catch(() => { this.engine = null; });
@@ -7987,8 +8324,46 @@ const SLIDE_STOP = new Set(('the and for are but not you all any can had her was
   + 'what about which when your then them these some into more than only other such also each just like been were said very where while here '
   + 'should could does using used use get got let its how why who may might must shall ours yours his him she hers').split(' '));
 
-function slideWords(text) {
-  return (String(text || '').toLowerCase().match(/[a-z][a-z0-9]{2,}/g) || []).filter((w) => !SLIDE_STOP.has(w));
+// Words of a text, in the scripts that text recognition can read (`scripts`, script
+// names as in Unicode, 'Han' for Chinese and Japanese; Latin when not given): a word in
+// another script (Greek letters of a formula in a PDF, when reading English) can only be on
+// a page, never on screen, and would only blur the comparison.
+// - runs of letters (and digits after them) of one script, in lower case: a change of
+//   script inside a "word" is a formula (jωL) or recognition noise, not a word;
+// - accents on Latin, Greek and Cyrillic letters dropped (text recognition often misses
+//   them; the slide file has them), and compatibility forms unified (the "fi" ligature and
+//   the maths italic letters of a PDF are plain letters);
+// - words of three or more characters: shorter pieces are mostly recognition noise (two
+//   capitals such as AI or ML were tried as words and cost a tenth of the pages on a
+//   circuits lecture, where text recognition makes many of them out of drawings);
+// - Chinese and Japanese text has no spaces: every two neighbouring characters are a word
+//   (a lone character is one);
+// - common English words (SLIDE_STOP) are left out; in other languages common words weigh
+//   little anyway, being on many pages and pictures.
+const WORD_SCRIPTS = ['Latin', 'Greek', 'Cyrillic', 'Armenian', 'Georgian', 'Hebrew', 'Arabic', 'Thai', 'Lao', 'Khmer', 'Myanmar', 'Hangul',
+  'Devanagari', 'Bengali', 'Gurmukhi', 'Gujarati', 'Oriya', 'Tamil', 'Telugu', 'Kannada', 'Malayalam', 'Sinhala', 'Ethiopic'];
+const WORD_RE = new RegExp('[\\p{sc=Han}\\p{sc=Hiragana}\\p{sc=Katakana}]+|'
+  + WORD_SCRIPTS.map((x) => '\\p{sc=' + x + '}[\\p{sc=' + x + '}\\p{M}\\p{N}]*').join('|') + '|\\p{L}[\\p{L}\\p{M}\\p{N}]*', 'gu');
+function slideWords(text, scripts) {
+  const key = (scripts || ['Latin']).join(',');
+  if (!slideWords.allowed || slideWords.allowed.key !== key) {
+    slideWords.allowed = new RegExp('^(?:' + key.split(',').map((x) => (x === 'Han' ? '[\\p{sc=Han}\\p{sc=Hiragana}\\p{sc=Katakana}]' : '\\p{sc=' + x + '}')).join('|') + ')', 'u');
+    slideWords.allowed.key = key;
+  }
+  const allowed = slideWords.allowed;
+  const s = String(text || '').normalize('NFKD').replace(/([\p{sc=Latin}\p{sc=Greek}\p{sc=Cyrillic}])\p{M}+/gu, '$1').normalize('NFKC');
+  const out = [];
+  for (const [w] of s.matchAll(WORD_RE)) {
+    if (!allowed.test(w)) continue;
+    if (/^[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}]/u.test(w)) {
+      if (w.length === 1) out.push(w);
+      for (let i = 0; i + 1 < w.length; i++) out.push(w.slice(i, i + 2));
+      continue;
+    }
+    const l = w.toLowerCase();
+    if (w.length >= 3 && !SLIDE_STOP.has(l)) out.push(l);
+  }
+  return out;
 }
 
 function wordBag(words) {
@@ -8002,12 +8377,12 @@ function wordBag(words) {
 // pictures, so the viewer's own words count little): a slide on screen, even zoomed in,
 // explains much of what is readable; a code editor showing the slide's code next to a file
 // tree, menus and other code does not. words[f]: distinct page words in picture f.
-function textScores(pageTexts, frameTexts) {
+function textScores(pageTexts, frameTexts, scripts) {
   const P = pageTexts.length;
   const F = frameTexts.length;
   const pdf = new Map();
   const pageBags = pageTexts.map((t) => {
-    const b = wordBag(slideWords(t));
+    const b = wordBag(slideWords(t, scripts));
     for (const w of b.keys()) pdf.set(w, (pdf.get(w) || 0) + 1);
     return b;
   });
@@ -8027,7 +8402,7 @@ function textScores(pageTexts, frameTexts) {
   });
   for (let p = 0; p < P; p++) pnorm[p] = Math.sqrt(pnorm[p]) || 1;
   const raw = new Int32Array(F);
-  const allBags = frameTexts.map((t, f) => { const ws = slideWords(t); raw[f] = ws.length; return wordBag(ws); });
+  const allBags = frameTexts.map((t, f) => { const ws = slideWords(t, scripts); raw[f] = ws.length; return wordBag(ws); });
   const frameBags = allBags.map((b) => new Map([...b].filter(([w]) => post.has(w))));
   const fdf = new Map();
   for (const b of allBags) for (const w of b.keys()) fdf.set(w, (fdf.get(w) || 0) + 1);
@@ -8066,14 +8441,12 @@ function textScores(pageTexts, frameTexts) {
 }
 
 // Cosine similarity between every two pages (P x P), from their text alone.
-function pageSimilarity(pageTexts) {
-  const r = textScores(pageTexts, pageTexts);
+function pageSimilarity(pageTexts, scripts) {
+  const r = textScores(pageTexts, pageTexts, scripts);
   return r.scores;
 }
 
 // ---- evidence ----
-
-const EVIDENCE_GRID = 101;
 
 // Log-likelihood ratio "this page is on screen" vs "it is not", learnt from the lecture's
 // own scores (see the top of the file), from two measures of a picture and a page: the
@@ -8104,7 +8477,7 @@ function scoreModel(ts, pageSim) {
     let sxx = 0;
     xs.forEach((x, i) => { const w = ws ? ws[i] : 1; sw += w; sx += w * x[d]; sxx += w * x[d] * x[d]; });
     const mean = sw ? sx / sw : 0;
-    return { mean, sd: Math.max(Math.sqrt(Math.max(0, sxx / (sw || 1) - mean * mean)), 0.01), w: sw };
+    return { mean, sd: Math.max(Math.sqrt(Math.max(0, sxx / (sw || 1) - mean * mean)), EVIDENCE_MIN_SD), w: sw };
   };
   const pdf = (d, x) => Math.exp(-0.5 * ((x - d.mean) / d.sd) ** 2) / d.sd;
   const fit2 = (xs, ws) => [fit(xs, ws, 0), fit(xs, ws, 1)];
@@ -8114,7 +8487,7 @@ function scoreModel(ts, pageSim) {
   let share = 0.5;
   const resp = new Float64Array(best.length);
   const ones = second.map(() => 1);
-  for (let it = 0; it < 200 && best.length; it++) {
+  for (let it = 0; it < EVIDENCE_EM_ROUNDS && best.length; it++) {
     best.forEach((x, i) => {
       const a = share * pdf2(right, x);
       const b = (1 - share) * pdf2(wrong, x);
@@ -8133,8 +8506,8 @@ function scoreModel(ts, pageSim) {
     const g = new Float64Array(n);
     for (let i = 0; i < n; i++) {
       const x = Math.min(i / (n - 1), r.mean);
-      const v = share > 0 ? Math.log(pdf(r, x)) - Math.log(pdf(q, x)) : -25;
-      g[i] = Math.max(i ? g[i - 1] : -Infinity, isFinite(v) ? v : -25);
+      const v = share > 0 ? Math.log(pdf(r, x)) - Math.log(pdf(q, x)) : EVIDENCE_FLOOR;
+      g[i] = Math.max(i ? g[i - 1] : -Infinity, isFinite(v) ? v : EVIDENCE_FLOOR);
     }
     return g;
   };
@@ -8163,21 +8536,7 @@ function slideEvidence(ts, model) {
 
 // ---- sequence ----
 
-// Log-probabilities of moving between two pictures in a row (the second picture differs
-// from the first, so something changed on screen).
-const SLIDE_MOVES = {
-  stay: Math.log(0.45),      // same page (ink, pointer, a build step)
-  next: Math.log(0.30),      // next page
-  back: Math.log(0.05),      // previous page
-  jump: Math.log(0.04),      // any other page of the same file (spread over the file)
-  file: Math.log(0.01),      // a page of another file (spread over that file)
-  off: Math.log(0.15),       // something that is not a slide
-  offStay: Math.log(0.60),   // still not a slide
-  offBack: Math.log(0.20),   // back to the page shown before
-  offNext: Math.log(0.10),   // back to the slides, one page on
-  offJump: Math.log(0.07),   // back to the slides at another page of the same file
-  offFile: Math.log(0.03),   // back to the slides in another file
-};
+// Moves between two pictures in a row: SLIDE_MOVES (02-tuning.js).
 
 // ev: evidence per picture (F x P); fileOf[p]: file of page p; seq[t]: picture shown at
 // step t (time order, one step per distinct picture); force[t] (optional): the user's
@@ -8269,8 +8628,9 @@ function decodeSlides(ev, P, fileOf, seq, force) {
 // ---- one lecture ----
 
 // input: { pageTexts: [string], fileOf: [file index per page], texts: [string] (each
-// distinct picture read), at: [per 10 s sample: index into texts, -1 = not read yet],
-// force: [per sample: page, FORCE_OFF or -1] (optional) }.
+// distinct picture read), at: [per sample: index into texts, -1 = not read yet],
+// force: [per sample: page, FORCE_OFF or -1] (optional), scripts: what text recognition
+// reads (see slideWords; optional) }.
 // Returns { pages: Int32Array per sample (page index, -1 = not a slide, -2 = not read yet),
 // model }.
 function followLecture(input) {
@@ -8279,8 +8639,8 @@ function followLecture(input) {
   const force = input.force || [];
   const out = new Int32Array(at.length).fill(-2);
   if (!P || !input.texts.length) return { pages: out, model: null };
-  const ts = textScores(input.pageTexts, input.texts);
-  const model = scoreModel(ts, pageSimilarity(input.pageTexts));
+  const ts = textScores(input.pageTexts, input.texts, input.scripts);
+  const model = scoreModel(ts, pageSimilarity(input.pageTexts, input.scripts));
   const ev = slideEvidence(ts, model);
   // One step per run of samples showing the same picture (with the same correction).
   const seq = [];
@@ -8308,8 +8668,12 @@ function slideTextWorkerSource() {
   const fns = [slideWords, wordBag, textScores, pageSimilarity, scoreModel, slideEvidence, decodeSlides, followLecture];
   return '"use strict";\n'
     + 'const SLIDE_STOP = new Set(' + JSON.stringify([...SLIDE_STOP]) + ');\n'
+    + 'const WORD_RE = new RegExp(' + JSON.stringify(WORD_RE.source) + ', ' + JSON.stringify(WORD_RE.flags) + ');\n'
     + 'const SLIDE_MOVES = ' + JSON.stringify(SLIDE_MOVES) + ';\n'
     + 'const EVIDENCE_GRID = ' + EVIDENCE_GRID + ';\n'
+    + 'const EVIDENCE_MIN_SD = ' + EVIDENCE_MIN_SD + ';\n'
+    + 'const EVIDENCE_FLOOR = ' + EVIDENCE_FLOOR + ';\n'
+    + 'const EVIDENCE_EM_ROUNDS = ' + EVIDENCE_EM_ROUNDS + ';\n'
     + 'const FORCE_OFF = ' + FORCE_OFF + ';\n'
     + fns.map((f) => f.toString()).join('\n\n') + '\n'
     + 'self.onmessage = (e) => {\n'
@@ -8370,8 +8734,8 @@ class SlideTextWorker {
 // The PDF is the user's: they can page through it freely and remove it at any time.
 // Following the lecture only turns the page for them until they take over.
 //
-// Which page is on screen comes from the text on the screen view, every 10 s across the
-// lecture: 58-slide-ocr.js reads it, 58-slide-text.js decides the pages (in a Worker).
+// Which page is on screen comes from the text on the screen view, every CHAPTER_STEP_SEC
+// across the lecture: 58-slide-ocr.js reads it, 58-slide-text.js decides the pages (in a Worker).
 //
 // Files never leave the browser: they are kept in IndexedDB (by SHA-256), remembered per
 // recording. pdf.js is loaded from jsDelivr (pinned) only when a recording has slide files.
@@ -8388,10 +8752,6 @@ class SlideTextWorker {
 // ===================================================================================
 
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.4.299/build/';
-const FOLLOW_MIN_SEC = 15;       // a quick look at another page (shorter than this) does not turn the page
-const FOLLOW_STALE_SEC = 120;    // after this long without a recognised page, say so
-const FOLLOW_UPDATE_MS = 15000;  // while reading, pages are decided again at most this often
-const DECK_RENDER_BUDGET = 40e6;  // rendered pages kept, in pixels (about 160 MB at 4 bytes a pixel)
 
 let pdfjsPromise = null;
 function loadPdfJs() {
@@ -8416,12 +8776,12 @@ async function sha256Hex(buf) {
   return Array.from(d, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-// The page's title: the largest text in the top 40% of the page.
+// The page's title: the largest text in the top PAGE_TITLE_TOP of the page.
 function pageTitle(items, pageHeight) {
   let size = 0;
-  for (const it of items) if (it.str.trim() && it.transform[5] > pageHeight * 0.6) size = Math.max(size, it.height);
+  for (const it of items) if (it.str.trim() && it.transform[5] > pageHeight * (1 - PAGE_TITLE_TOP)) size = Math.max(size, it.height);
   if (!size) return '';
-  return items.filter((it) => it.str.trim() && it.transform[5] > pageHeight * 0.6 && Math.abs(it.height - size) < 1)
+  return items.filter((it) => it.str.trim() && it.transform[5] > pageHeight * (1 - PAGE_TITLE_TOP) && Math.abs(it.height - size) < 1)
     .map((it) => it.str.trim()).join(' ').replace(/\s+/g, ' ').slice(0, 120);
 }
 
@@ -8442,7 +8802,8 @@ function renderPdfPage(page, width) {
 function followSamples(times, pages, minSec, end) {
   const min = minSec == null ? FOLLOW_MIN_SEC : minSec;
   const n = pages.length;
-  const tEnd = end == null ? (n ? times[n - 1] + 10 : 0) : end;
+  // Without an end, the last sample lasts as long as the one before it.
+  const tEnd = end == null ? (n ? times[n - 1] + (n > 1 ? times[n - 1] - times[n - 2] : 0) : 0) : end;
   // Stretches of one page: [{ p, a, b }] (samples a..b), ended by anything else.
   const runs = [];
   for (let i = 0; i < n; i++) {
@@ -8618,6 +8979,8 @@ class SlideDeckController {
       if (this.job !== job) return;
       this.pages = pages;
       this.state = 'reading';
+      // Files in another language need the screen read again in that language.
+      if (this.ocr && this.ocr.lang !== ocrLanguage(pages.map((x) => x.text))) this.stopReading();
       this.startReading();
       this.decide(true);
       this.onChange();
@@ -8645,7 +9008,8 @@ class SlideDeckController {
     // and its texts, instead of keeping it referenced until the page closes.
     this.ocrD = this.d.child();
     this.ocr = new SlideTextReader({
-      lesson: this.lesson, video: this.video, source, disposer: this.ocrD,
+      lesson: this.lesson, video: this.video, source, disposer: this.ocrD, shared: a || null,
+      lang: ocrLanguage(this.pages.map((x) => x.text)),
       onChange: () => this.readingChanged(),
     });
     this.ocr.start();
@@ -8687,6 +9051,7 @@ class SlideDeckController {
       texts: r.texts,
       at: Array.from(r.at),
       force: this.forces(r.times),
+      scripts: r.scripts,
     };
     const job = this.job;
     this.deciding = this.worker.run(input).then((res) => {
@@ -8716,7 +9081,7 @@ class SlideDeckController {
 
   recompute() {
     const r = this.ocr;
-    this.shown = r && this.decided ? followSamples(r.times, this.decided, FOLLOW_MIN_SEC, this.lesson.duration || undefined) : null;
+    this.shown = r && this.decided ? followSamples(r.times, this.decided, FOLLOW_MIN_SEC, this.lesson.duration || r.end || undefined) : null;
   }
 
   // Page i rendered `width` pixels wide. Kept for reuse within a pixel budget (pages can
@@ -8753,11 +9118,11 @@ class SlideDeckController {
   sampleAt(t) {
     const r = this.ocr;
     if (!r || !r.times.length) return -1;
-    return r.reader.segmentAt(t);
+    return Math.max(0, sampleIndexAt(r.times, t));
   }
 
   // Page to show at time t while following (-1 when nothing is known yet). Samples are
-  // 10 s apart; when the page changes between two of them and the slide analysis found
+  // CHAPTER_STEP_SEC apart; when the page changes between two of them and the slide analysis found
   // the change in between (to about a second), the page turns there.
   pageAt(t) {
     const k = this.sampleAt(t);
@@ -8794,7 +9159,7 @@ class SlideDeckController {
     const out = [];
     if (!this.decided) return out;
     const times = this.ocr.times;
-    const end = (j) => (j + 1 < times.length ? times[j + 1] : this.lesson.duration || times[j] + 10);
+    const end = (j) => (j + 1 < times.length ? times[j + 1] : this.lesson.duration || this.ocr.end);
     for (let j = 0; j < this.decided.length; j++) {
       if (this.decided[j] !== i) continue;
       const last = out[out.length - 1];
@@ -8814,7 +9179,7 @@ class SlideDeckController {
     let b = k;
     while (a > 0 && this.decided[a - 1] === v) a--;
     while (b + 1 < this.decided.length && this.decided[b + 1] === v) b++;
-    return { a: times[a], b: b + 1 < times.length ? times[b + 1] : this.lesson.duration || times[b] + 10 };
+    return { a: times[a], b: b + 1 < times.length ? times[b + 1] : this.lesson.duration || this.ocr.end };
   }
 
   // The user's correction for the part playing at time t: a page index, 'none' (not a
@@ -9110,10 +9475,10 @@ const courseList = {
     const queue = [];
     let running = 0;
     const pump = () => {
-      while (running < 2 && queue.length) {
+      while (running < LIST_CONCURRENT && queue.length) {
         const job = queue.shift();
         running++;
-        job().catch(() => {}).finally(() => { running--; setTimeout(pump, 150); });
+        job().catch(() => {}).finally(() => { running--; setTimeout(pump, LIST_GAP_MS); });
       }
     };
 
@@ -9146,7 +9511,7 @@ const courseList = {
         const pct = Math.max(1, Math.round(info.share * 100)); // never "0%" for something watched
         txt.textContent = t('listWatched', { pct });
         tips.push(t('listWatchedTitle', { pct }));
-        el.className = 'e3l-watch' + (pct >= 99 ? ' e3l-done' : '');
+        el.className = 'e3l-watch' + (pct >= LIST_DONE_PCT ? ' e3l-done' : '');
       } else {
         txt.textContent = t('listLastAt', { time: fmtTime(info.last) });
         txt.className = 'e3l-last';
@@ -9207,7 +9572,7 @@ const courseList = {
       // The list is drawn by the page's own script and redrawn on sorting or filtering.
       new MutationObserver(() => {
         if (pending) return;
-        pending = setTimeout(() => { pending = 0; scan(); }, 300);
+        pending = setTimeout(() => { pending = 0; scan(); }, LIST_DEBOUNCE_MS);
       }).observe(document.body, { childList: true, subtree: true });
     };
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', observe, { once: true }); else observe();
@@ -9642,12 +10007,12 @@ function diagnosticsText(p) {
     let tries = 0;
     const check = () => {
       if (booted) return;
-      if (!document.querySelector('video') && ++tries < 4) { setTimeout(check, 8000); return; }
+      if (!document.querySelector('video') && ++tries < 4) { setTimeout(check, BOOT_CHECK_MS); return; }
       log.info('player bootstrap not seen; leaving the original player in place');
       cpuFix.start();
       notice(t('fallbackNotice'));
     };
-    setTimeout(check, 8000);
+    setTimeout(check, BOOT_CHECK_MS);
   });
 })();
 

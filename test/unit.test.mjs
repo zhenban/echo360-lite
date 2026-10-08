@@ -29,10 +29,10 @@ function loadSources(names, overrides) {
   };
   Object.assign(ctx, overrides || {});
   vm.createContext(ctx);
-  const files = readdirSync(join(root, 'src')).filter((f) => names.some((n) => f.includes(n))).sort();
+  const files = readdirSync(join(root, 'src')).filter((f) => f.startsWith('02-tuning') || names.some((n) => f.includes(n))).sort();
   const code = files.map((f) => readFileSync(join(root, 'src', f), 'utf8')).join('\n')
     + '\n;globalThis.__exports = {};'
-    + ['clamp', 'fmtTime', 'parseIsoDuration', 'Disposer', 'PlayedRanges', 'FollowerSync', 'CueIndex', 'parseVtt', 'AudioChain', 'seg', 'thumbnailFor', 'pickAudioRendition', 'parseMediaPlaylist', 'Envelope', 'findSilences', 'silencesFromCues', 'speechSpans', 'silenceIndexAt', 'mp4Boxes', 'parseFragment', 'videoVariants', 'frameDistance', 'sameView', 'buildScenes', 'chapterIndexAt', 'SessionKeeper', 'mediaSession', 'TagStore', 'watchedShare', 'makeZip', 'crc32', 'lectureMarkdown', 'mdTag', 'followSamples', 'followLecture', 'textScores', 'FORCE_OFF', 'captionExcerpt',
+    + ['clamp', 'fmtTime', 'parseIsoDuration', 'Disposer', 'PlayedRanges', 'FollowerSync', 'CueIndex', 'parseVtt', 'AudioChain', 'seg', 'thumbnailFor', 'pickAudioRendition', 'parseMediaPlaylist', 'Envelope', 'findSilences', 'silencesFromCues', 'speechSpans', 'silenceIndexAt', 'mp4Boxes', 'parseFragment', 'videoVariants', 'thumbChange', 'learnThreshold', 'sampleChanges', 'groupSegments', 'sampleIndexAt', 'HlsVideoReader', 'buildScenes', 'chapterIndexAt', 'SessionKeeper', 'mediaSession', 'TagStore', 'watchedShare', 'makeZip', 'crc32', 'lectureMarkdown', 'mdTag', 'followSamples', 'followLecture', 'textScores', 'slideWords', 'ocrLanguage', 'TESS_LANGS', 'slideTextWorkerSource', 'FORCE_OFF', 'captionExcerpt',
       'sanitizePrefs', 'sanitizePos', 'prefDefaults', 'guard', 'guardCore', 'featureGuard', 'unexpected', 'featureErrors', 'eventLog', 'SilenceAnalyzer', 'skipStretches', 'contentEndAt', 'frameUniform', 'uniformStretches', 'maskUrls', 'diagnosticsText', 'cacheTouched', 'cacheLastUse', 'cacheValid', 'restoreBackup', 'LitePlayer', 'NotesPane', 'DiscussionPane', 'SlideTextReader', 'SlideTextWorker', 'SlideDeckController', 'playerTemplate', 'NS']
       .map((n) => `if (typeof ${n} !== 'undefined') globalThis.__exports.${n} = ${n};`).join('\n');
   vm.runInContext(code, ctx);
@@ -407,7 +407,7 @@ test('silences from transcript gaps; speech spans cut at pauses; lookup', () => 
 // ---- slide chapters ----
 
 function slidesMod() {
-  return loadSources(['00-util', '53-media-io', '56-slides']);
+  return loadSources(['00-util', '53-media-io', '54-silence', '56-slides']);
 }
 
 // ISO BMFF box builder for tests.
@@ -443,6 +443,50 @@ test('fragment parsing finds the keyframe bytes and sample times', () => {
   assert.equal(f.samples[2].offset, moofLen + 8 + 1020);
 });
 
+test('keyframe reading: a header larger than the first request, a tiny static segment, no guessed sizes', async () => {
+  const decoded = [];
+  const m = loadSources(['00-util', '53-media-io', '54-silence', '56-slides'], {
+    EncodedVideoChunk: class { constructor(o) { Object.assign(this, o); } },
+    VideoDecoder: class {
+      constructor(o) { this.o = o; this.state = 'configured'; }
+      configure() {}
+      decode(c) { decoded.push(c.data.length); this.o.output({ timestamp: c.timestamp, close() {} }); }
+      flush() { return Promise.resolve(); }
+      close() { this.state = 'closed'; }
+    },
+  });
+  // A segment whose header (moof, with many samples) is larger than 4 KB, and whose
+  // keyframe is most of the segment (a still picture).
+  const n = 700;
+  const tfhd = box('tfhd', u32(0x020020, 1, 0x10000));
+  const rows = (off) => Buffer.concat([u32(0x000305, n, off, 0x2000000), ...Array.from({ length: n }, (v, i) => u32(512, i ? 3 : 6000))]);
+  const moofLen = box('moof', box('mfhd', u32(0, 1)), box('traf', tfhd, box('trun', rows(0)))).length;
+  const moof = box('moof', box('mfhd', u32(0, 1)), box('traf', tfhd, box('trun', rows(moofLen + 8))));
+  const file = Buffer.concat([moof, box('mdat', Buffer.alloc(6000 + 3 * (n - 1), 7))]);
+  assert.ok(moofLen > 4096);
+  const asked = [];
+  m.setFetch(async (url, init) => {
+    const [a, b] = /bytes=(\d+)-(\d+)/.exec(init.headers.Range).slice(1).map(Number);
+    asked.push([a, b]);
+    const part = file.subarray(a, Math.min(b + 1, file.length));
+    return { ok: true, status: 206, arrayBuffer: async () => part.buffer.slice(part.byteOffset, part.byteOffset + part.length) };
+  });
+  const r = Object.create(m.HlsVideoReader.prototype);
+  Object.assign(r, { segments: [{ url: 'https://x.test/s.mp4', offset: 0, length: file.length, start: 0, dur: 10 }], info: { codec: 'avc1.42c01e', description: new Uint8Array(1), timescale: 1000 }, bytes: 0, lastNeed: 0 });
+  let got = 0;
+  await r.keyframe(0, null, () => { got++; });
+  assert.equal(got, 1);
+  assert.deepEqual(decoded, [6000]);
+  assert.equal(r.lastNeed, moofLen + 8 + 6000);
+  // Never more than the header and the keyframe, and nothing twice.
+  assert.ok(r.bytes <= r.lastNeed + 8 + 4096, 'read ' + r.bytes);
+  for (let k = 1; k < asked.length; k++) assert.equal(asked[k][0], asked[k - 1][1] + 1);
+  // The next keyframe of the stream: one request, sized from this one.
+  asked.length = 0;
+  await r.keyframe(0, null, () => {});
+  assert.equal(asked.length, 1);
+});
+
 test('video variants sorted by height', () => {
   const m = slidesMod();
   const v = m.videoVariants('#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2118548,RESOLUTION=1280x720\ns1q1.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=613230,RESOLUTION=640x360\ns1q0.m3u8\n', 'https://x.test/a/s1_v.m3u8?k=1');
@@ -451,55 +495,92 @@ test('video variants sorted by height', () => {
   assert.equal(v[0].uri, 'https://x.test/a/s1q0.m3u8');
 });
 
-// Synthetic 32 x 18 RGB pictures: a flat background with `rows` of "text" at given lines.
-function pic(bg, lines, ink) {
-  const a = new Uint8Array(32 * 18 * 3).fill(bg);
-  for (const y of lines) for (let x = 2; x < 30; x++) a.fill(bg > 128 ? 20 : 230, (y * 32 + x) * 3, (y * 32 + x) * 3 + 3);
-  for (const [x, y] of ink || []) a.fill(bg > 128 ? 60 : 200, (y * 32 + x) * 3, (y * 32 + x) * 3 + 3);
+// Synthetic 160 x 90 brightness pictures: a flat background with lines of "text" (rows of
+// 2-pixel letters with gaps) at given rows, a little encoding noise, and optional ink.
+function pic(bg, lines, opts) {
+  const o = opts || {};
+  const a = new Uint8Array(160 * 90).fill(bg);
+  const fg = bg > 128 ? 20 : 230;
+  for (const y of lines) for (let x = 8; x < 150; x++) if ((x >> 1) % 4 !== 3) { a[y * 160 + x] = fg; a[(y + 1) * 160 + x] = fg; }
+  for (const [x, y] of o.ink || []) a[y * 160 + x] = bg > 128 ? 60 : 200;
+  let seed = o.seed || 1;
+  for (let i = 0; i < a.length; i++) { seed = (seed * 1103515245 + 12345) & 0x7fffffff; a[i] = Math.max(0, Math.min(255, a[i] + (seed % 7) - 3)); }
   return a;
 }
+const inkStroke = (x0, y0, n) => Array.from({ length: n }, (v, k) => [x0 + k, y0 + (k >> 2)]);
 
-test('frame comparison: ink and pointers are the same slide, new slides are not', () => {
+test('frame comparison: noise is no change, ink is small, a new slide is large; the split is learnt', () => {
   const m = slidesMod();
-  const slideA = pic(230, [2, 5, 8, 11]);
-  const inked = pic(230, [2, 5, 8, 11], [[4, 3], [5, 3], [6, 4], [7, 4], [8, 4], [9, 5], [10, 6], [11, 6], [12, 7], [13, 7], [14, 7]]);
-  const slideB = pic(230, [3, 6, 7, 10, 13, 15]);
-  const editor = pic(25, [1, 3, 4, 6, 9, 12]);
-  assert.equal(m.sameView(slideA, slideA), true);
-  assert.equal(m.sameView(slideA, inked), true);
-  assert.equal(m.sameView(slideA, slideB), false);
-  assert.equal(m.sameView(slideA, editor), false);
-  assert.ok(m.frameDistance(slideA, editor).changed > 0.5);
+  const A = pic(230, [10, 25, 40, 55], { seed: 1 });
+  const A2 = pic(230, [10, 25, 40, 55], { seed: 2 });
+  const inked = pic(230, [10, 25, 40, 55], { seed: 3, ink: inkStroke(30, 15, 40) });
+  const B = pic(230, [15, 30, 33, 50, 65, 75], { seed: 4 });
+  const editor = pic(25, [5, 15, 20, 30, 45, 60], { seed: 5 });
+  assert.equal(m.thumbChange(A, A2), 0);
+  const ink = m.thumbChange(A, inked);
+  assert.ok(ink >= 12 && ink < 100, 'ink ' + ink);
+  assert.ok(m.thumbChange(A, B) > 1000);
+  assert.ok(m.thumbChange(A, editor) > 5000);
+  assert.equal(m.thumbChange(A, editor, 50), 50, 'stops counting at the limit');
+  // A lecture's changes: many without a visible change, some ink, some new slides.
+  const thr = m.learnThreshold([0, 0, 1, 3, 0, 40, 35, 60, 2, 0, 1500, 3000, 0, 45, 2200, 9000, 0, 0]);
+  assert.ok(thr > 60 && thr < 1500, 'threshold ' + thr);
+  // Nothing to split: every visible change is a new picture.
+  assert.equal(m.learnThreshold([0, 0, 2]), 12);
+  assert.equal(m.learnThreshold([0, 900, 0]), 12);
 });
 
-test('scenes: revisits continue a chapter, short runs merge, lookup', () => {
+test('scenes: returns continue a chapter, short looks elsewhere join, single samples merge, lookup', () => {
   const m = slidesMod();
-  const A = pic(230, [2, 5, 8, 11]);
-  const B = pic(230, [3, 6, 7, 10, 13, 15]);
-  const C = pic(230, [1, 4, 12, 14, 16]);
-  const E = pic(25, [1, 3, 4, 6, 9, 12]);
-  const seq = 'AAAAEEAAEEAAABBBBBBX CCCC'.replace(/ /g, '').split('');
-  // X: a single frame caught mid-transition.
-  const X = pic(128, [9]);
-  const map = { A, B, C, E, X };
-  const samples = seq.map((ch, k) => ({ t: k * 10, sig: map[ch] }));
+  let seed = 10;
+  const lines = { A: [10, 25, 40, 55], B: [15, 30, 33, 50, 65, 75], C: [5, 20, 60, 70, 80], E: [5, 15, 20, 30, 45, 60] };
+  const mk = (ch) => {
+    seed++;
+    if (ch === 'a') return pic(230, lines.A, { seed, ink: inkStroke(30, 15, 40) });
+    if (ch === 'X') return pic(128, [45], { seed });  // a single frame caught mid-transition
+    return pic(ch === 'E' ? 25 : 230, lines[ch], { seed });
+  };
+  // A, ink on A, looks at an editor (E) and back, then B, a transition frame, C.
+  const seq = 'AAAaEEaaEEaaaBBBBBBXCCCC'.split('');
+  const samples = seq.map((ch, k) => ({ t: k * 10, luma: mk(ch) }));
   const scenes = m.buildScenes(samples, seq.length * 10);
-  // A (short editor detours fold back into it) | B | X + C
   assert.equal(JSON.stringify(scenes.map((s) => s.start)), '[0,130,190]');
   assert.equal(scenes[0].end, 130);
-  assert.equal(seq[scenes[0].rep], 'A');
+  assert.equal(seq[scenes[0].rep].toUpperCase(), 'A');
   assert.equal(scenes[2].end, seq.length * 10);
   assert.equal(seq[scenes[1].rep], 'B');
   assert.equal(seq[scenes[2].rep], 'C');
+  assert.equal(scenes[2].first, 19);
   assert.equal(m.chapterIndexAt(scenes, 0), 0);
   assert.equal(m.chapterIndexAt(scenes, 135), 1);
   assert.equal(m.chapterIndexAt(scenes, 1e6), 2);
+  // A long stay elsewhere is a chapter of its own, even when it comes back.
+  const seq2 = 'AAABBBBBBBBAAA'.split('');
+  const s2 = m.buildScenes(seq2.map((ch, k) => ({ t: k * 10, luma: mk(ch) })), seq2.length * 10);
+  assert.equal(JSON.stringify(s2.map((s) => s.start)), '[0,30,110]');
+});
+
+test('H1: sampling and chunks follow segment durations, not a fixed 10 s', () => {
+  const m = slidesMod();
+  const segs = (dur, total) => Array.from({ length: Math.ceil(total / dur) }, (v, i) => ({ start: i * dur, dur }));
+  const r = Object.create(m.HlsVideoReader.prototype);
+  r.segments = segs(10, 60);
+  assert.equal(JSON.stringify(r.sampleSegments(10)), '[0,1,2,3,4,5]');
+  r.segments = segs(2, 30);
+  assert.equal(JSON.stringify(r.sampleSegments(10)), '[0,5,10]');
+  r.segments = segs(12, 48);
+  assert.equal(JSON.stringify(r.sampleSegments(10)), '[0,1,2,3]');
+  assert.equal(JSON.stringify(m.groupSegments(segs(10, 130), 60)), '[{"a":0,"b":6},{"a":6,"b":12},{"a":12,"b":13}]');
+  assert.equal(m.groupSegments(segs(2, 120), 60)[0].b, 30);
+  assert.equal(m.groupSegments(segs(90, 180), 60).length, 2);
+  assert.equal(m.sampleIndexAt([0, 10, 20], 15), 1);
+  assert.equal(m.sampleIndexAt([0, 10, 20], -1), -1);
 });
 
 // ---- slide following ----
 
 function deckMod() {
-  return loadSources(['00-util', '53-media-io', '56-slides', '58-slide-text', '59-slide-deck']);
+  return loadSources(['00-util', '53-media-io', '56-slides', '58-slide-text', '58-slide-ocr', '59-slide-deck']);
 }
 
 test('following: not-a-slide and unread parts keep the page, a quick look back does not turn it', () => {
@@ -531,6 +612,88 @@ function fakeLecture() {
   const at = [0, 0, 1, 2, 2, 3, 4, 5, 5, 6, 6, 6, 7, 8, 8, 9];
   return { pageTexts, fileOf: pageTexts.map(() => 0), texts, at };
 }
+
+test('H3: words in any script, only in the scripts being read; the reading language from the slides', () => {
+  const m = deckMod();
+  // Latin: accents and ligatures unified, a script change splits a formula, short pieces dropped.
+  assert.deepEqual(Array.from(m.slideWords('The ﬁlter élève naïve x86 jωL AI of')), ['filter', 'eleve', 'naive', 'x86']);
+  // Maths italic letters of a PDF are plain letters.
+  assert.deepEqual(Array.from(m.slideWords('𝑉𝑜𝑢𝑡')), ['vout']);
+  // Other scripts only when read: Greek words of a formula are not, when reading English.
+  assert.deepEqual(Array.from(m.slideWords('ωωω0 resistor')), ['resistor']);
+  assert.deepEqual(Array.from(m.slideWords('закон Ohm', ['Cyrillic', 'Latin'])), ['закон', 'ohm']);
+  // Chinese: pairs of neighbouring characters, plus the English terms.
+  assert.deepEqual(Array.from(m.slideWords('电路分析 Circuit', ['Han', 'Latin'])), ['电路', '路分', '分析', 'circuit']);
+  assert.deepEqual(Array.from(m.slideWords('电路分析')), []);
+  // The language: by the script of most words.
+  assert.equal(m.ocrLanguage(['Kirchhoff voltage law and Ohm law', 'ω = 2πf, ΔV']), 'eng');
+  assert.equal(m.ocrLanguage(['电路分析 这是电压的问题 Kirchhoff voltage law']), 'chi_sim');
+  assert.equal(m.ocrLanguage(['電路分析 這是電壓的問題']), 'chi_tra');
+  assert.equal(m.ocrLanguage(['これは回路の問題です']), 'jpn');
+  assert.equal(m.ocrLanguage(['전기 회로 분석 법칙']), 'kor');
+  assert.equal(m.ocrLanguage([]), 'eng');
+  // A Chinese lecture is matched on Chinese words: the right page wins.
+  const pages = ['电路分析 基尔霍夫定律', '欧姆定律 电阻和电流', '电容器 充电和放电'];
+  const r = m.followLecture({ pageTexts: pages, fileOf: [0, 0, 0], texts: [pages[0] + ' File Edit', pages[1] + ' File', pages[2]], at: [0, 0, 1, 1, 2, 2], scripts: m.TESS_LANGS.chi_sim.scripts });
+  assert.equal(JSON.stringify(Array.from(r.pages)), '[0,0,1,1,2,2]');
+});
+
+test('T1.6: the Worker source runs on its own and decides as the page does', () => {
+  const m = deckMod();
+  const input = Object.assign(fakeLecture(), { scripts: ['Latin'] });
+  const here = m.followLecture(input);
+  // A bare context: only what a Worker has; any helper the source forgot is a ReferenceError.
+  const posted = [];
+  const ctx = { self: { postMessage: (x) => posted.push(x) }, Date, Math, Int32Array, Float32Array, Float64Array, Uint8Array, Map, Set, Array, Object, String, Number, RegExp, JSON, Infinity, NaN, isFinite };
+  vm.createContext(ctx);
+  vm.runInContext(m.slideTextWorkerSource(), ctx);
+  ctx.self.onmessage({ data: { id: 1, input } });
+  assert.equal(posted.length, 1);
+  assert.equal(posted[0].ok, true, posted[0].error);
+  assert.equal(JSON.stringify(Array.from(posted[0].result.pages)), JSON.stringify(Array.from(here.pages)));
+});
+
+// T2: two hand-labelled lectures replayed through followLecture (texts as hashed word bags,
+// see dev/make-text-fixture.mjs). Scored as dev/text-eval.mjs does, on slide time: the page
+// shown (after followSamples) is the labelled one or next to it, and the page decided is
+// exactly the labelled one. Floors a little under today's results (ELEC 98.6% / 92.4%,
+// COMP 99.3% / 91.4%), so that a change that makes following worse fails here.
+function replayLecture(name) {
+  const m = deckMod();
+  const fx = JSON.parse(readFileSync(join(root, 'test', 'fixtures', name), 'utf8'));
+  const labels = JSON.parse(readFileSync(join(root, 'test', 'fixtures', fx.labels), 'utf8'));
+  const res = m.followLecture({ pageTexts: fx.pages, fileOf: fx.fileOf, texts: fx.texts, at: fx.at });
+  const shown = m.followSamples(fx.times, res.pages, 15, fx.duration);
+  const truthAt = (t) => { let g = null; for (const c of labels.chapters) if (c.start <= t + 0.5) g = c; else break; return g; };
+  const idx = (file, num) => fx.fileOf.findIndex((f, i) => f === file && fx.pageNum[i] === num);
+  const st = { slide: 0, w1: 0, exact: 0, xfile: 0 };
+  fx.times.forEach((t, i) => {
+    const g = truthAt(t);
+    if (!g || !(g.view === 'normal' || g.view === 'zoom')) return;
+    const step = (i + 1 < fx.times.length ? fx.times[i + 1] : fx.duration) - t;
+    const want = idx(g.file, g.page);
+    st.slide += step;
+    if (res.pages[i] === want) st.exact += step;
+    const k = shown[i];
+    if (k >= 0 && fx.fileOf[k] !== g.file) st.xfile += step;
+    if (k >= 0 && fx.fileOf[k] === g.file && Math.abs(k - want) <= 1) st.w1 += step;
+  });
+  return { within1: st.w1 / st.slide, exact: st.exact / st.slide, crossFile: st.xfile / st.slide };
+}
+
+test('T2: following on labelled lectures stays accurate (ELEC2134, 3 h, two distractor files)', () => {
+  const r = replayLecture('text-2026-09-15-elec2134.json');
+  assert.ok(r.within1 >= 0.97, 'within one page ' + r.within1);
+  assert.ok(r.exact >= 0.9, 'exact page ' + r.exact);
+  assert.equal(r.crossFile, 0);
+});
+
+test('T2: following on labelled lectures stays accurate (COMP2511, 2 h, two files, much code and video)', () => {
+  const r = replayLecture('text-2026-09-28.json');
+  assert.ok(r.within1 >= 0.97, 'within one page ' + r.within1);
+  assert.ok(r.exact >= 0.9, 'exact page ' + r.exact);
+  assert.equal(r.crossFile, 0);
+});
 
 test('text following: pages from the words on screen, order fills in a page without text', () => {
   const m = deckMod();
@@ -851,9 +1014,9 @@ test('B8: diagnostics mask every address and long id', () => {
 
 test('D1: uniform pictures, skippable stretches and where the content ends', () => {
   const m = loadSources(['00-util', '53-media-io', '54-silence', '56-slides']);
-  const flat = new Uint8Array(32 * 18 * 3).fill(12);
-  flat[30] = 200; // a cursor or a small logo
-  const slide = new Uint8Array(32 * 18 * 3).map((x, i) => (i % 7 === 0 ? 0 : 230));
+  const flat = pic(12, []);
+  for (let y = 40; y < 44; y++) for (let x = 70; x < 74; x++) flat[y * 160 + x] = 200; // a cursor or a small logo
+  const slide = pic(230, [10, 25, 40, 55, 70]);
   assert.equal(m.frameUniform(flat), true);
   assert.equal(m.frameUniform(slide), false);
   const samples = [0, 10, 20, 30, 40].map((t, i) => ({ t, uniform: i >= 3 }));

@@ -206,7 +206,7 @@ class LitePlayer {
       const local = sanitizePos(store.get('pos:' + this.lesson.id, null));
       t0 = local ? local.t : 0;
     }
-    if (!(t0 > 0) || (isFinite(dur) && t0 > dur - 10)) t0 = 0;
+    if (!(t0 > 0) || (isFinite(dur) && t0 > dur - RESUME_END_SEC)) t0 = 0;
     return t0;
   }
 
@@ -491,7 +491,7 @@ class LitePlayer {
   // or a renewal that fails, ends in `fail`.
   recoverAccess(stream, fail) {
     const now = Date.now();
-    if (stream.renewedAt && now - stream.renewedAt < 30000) { fail(); return; }
+    if (stream.renewedAt && now - stream.renewedAt < RENEW_REFUSAL_MS) { fail(); return; }
     // The stream may be reloaded (views swapped) while renewing: resume only the instance
     // that failed; a new one has started loading by itself.
     const engine = stream.hls;
@@ -578,23 +578,23 @@ class LitePlayer {
     d.listen(document, 'visibilitychange', () => { if (!document.hidden) this.render(true); });
     d.listen(window, 'hashchange', () => { const tm = this.linkTime(); if (tm != null) this.seek(tm); });
 
-    // Every 2 s: stall watchdog (playing, not seeking, time has not moved for 12 s) and,
-    // every fifth tick, the local resume position as a fallback for the server-side one.
+    // Stall watchdog (playing, not seeking, time has not moved for STALL_SEC) and, every
+    // few ticks, the local resume position as a fallback for the server-side one.
     let lastT = -1;
     let still = 0;
     let tick = 0;
     d.interval(() => {
       if (v.paused || v.seeking || v.ended) { still = 0; lastT = v.currentTime; return; }
       if (v.currentTime === lastT) {
-        still += 2;
-        if (still >= 12) {
+        still += STALL_CHECK_MS / 1000;
+        if (still >= STALL_SEC) {
           log.warn('playback stalled, restarting loader at', v.currentTime.toFixed(1));
           this.clock.kick(v.currentTime);
           still = 0;
         }
       } else { still = 0; lastT = v.currentTime; }
-      if (++tick % 5 === 0) { this.savePosition(); this.watched.save(this.duration()); this.renderWatched(); }
-    }, 2000);
+      if (++tick % POSITION_SAVE_EVERY === 0) { this.savePosition(); this.watched.save(this.duration()); this.renderWatched(); }
+    }, STALL_CHECK_MS);
   }
 
   setButton(sel, icon, label) {
@@ -780,7 +780,7 @@ class LitePlayer {
     clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(guard(() => {
       if (!this.video.paused && !this.dragging && !this.menusOpen()) this.stage.classList.add('idle');
-    }), 2500);
+    }), CONTROLS_HIDE_MS);
   }
 
   bindControls() {
@@ -914,7 +914,7 @@ class LitePlayer {
       if (this.zoom.dragged) return;
       if (wokeByPress) { wokeByPress = false; return; }
       clearTimeout(clickTimer);
-      clickTimer = setTimeout(guard(() => this.togglePlay()), 200);
+      clickTimer = setTimeout(guard(() => this.togglePlay()), DOUBLE_CLICK_MS);
     });
     d.listen(views, 'dblclick', (e) => {
       // Zoomed in: back to the whole picture; otherwise full screen.
@@ -961,7 +961,7 @@ class LitePlayer {
       if (this.dragging) {
         seekEl.style.setProperty('--p', f.toFixed(5));
         const now = performance.now();
-        if (now - lastSeekAt > 200) { lastSeekAt = now; v.currentTime = f * this.duration(); }
+        if (now - lastSeekAt > DRAG_SEEK_MS) { lastSeekAt = now; v.currentTime = f * this.duration(); }
       }
     });
     d.listen(seekEl, 'pointerdown', (e) => {

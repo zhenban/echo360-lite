@@ -141,6 +141,7 @@ const STRINGS = {
     deckLoading: 'Opening the slide files…',
     deckReading: 'Reading the slides on screen: {pct}%',
     deckWaiting: 'Waiting to find the screen view…',
+    deckLangLoading: 'Getting text recognition for {lang} ({mb} MB, once)…',
     deckError: 'Could not read the slide file ({msg}).',
     deckSaveFailed: 'Could not store {name} on this device ({msg}). Is the disk full?',
     prevPage: 'Previous page',

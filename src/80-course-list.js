@@ -49,10 +49,10 @@ const courseList = {
     const queue = [];
     let running = 0;
     const pump = () => {
-      while (running < 2 && queue.length) {
+      while (running < LIST_CONCURRENT && queue.length) {
         const job = queue.shift();
         running++;
-        job().catch(() => {}).finally(() => { running--; setTimeout(pump, 150); });
+        job().catch(() => {}).finally(() => { running--; setTimeout(pump, LIST_GAP_MS); });
       }
     };
 
@@ -85,7 +85,7 @@ const courseList = {
         const pct = Math.max(1, Math.round(info.share * 100)); // never "0%" for something watched
         txt.textContent = t('listWatched', { pct });
         tips.push(t('listWatchedTitle', { pct }));
-        el.className = 'e3l-watch' + (pct >= 99 ? ' e3l-done' : '');
+        el.className = 'e3l-watch' + (pct >= LIST_DONE_PCT ? ' e3l-done' : '');
       } else {
         txt.textContent = t('listLastAt', { time: fmtTime(info.last) });
         txt.className = 'e3l-last';
@@ -146,7 +146,7 @@ const courseList = {
       // The list is drawn by the page's own script and redrawn on sorting or filtering.
       new MutationObserver(() => {
         if (pending) return;
-        pending = setTimeout(() => { pending = 0; scan(); }, 300);
+        pending = setTimeout(() => { pending = 0; scan(); }, LIST_DEBOUNCE_MS);
       }).observe(document.body, { childList: true, subtree: true });
     };
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', observe, { once: true }); else observe();
