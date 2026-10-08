@@ -3,24 +3,6 @@
 // show(visible); only the active tab of an open panel is visible, so hidden tabs do no work.
 // ===================================================================================
 
-// Small DOM helper: h('button.btn.primary', { title: 'x', onclick }, 'text', child, ...)
-function el(spec, props, ...children) {
-  const [tag, ...classes] = spec.split('.');
-  const elem = document.createElement(tag || 'div');
-  if (classes.length) elem.className = classes.join(' ');
-  if (props) {
-    for (const [k, v] of Object.entries(props)) {
-      if (v == null || v === false) continue;
-      if (k.startsWith('on') && typeof v === 'function') elem.addEventListener(k.slice(2), guard(v));
-      else if (k === 'text') elem.textContent = v;
-      else if (k in elem && typeof v !== 'string') elem[k] = v;
-      else elem.setAttribute(k, v === true ? '' : String(v));
-    }
-  }
-  for (const c of children) if (c != null && c !== false) elem.append(c);
-  return elem;
-}
-
 const SIDEBAR_TABS = ['transcript', 'slides', 'notes', 'discussion'];
 
 class Sidebar {

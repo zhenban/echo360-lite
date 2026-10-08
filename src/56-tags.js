@@ -166,14 +166,7 @@ function tagManager(tagStore, onClose) {
       const name = el('input.input.small', { value: tag.name, maxLength: 40, 'aria-label': tr('tagName') });
       name.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') name.blur(); });
       name.addEventListener('change', () => tagStore.rename(tag.id, name.value));
-      let armed = 0;
-      const del = el('button.link.danger', { text: tr('delete') });
-      del.addEventListener('click', () => {
-        if (!armed) { del.textContent = tr('confirmDelete'); armed = setTimeout(() => { armed = 0; del.textContent = tr('delete'); }, 3000); return; }
-        clearTimeout(armed);
-        tagStore.remove(tag.id);
-        render();
-      });
+      const del = confirmButton(tr('delete'), () => { tagStore.remove(tag.id); render(); });
       box.append(el('div.tagrow', null, swatch, name, del));
     }
     const input = el('input.input.small', { placeholder: tr('newTag'), maxLength: 40, 'aria-label': tr('newTag') });

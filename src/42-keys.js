@@ -1,12 +1,13 @@
 // ===================================================================================
 // Keyboard shortcuts and their help panel (`?`).
 //
-// Keys are mapped to named actions the player provides (see the player's setupKeys); an
+// Keys are mapped to named actions the player provides (the player's keyActions); an
 // action returning false means "not available now" and the key is left to the page.
 // Typing in a field never triggers a shortcut.
 // ===================================================================================
 
 // As listed in the help panel: [keys, string key].
+/** @type {[string[], string][]} */
 const KEY_HELP = [
   [['Space', 'K'], 'keyPlay'], [['←', '→'], 'keySeek5'], [['J', 'L'], 'keySeek10'], [['↑', '↓'], 'keyVolume'],
   [['M'], 'keyMute'], [['F'], 'keyFullscreen'], [['S'], 'keySwap'], [['[', ']'], 'keySpeed'],

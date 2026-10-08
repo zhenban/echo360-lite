@@ -46,11 +46,14 @@ const WORD_RE = new RegExp('[\\p{sc=Han}\\p{sc=Hiragana}\\p{sc=Katakana}]+|'
   + WORD_SCRIPTS.map((x) => '\\p{sc=' + x + '}[\\p{sc=' + x + '}\\p{M}\\p{N}]*').join('|') + '|\\p{L}[\\p{L}\\p{M}\\p{N}]*', 'gu');
 function slideWords(text, scripts) {
   const key = (scripts || ['Latin']).join(',');
-  if (!slideWords.allowed || slideWords.allowed.key !== key) {
-    slideWords.allowed = new RegExp('^(?:' + key.split(',').map((x) => (x === 'Han' ? '[\\p{sc=Han}\\p{sc=Hiragana}\\p{sc=Katakana}]' : '\\p{sc=' + x + '}')).join('|') + ')', 'u');
-    slideWords.allowed.key = key;
+  // The pattern for these scripts is kept on the function itself (it also runs in the
+  // Worker, built from this function's source, where no outside variable exists).
+  const self = /** @type {any} */ (slideWords);
+  if (!self.allowed || self.allowed.key !== key) {
+    self.allowed = new RegExp('^(?:' + key.split(',').map((x) => (x === 'Han' ? '[\\p{sc=Han}\\p{sc=Hiragana}\\p{sc=Katakana}]' : '\\p{sc=' + x + '}')).join('|') + ')', 'u');
+    self.allowed.key = key;
   }
-  const allowed = slideWords.allowed;
+  const allowed = self.allowed;
   const s = String(text || '').normalize('NFKD').replace(/([\p{sc=Latin}\p{sc=Greek}\p{sc=Cyrillic}])\p{M}+/gu, '$1').normalize('NFKC');
   const out = [];
   for (const [w] of s.matchAll(WORD_RE)) {

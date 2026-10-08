@@ -158,20 +158,7 @@ class NotesPane {
 
   // Two clicks within 3 s delete; the second click is the user action sent with the write.
   deleteButton(item) {
-    const label = item.type === 'flag' ? tr('remove') : tr('delete');
-    let armed = 0;
-    const b = el('button.link.danger', { text: label });
-    b.addEventListener('click', guard((e) => {
-      if (!armed) {
-        b.textContent = tr('confirmDelete');
-        armed = setTimeout(() => { armed = 0; b.textContent = label; }, 3000);
-        return;
-      }
-      clearTimeout(armed);
-      armed = 0;
-      this.remove(e, item);
-    }));
-    return b;
+    return confirmButton(item.type === 'flag' ? tr('remove') : tr('delete'), (e) => this.remove(e, item));
   }
 
   startEdit(item, card) {

@@ -316,6 +316,7 @@ const STRINGS = {
   },
 };
 
+// English only for now; M9 chooses English or Chinese from the browser's language.
 const LANG = 'en';
 
 function tr(key, vars) {

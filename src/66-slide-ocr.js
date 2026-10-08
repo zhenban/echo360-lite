@@ -168,7 +168,7 @@ class SlideTextReader {
   async run() {
     const signal = this.ac.signal;
     if (!HlsVideoReader.supported()) throw new Error('WebCodecs not available');
-    if (navigator.connection && navigator.connection.saveData) throw new Error('Data Saver is on');
+    if (saveDataOn()) throw new Error('Data Saver is on');
     this.state = 'loading';
     this.onChange();
     const url = this.source.v || this.source.av;

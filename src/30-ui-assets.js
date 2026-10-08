@@ -38,7 +38,7 @@ const svg = (name) => '<svg viewBox="0 0 24 24" aria-hidden="true">' + ICON[name
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 
-const CSS = `
+const PLAYER_CSS = `
 :host { all: initial; position: fixed; inset: 0; z-index: 2147483000; display: block; background: #000;
   color: #f1f1f3; font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
   --accent: #4f8cff; --panel: rgba(18,18,22,.92); -webkit-font-smoothing: antialiased; }

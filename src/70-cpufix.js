@@ -106,6 +106,7 @@ const cpuFix = (function () {
         st = churn.get(id);
         if (!st) churn.set(id, (st = { seen: new Set(), active: false }));
         if (st.active && isLocalSheet(ss)) {
+          /** @type {{ rules: any, name: string } | null} */
           let captured = null;
           const proxy = new Proxy(ss, {
             get(target, key) {
@@ -157,7 +158,7 @@ const cpuFix = (function () {
     let gsProto = null;
     let csProto = null;
     for (const elem of document.querySelectorAll('body, body *')) {
-      const c = elem._reactRootContainer;
+      const c = /** @type {any} */ (elem)._reactRootContainer;  // React 17's root, on its container element
       const root = c && (c._internalRoot || c);
       if (!root || !root.current) continue;
       const stack = [root.current];

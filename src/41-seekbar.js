@@ -3,7 +3,7 @@
 // hover tip (time, marker or skippable stretch, preview picture), and the marks drawn on
 // the rail (chapters, skippable stretches, what was watched).
 //
-// Gets only what it needs (see the player's setupSeekBar):
+// Gets only what it needs (see the player's setupParts):
 //   $(sel)          the player's markup
 //   video, clock    the clock <video> and its Stream (position while loading)
 //   duration()      seconds

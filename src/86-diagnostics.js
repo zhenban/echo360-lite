@@ -37,7 +37,10 @@ function diagnosticsText(p) {
     + (p.pdfMode ? ' (PDF view)' : '') + ', quality ' + q(p.clock) + ' / ' + q(p.follower)
     + (p.fvideo && !p.fvideo.paused ? ', sync ' + Math.round((p.fvideo.currentTime - v.currentTime) * 1000) + ' ms' : ''));
   const s = p.silence && p.silence.analyzer;
-  if (s) add('Silence detection', (s.source || '-') + (s.reason ? ' (' + s.reason + ')' : '') + ', ' + (s.silences ? s.silences.length : 0) + ' found');
+  if (s) {
+    const lv = s.stats && isFinite(s.stats.noiseDb) ? ', levels: noise ' + Math.round(s.stats.noiseDb) + ' dB, speech ' + Math.round(s.stats.speechDb) + ' dB, threshold ' + Math.round(s.stats.thresholdDb) + ' dB' : '';
+    add('Silence detection', (s.source || '-') + (s.reason ? ' (' + s.reason + ')' : '') + ', ' + (s.silences ? s.silences.length : 0) + ' found' + lv);
+  }
   const a = p.slides;
   if (a) add('Slide chapters', a.state + ', ' + a.chapters.length + ' chapters, screen view ' + (a.screenIndex == null ? 'unknown' : a.screenIndex));
   const d = p.deck;

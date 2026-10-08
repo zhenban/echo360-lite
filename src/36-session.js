@@ -97,9 +97,7 @@ class SessionKeeper {
     if (r && r.body) r.body.cancel().catch(() => {});
     // A redirect (to the login page) or a refusal: the school login has expired.
     if (r && (r.type === 'opaqueredirect' || r.status === 401 || r.status === 403)) {
-      const e = new Error('login expired');
-      e.login = true;
-      throw e;
+      throw Object.assign(new Error('login expired'), { login: true });
     }
     if (r && r.ok) return;
     if (k >= this.retryMs.length) throw new Error('renewal failed' + (r ? ' (HTTP ' + r.status + ')' : ''));

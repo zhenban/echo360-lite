@@ -23,12 +23,6 @@ class ApiError extends Error {
   }
 }
 
-// Path segment as the original player builds it: Echo360 ids are used verbatim (they
-// contain ':' and '.'), only characters that would break the URL are escaped.
-function seg(id) {
-  return String(id).replace(/[^\w.:~-]/g, encodeURIComponent);
-}
-
 // Same thumbnail choice as the original player: first thumbnail set, the last image taken
 // strictly before the referenced moment, else the first one; '' without thumbnails.
 function thumbnailFor(thumbnails, ms) {
@@ -37,7 +31,7 @@ function thumbnailFor(thumbnails, ms) {
   const r = Number(ms) / 1000;
   let pick = set.timesInSeconds.slice().reverse().find((x) => x < r);
   if (pick === undefined) pick = set.timesInSeconds[0];
-  return set.baseUri + '/' + pick + '.' + set.extension;
+  return thumbUrlOf(set, pick);
 }
 
 function requireGesture(ev) {
@@ -54,6 +48,7 @@ class Echo360Api {
   }
 
   async request(method, path, body) {
+    /** @type {RequestInit & { headers: Record<string, string> }} */
     const opts = { method, credentials: 'include', headers: { Accept: 'application/json' } };
     if (body !== undefined) {
       opts.headers['Content-Type'] = 'application/json';

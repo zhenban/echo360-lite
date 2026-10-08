@@ -136,16 +136,9 @@ function parseFragment(buf, segmentOffset) {
 
 // Variant URIs of a master playlist with their heights, lowest first.
 function videoVariants(master, base) {
-  const out = [];
-  const lines = String(master).split(/\r?\n/);
-  for (let i = 0; i < lines.length; i++) {
-    if (!lines[i].startsWith('#EXT-X-STREAM-INF:')) continue;
-    const a = parseAttrs(lines[i].slice(18));
-    const uri = (lines.slice(i + 1).find((l) => l && !l.startsWith('#')) || '').trim();
-    const h = a.RESOLUTION ? +a.RESOLUTION.split('x')[1] : 0;
-    if (uri) out.push({ uri: new URL(uri, base).href, height: h, bandwidth: +a.BANDWIDTH || 0 });
-  }
-  return out.sort((x, y) => x.height - y.height || x.bandwidth - y.bandwidth);
+  return parseMaster(master).variants.filter((x) => x.uri).map(({ attrs: a, uri }) => ({
+    uri: new URL(uri, base).href, height: a.RESOLUTION ? +a.RESOLUTION.split('x')[1] : 0, bandwidth: +a.BANDWIDTH || 0,
+  })).sort((x, y) => x.height - y.height || x.bandwidth - y.bandwidth);
 }
 
 class HlsVideoReader {
@@ -312,7 +305,7 @@ function lumaThumb(g, img) {
 let thumbCtx = null;
 function thumbContext() {
   if (!thumbCtx) {
-    const c = typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(THUMB_W, THUMB_H) : Object.assign(document.createElement('canvas'), { width: THUMB_W, height: THUMB_H });
+    const c = makeCanvas(THUMB_W, THUMB_H);
     thumbCtx = c.getContext('2d', { willReadFrequently: true });
   }
   return thumbCtx;
@@ -425,7 +418,7 @@ function uniformStretches(samples, duration) {
 function flatShare(img) {
   const W = 160;
   const H = 90;
-  const c = typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(W, H) : Object.assign(document.createElement('canvas'), { width: W, height: H });
+  const c = makeCanvas(W, H);
   const g = c.getContext('2d', { willReadFrequently: true });
   g.drawImage(img, 0, 0, W, H);
   const d = g.getImageData(0, 0, W, H).data;
@@ -592,6 +585,7 @@ class SlideAnalyzer {
     this.gate = new BackgroundGate(this.video, this.ac.signal);
     this.state = 'pending';   // pending | thumbnails | keyframes | done | unavailable
     this.progress = 0;
+    /** @type {Chapter[]} */
     this.chapters = [];
     this.uniform = [];       // stretches where the screen shows (almost) one colour
     this.screenIndex = null;
@@ -615,8 +609,7 @@ class SlideAnalyzer {
   }
 
   duration() {
-    const v = this.video.duration;
-    return isFinite(v) && v > 0 ? v : this.lesson.duration;
+    return mediaDuration(this.video, this.lesson);
   }
 
   thumbUrl(blob) {
@@ -670,7 +663,7 @@ class SlideAnalyzer {
     this.onChange();
     await gate.wait(BG_START_DELAY_MS); // let playback start first
     if (screen.thumbs) this.fromThumbnails(screen.thumbs, signal, gate);
-    if (!HlsVideoReader.supported() || (navigator.connection && navigator.connection.saveData)) {
+    if (!HlsVideoReader.supported() || saveDataOn()) {
       if (this.chapters.length) { this.state = 'done'; this.progress = 1; this.onChange(); }
       return;
     }
@@ -782,7 +775,7 @@ class SlideAnalyzer {
   }
 
   async loadThumb(set, t, signal) {
-    const url = set.baseUri + '/' + t + '.' + set.extension;
+    const url = thumbUrlOf(set, t);
     let r;
     try {
       r = await fetchOk(url, { signal });
@@ -818,7 +811,7 @@ class SlideAnalyzer {
       end: sc.end,
       precise: false,
       repTime: samples[sc.rep].t,
-      thumb: set.baseUri + '/' + samples[sc.rep].t + '.' + set.extension,
+      thumb: thumbUrlOf(set, samples[sc.rep].t),
     }));
     for (let i = 1; i < this.chapters.length; i++) this.chapters[i - 1].end = this.chapters[i].start;
     this.state = 'thumbnails';
@@ -848,7 +841,7 @@ class SlideAnalyzer {
     const reader = opened || await new HlsVideoReader(source.v || source.av, 360).open(signal);
     if (this.thumbsDone) await this.thumbsDone;
     if (signal.aborted) return;
-    this.reader = reader;
+    this.reader = reader;   // read by the development tools (dev/chap-run.mjs)
     const picks = reader.sampleSegments(CHAPTER_STEP_SEC);
     const n = picks.length;
     const samples = [];
@@ -909,6 +902,7 @@ class SlideAnalyzer {
       if (k <= 0) continue;
       await gate.turn(CHAPTER_REFINE_PACE_MS[0], CHAPTER_REFINE_PACE_MS[1], STREAM_MAX_BUFFER_SEC);
       const before = samples[k - 1].luma;
+      /** @type {number | null} */
       let at = null;
       // A segment that cannot be read keeps the coarse time.
       try {

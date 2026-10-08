@@ -11,6 +11,22 @@ function parseAttrs(s) {
   return out;
 }
 
+// Master playlist -> { media: [attributes of each #EXT-X-MEDIA], variants: [{ attrs, uri }]
+// (each #EXT-X-STREAM-INF with the URI line after it, as written) }.
+function parseMaster(text) {
+  const out = { media: [], variants: [] };
+  const lines = String(text).split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.startsWith('#EXT-X-MEDIA:')) out.media.push(parseAttrs(line.slice(13)));
+    else if (line.startsWith('#EXT-X-STREAM-INF:')) {
+      const uri = (lines.slice(i + 1).find((l) => l && !l.startsWith('#')) || '').trim();
+      out.variants.push({ attrs: parseAttrs(line.slice(18)), uri });
+    }
+  }
+  return out;
+}
+
 // Media playlist -> { init: { url, offset, length } | null, segments: [{ start, dur, url, offset, length }] }.
 // length is null for segments that are whole files.
 function parseMediaPlaylist(text, base) {

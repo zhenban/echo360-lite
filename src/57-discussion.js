@@ -183,20 +183,9 @@ class DiscussionPane {
       actions);
   }
 
+  // Two clicks within 3 s delete; the second click is the user action sent with the write.
   deleteButton(c) {
-    let armed = 0;
-    const b = el('button.link.danger', { text: tr('delete') });
-    b.addEventListener('click', guard((e) => {
-      if (!armed) {
-        b.textContent = tr('confirmDelete');
-        armed = setTimeout(() => { armed = 0; b.textContent = tr('delete'); }, 3000);
-        return;
-      }
-      clearTimeout(armed);
-      armed = 0;
-      this.write(e, () => this.api.deleteComment(e, c));
-    }));
-    return b;
+    return confirmButton(tr('delete'), (e) => this.write(e, () => this.api.deleteComment(e, c)));
   }
 
   renderReplyComposer(q) {
@@ -271,7 +260,7 @@ class DiscussionPane {
 
 function formatDate(iso) {
   const d = new Date(iso);
-  if (isNaN(d)) return '';
+  if (isNaN(d.getTime())) return '';
   try {
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   } catch (e) {

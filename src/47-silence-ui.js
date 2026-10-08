@@ -13,7 +13,8 @@ class SilenceUi {
   constructor(deps, disposer) {
     this.x = deps;
     this.d = disposer;
-    this.skips = [];          // skippable stretches, sorted
+    /** @type {SkipStretch[]} skippable stretches, sorted */
+    this.skips = [];
     this.contentEnd = null;   // where the lecture's content ends (an empty ending follows), or null
     this.idx = -1;            // stretch the playhead is in
     this.autoSkipped = new Set();

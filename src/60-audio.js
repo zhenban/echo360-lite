@@ -101,6 +101,7 @@ class AudioChain {
     if (s.mono) stages.push([n.mono, n.mono]);
     if (s.voice) stages.push([n.highpass, n.presence]);
     if (s.level) stages.push([n.leveller, n.trim]);
+    /** @type {AudioNode} */
     let tail = n.src;
     for (const [entry, exit] of stages) { tail.connect(entry); tail = exit; }
     tail.connect(this.ctx.destination);

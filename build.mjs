@@ -28,6 +28,13 @@ export function assemble() {
   });
   if (failed) return null;
   const meta = readFileSync(join(srcDir, 'meta.txt'), 'utf8').replace('{{VERSION}}', version).trimEnd();
+  // The pages the script is loaded on (@match) and those it acts on (SITE_HOSTS) must agree.
+  const matched = [...new Set([...meta.matchAll(/^\/\/ @match\s+https:\/\/([^/]+)\//gm)].map((m) => m[1]))].sort();
+  const sites = JSON.parse(/const SITE_HOSTS = (\[[^\]]*\]);/.exec(readFileSync(join(srcDir, '03-common.js'), 'utf8'))[1].replace(/'/g, '"')).sort();
+  if (JSON.stringify(matched) !== JSON.stringify(sites)) {
+    console.error('meta.txt @match hosts ' + matched.join(', ') + ' differ from SITE_HOSTS ' + sites.join(', '));
+    return null;
+  }
   const out = `${meta}
 
 /* global Hls */

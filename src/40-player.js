@@ -126,6 +126,11 @@ class LitePlayer {
     return elem;
   }
 
+  // All elements of the player's markup matching sel (for groups such as menu items).
+  all(sel) {
+    return /** @type {HTMLElement[]} */ ([...this.root.querySelectorAll(sel)]);
+  }
+
   get secondaryPos() {
     return this.dual ? (this.primaryPos + 1) % this.sources.length : -1;
   }
@@ -144,7 +149,7 @@ class LitePlayer {
     const host = document.createElement('div');
     host.id = 'echo360-lite';
     const root = host.attachShadow({ mode: 'open' });
-    root.innerHTML = '<style>' + CSS + '</style>' + playerTemplate();
+    root.innerHTML = '<style>' + PLAYER_CSS + '</style>' + playerTemplate();
     this.host = host;
     this.root = root;
     this.refs = new Map();
@@ -283,7 +288,7 @@ class LitePlayer {
     }
     this.$('.layout').style.display = this.dual || pdf ? '' : 'none';
     this.setButton('.layout', layout === 'side' ? 'layoutSide' : layout === 'pip' ? 'layoutPip' : 'layoutSingle', tr('layout'));
-    for (const b of this.root.querySelectorAll('.layoutmenu button')) b.setAttribute('aria-checked', String(b.dataset.layout === layout));
+    for (const b of this.all('.layoutmenu button')) b.setAttribute('aria-checked', String(b.dataset.layout === layout));
     if (this.reader) {
       this.reader.setActive('main', pdf);
       if (pdf) this.redrawPdf();
@@ -578,8 +583,7 @@ class LitePlayer {
   }
 
   duration() {
-    const dur = this.video.duration;
-    return isFinite(dur) && dur > 0 ? dur : (isFinite(this.lesson.duration) ? this.lesson.duration : 0);
+    return mediaDuration(this.video, this.lesson);
   }
 
   // Time label, progress and buffer bars (at most once per frame, see SeekBar).
@@ -657,7 +661,7 @@ class LitePlayer {
     let resizeTimer = 0;
     d.add(() => clearTimeout(resizeTimer));
     d.listen(window, 'resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(guard(() => { this.quality.apply(); this.redrawPdf(); }), 500); });
-    for (const chip of this.root.querySelectorAll('.top [data-open]')) d.listen(chip, 'click', () => this.sidebar.toggle(chip.dataset.open));
+    for (const chip of this.all('.top [data-open]')) d.listen(chip, 'click', () => this.sidebar.toggle(chip.dataset.open));
     d.listen($('.panelclose'), 'click', () => this.sidebar.close());
     d.listen($('.bmbtn'), 'click', (e) => { if (this.notes) this.notes.addBookmark(e); });
     d.listen($('.flagbtn'), 'click', (e) => { if (this.notes) this.notes.toggleFlag(e); });
@@ -742,7 +746,7 @@ class LitePlayer {
     this.d.add(() => a.dispose());
     if (!this.prefs.audio || typeof this.prefs.audio !== 'object') this.prefs.audio = { level: false, voice: false, mono: false };
     a.settings = Object.assign({}, a.settings, this.prefs.audio);
-    for (const b of this.root.querySelectorAll('.audiomenu [data-audio]')) {
+    for (const b of this.all('.audiomenu [data-audio]')) {
       this.d.listen(b, 'click', (e) => {
         e.stopPropagation();
         if (a.reason) return;
@@ -774,7 +778,7 @@ class LitePlayer {
     const why = this.$('.audiomenu .why');
     why.hidden = !a.reason;
     why.textContent = a.reason === 'noWebAudio' ? tr('audioNoWebAudio') : a.reason ? tr('audioNativeHls') : '';
-    for (const b of this.root.querySelectorAll('.audiomenu [data-audio]')) {
+    for (const b of this.all('.audiomenu [data-audio]')) {
       const on = !!a.settings[b.dataset.audio];
       b.setAttribute('aria-checked', String(on));
       b.setAttribute('aria-disabled', String(!!a.reason));
@@ -885,7 +889,7 @@ class LitePlayer {
     const times = set.timesInSeconds;
     let pick = times[0];
     for (const x of times) { if (x <= t) pick = x; else break; }
-    return set.baseUri + '/' + pick + '.' + set.extension;
+    return thumbUrlOf(set, pick);
   }
 
   // Previous / next chapter; returns false when there are none (key not handled).
@@ -915,7 +919,7 @@ class LitePlayer {
   onSidebarChange() {
     const sb = this.sidebar;
     this.app.classList.toggle('panel-open', sb.isOpen);
-    for (const chip of this.root.querySelectorAll('.top [data-open]')) chip.setAttribute('aria-pressed', String(sb.visible(chip.dataset.open)));
+    for (const chip of this.all('.top [data-open]')) chip.setAttribute('aria-pressed', String(sb.visible(chip.dataset.open)));
     if (sb.visible('transcript')) this.transcript.renderMarks();
     if (!this.restoringPanel && sb.active) {
       this.prefs.panel = sb.isOpen;

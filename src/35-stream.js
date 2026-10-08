@@ -107,10 +107,6 @@ class Stream {
     if (this.quality === 'auto') this.applyQuality(false);
   }
 
-  get level() {
-    return this.hls && this.hls.currentLevel >= 0 ? this.hls.currentLevel : -1;
-  }
-
   // Loads `uri` starting at `startAt` seconds. `onReady` runs once the manifest is parsed;
   // `play`: whether it is meant to play (what playing() says until it has arrived).
   load(uri, startAt, onReady, play) {

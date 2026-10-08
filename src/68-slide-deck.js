@@ -112,7 +112,8 @@ class SlideDeckController {
     this.d.add(() => this.ac.abort());
     this.files = [];          // [{ hash, name }]
     this.docs = [];           // pdf.js loading tasks of the open documents, per file
-    this.pages = [];          // [{ key, file, num, title, text, doc, ar }]
+    /** @type {DeckPage[]} */
+    this.pages = [];
     this.fixes = [];          // the user's corrections [{ a, b, page }]
     this.ocr = null;          // SlideTextReader
     this.worker = new SlideTextWorker(this.d);

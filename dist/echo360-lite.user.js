@@ -558,6 +558,7 @@ const STRINGS = {
   },
 };
 
+// English only for now; M9 chooses English or Chinese from the browser's language.
 const LANG = 'en';
 
 function tr(key, vars) {
@@ -758,6 +759,264 @@ const LIST_DEBOUNCE_MS = 300;          // redraws of the list waited for before 
 const LIST_DONE_PCT = 99;              // watched share shown as complete
 const BOOT_CHECK_MS = 8000;            // the page's own player not started this long after load: check why
 
+// ---- 03-common.js ----
+// ===================================================================================
+// Small helpers shared by several parts (each used to be written out in two or more
+// places): building elements, canvases, the site's hosts, Echo360 URLs, durations.
+// ===================================================================================
+
+// Pages this script runs on. Must list the same hosts as the @match lines in meta.txt
+// (the build checks it): a page outside them never loads the script anyway.
+const SITE_HOSTS = ['echo360.net.au'];
+
+function isEcho360Host() {
+  return SITE_HOSTS.includes(location.hostname);
+}
+
+// An element: el('button.btn.primary', { title: 'x', onclick }, 'text', child, ...).
+// on* functions are guarded (an error there is reported, not thrown into the page).
+function el(spec, props, ...children) {
+  const [tag, ...classes] = spec.split('.');
+  const elem = document.createElement(tag || 'div');
+  if (classes.length) elem.className = classes.join(' ');
+  if (props) {
+    for (const [k, v] of Object.entries(props)) {
+      if (v == null || v === false) continue;
+      if (k.startsWith('on') && typeof v === 'function') elem.addEventListener(k.slice(2), guard(v));
+      else if (k === 'text') elem.textContent = v;
+      else if (k in elem && typeof v !== 'string') elem[k] = v;
+      else elem.setAttribute(k, v === true ? '' : String(v));
+    }
+  }
+  for (const c of children) if (c != null && c !== false) elem.append(c);
+  return elem;
+}
+
+// A delete button that needs a second click within 3 s (it says "Click again to delete"
+// in between). onConfirm(event) gets the second click, the user action for the write.
+function confirmButton(label, onConfirm) {
+  let armed = 0;
+  const b = el('button.link.danger', { text: label });
+  b.addEventListener('click', guard((e) => {
+    if (!armed) {
+      b.textContent = tr('confirmDelete');
+      armed = setTimeout(() => { armed = 0; b.textContent = label; }, 3000);
+      return;
+    }
+    clearTimeout(armed);
+    armed = 0;
+    b.textContent = label;
+    onConfirm(e);
+  }));
+  return b;
+}
+
+// A canvas to draw on off screen (an OffscreenCanvas where there is one).
+function makeCanvas(w, h) {
+  return typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(w, h) : Object.assign(document.createElement('canvas'), { width: w, height: h });
+}
+
+// Path segment as the original player builds it: Echo360 ids are used verbatim (they
+// contain ':' and '.'), only characters that would break the URL are escaped.
+function seg(id) {
+  return String(id).replace(/[^\w.:~-]/g, encodeURIComponent);
+}
+
+// URL of Echo360's preview picture at `t` (one of set.timesInSeconds) of a thumbnail set.
+function thumbUrlOf(set, t) {
+  return set.baseUri + '/' + t + '.' + set.extension;
+}
+
+// The recording's length: the video's once it knows it, else what the page said.
+function mediaDuration(video, lesson) {
+  const v = video.duration;
+  if (isFinite(v) && v > 0) return v;
+  return isFinite(lesson.duration) ? lesson.duration : 0;
+}
+
+// The user asked the browser to save data: no background downloads.
+function saveDataOn() {
+  return !!(navigator.connection && navigator.connection.saveData);
+}
+
+// A course's recordings as listed by Echo360 (the JSON `data` array). Rejects when the
+// list cannot be had.
+async function fetchSyllabus(section) {
+  const r = await fetch('/section/' + encodeURIComponent(section) + '/syllabus', { credentials: 'include', headers: { Accept: 'application/json' } });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const j = await r.json();
+  return j && Array.isArray(j.data) ? j.data : [];
+}
+
+// ---- 04-types.js ----
+// ===================================================================================
+// The shapes of the data passed between the parts, for readers and for the type checker
+// (npm run typecheck). Comments only: nothing here runs.
+// ===================================================================================
+
+/**
+ * One view of the recording (screen or camera), from the page (10-adapter-echo360.js).
+ * @typedef {object} Source
+ * @property {number} index        Echo360's sourceIndex (1, 2...)
+ * @property {number} n            position, from 1
+ * @property {string|null} av      HLS master playlist with audio and video
+ * @property {string|null} v       HLS master playlist with video only
+ * @property {string|null} poster  picture shown before playback
+ */
+
+/**
+ * Echo360's preview pictures of one view, one per minute.
+ * @typedef {object} ThumbnailSet
+ * @property {number} sourceIndex
+ * @property {string} baseUri
+ * @property {string} extension
+ * @property {number[]} timesInSeconds
+ */
+
+/**
+ * The recording, as the player sees it (echo360ClassroomAdapter.parse).
+ * @typedef {object} Lesson
+ * @property {string} id                 the media id (or lesson id, or the page path)
+ * @property {string} [lessonId]
+ * @property {string|null} sectionId     the course
+ * @property {string} [mediaId]
+ * @property {string|null} userId
+ * @property {boolean} isAnonymousUser
+ * @property {string|null} transcriptUrl
+ * @property {string} title
+ * @property {string} courseName
+ * @property {number|null} sessionRenewMs   how often Echo360 renews video access
+ * @property {string|null} backUrl
+ * @property {number} duration           seconds (NaN if unknown)
+ * @property {number|null} resumeAt      seconds: where Echo360 says playback stopped
+ * @property {Source[]} sources
+ * @property {string|null} captionsUrl
+ * @property {ThumbnailSet[]} thumbnails
+ * @property {{ polls: boolean, slides: boolean, audioDescription: boolean }} extras
+ * @property {object|null} analytics     what watch reporting needs (20-reporter.js)
+ */
+
+/**
+ * A line of the transcript or captions (seconds).
+ * @typedef {object} Cue
+ * @property {number} start
+ * @property {number} end
+ * @property {string} text
+ * @property {string} speaker
+ */
+
+/**
+ * A slide chapter found in the screen view (64-slides.js).
+ * @typedef {object} Chapter
+ * @property {number} start       seconds
+ * @property {number} end         seconds
+ * @property {boolean} precise    start pinned to about a second (else to a sample)
+ * @property {number} repTime     the moment whose picture represents it
+ * @property {string} thumb       picture URL (object URL or Echo360 preview)
+ * @property {Blob|null} [blob]   the picture, when made from a keyframe
+ * @property {number} [firstSample]
+ */
+
+/**
+ * A stretch that can be skipped (62-silence.js skipStretches).
+ * @typedef {object} SkipStretch
+ * @property {number} start
+ * @property {number} end
+ * @property {'silence'|'blank'|'black'} kind
+ */
+
+/**
+ * A page of the lecturer's slide files (68-slide-deck.js).
+ * @typedef {object} DeckPage
+ * @property {string} key     file hash (12 characters) + ':' + page number
+ * @property {string} file    file name
+ * @property {number} num     page number, from 1
+ * @property {object} doc     the pdf.js document
+ * @property {number} ar      height / width
+ * @property {string} title
+ * @property {string} text
+ */
+
+/**
+ * A note, bookmark or "didn't understand" flag (11-echo360-api.js).
+ * @typedef {object} Note
+ * @property {string} id
+ * @property {'note'|'bookmark'|'flag'} type
+ * @property {number|null} time   seconds
+ * @property {string} [text]
+ * @property {string} createdAt
+ */
+
+/**
+ * A discussion post or reply (11-echo360-api.js).
+ * @typedef {object} DiscussionComment
+ * @property {string} id
+ * @property {string|null} questionId   null for a post, the post for a reply
+ * @property {string} body
+ * @property {number|null} time
+ * @property {string} author
+ * @property {boolean} mine
+ * @property {number} likes
+ * @property {boolean} liked
+ * @property {boolean} saved
+ * @property {boolean} hasAttachment
+ * @property {DiscussionComment[]} replies
+ */
+
+// ---- stored in IndexedDB (61-media-io.js idbCache), by key prefix ----
+// Analysis results (pruned, see 63-caches.js); user data (kept, in backups, 85-export.js).
+
+/**
+ * slides:<mediaId>  (analysis)
+ * @typedef {object} SlidesRecord
+ * @property {number} v           CACHE_KINDS.slides
+ * @property {number} used        last use (ms)
+ * @property {number|null} screen the screen view's index
+ * @property {boolean} [sure]     the screen view was told clearly (not a guess)
+ * @property {{ start: number, end: number }[]} uniform   empty-screen stretches
+ * @property {Chapter[]} chapters
+ */
+
+/**
+ * silence-env:<mediaId>  (analysis)
+ * @typedef {object} SilenceEnvRecord
+ * @property {number} v
+ * @property {number} used
+ * @property {number} step        seconds per value
+ * @property {Uint8Array} data    0 = not analysed, 1..255 = -100..0 dBFS
+ */
+
+/**
+ * ocr:<mediaId>:<view>[:<language>]  (analysis)
+ * @typedef {object} OcrRecord
+ * @property {number} v
+ * @property {number} used
+ * @property {number} screen
+ * @property {number} height      rendition read
+ * @property {string[]} texts     each distinct picture's text
+ * @property {number[]} at        per sample: index into texts, -1 = not read
+ * @property {object} stats
+ */
+
+/**
+ * watched:<lessonId>  (user data)
+ * @typedef {object} WatchedRecord
+ * @property {number} d           duration (s)
+ * @property {[number, number][]} r   watched stretches (s)
+ * @property {number} [e]         where the content ends (an empty ending follows)
+ * @property {number} at          last update (ms)
+ */
+
+// Other user data:
+//   tags:<sectionId>     { tags: [{ id, name, color }] }
+//   tagmap:<mediaId>     { <note or bookmark id>: [tag id] }
+//   deck:<mediaId>       { files: [{ hash, name }], fixes: [{ a, b, page }] }
+//   deckref:<hash>       [mediaId]   recordings using a slide file
+//   deckfile:<hash>      Blob        the slide file
+//   screenpick:<mediaId> { index }   the screen view chosen by hand
+// localStorage (prefix echo360lite:): prefs (39-prefs.js), pos:<lesson id> { t, at },
+// debug, dryRun, forceOriginal, silenceFromAudio (development switches).
+
 // ---- 10-adapter-echo360.js ----
 // ===================================================================================
 // Site adapters. Everything that knows about a particular Echo360 deployment lives here;
@@ -776,7 +1035,7 @@ const echo360ClassroomAdapter = {
   id: 'echo360-classroom',
 
   matches() {
-    return /(^|\.)echo360\.[a-z.]+$/.test(location.hostname) && /^\/lesson\//.test(location.pathname);
+    return isEcho360Host() && /^\/lesson\//.test(location.pathname);
   },
 
   // The page bootstraps its React player with an inline call
@@ -843,6 +1102,7 @@ const echo360ClassroomAdapter = {
     return typeof arg === 'string' ? JSON.stringify(cfg) : cfg;
   },
 
+  /** @returns {Lesson} */
   parse(arg) {
     const cfg = typeof arg === 'string' ? JSON.parse(arg) : arg;
     const video = cfg && cfg.video;
@@ -958,6 +1218,7 @@ function parseVttTime(s) {
 }
 
 // Minimal WebVTT parser: cue timing lines plus text, NOTE blocks and tags removed.
+/** @returns {Cue[]} */
 function parseVtt(text) {
   const cues = [];
   const blocks = String(text || '').replace(/\r/g, '').split(/\n{2,}/);
@@ -981,6 +1242,7 @@ function decodeEntities(s) {
   return s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, '\'').replace(/&nbsp;/g, ' ');
 }
 
+// One implementation today; the list is where M9's platform layer adds others.
 const ADAPTERS = [echo360ClassroomAdapter];
 
 // ---- 11-echo360-api.js ----
@@ -1009,12 +1271,6 @@ class ApiError extends Error {
   }
 }
 
-// Path segment as the original player builds it: Echo360 ids are used verbatim (they
-// contain ':' and '.'), only characters that would break the URL are escaped.
-function seg(id) {
-  return String(id).replace(/[^\w.:~-]/g, encodeURIComponent);
-}
-
 // Same thumbnail choice as the original player: first thumbnail set, the last image taken
 // strictly before the referenced moment, else the first one; '' without thumbnails.
 function thumbnailFor(thumbnails, ms) {
@@ -1023,7 +1279,7 @@ function thumbnailFor(thumbnails, ms) {
   const r = Number(ms) / 1000;
   let pick = set.timesInSeconds.slice().reverse().find((x) => x < r);
   if (pick === undefined) pick = set.timesInSeconds[0];
-  return set.baseUri + '/' + pick + '.' + set.extension;
+  return thumbUrlOf(set, pick);
 }
 
 function requireGesture(ev) {
@@ -1040,6 +1296,7 @@ class Echo360Api {
   }
 
   async request(method, path, body) {
+    /** @type {RequestInit & { headers: Record<string, string> }} */
     const opts = { method, credentials: 'include', headers: { Accept: 'application/json' } };
     if (body !== undefined) {
       opts.headers['Content-Type'] = 'application/json';
@@ -1261,6 +1518,8 @@ class Reporter {
     this.lastSessionAt = 0;
     this.timer = 0;
     this.captionsAvailable = undefined;
+    /** @type {null | (() => { captions: boolean, transcript: boolean })} what the user has on (set by the player) */
+    this.stateFn = null;
     this.d = disposer;
     const onUnload = () => this.end();
     this.d.listen(window, 'pagehide', onUnload);
@@ -1409,7 +1668,7 @@ const svg = (name) => '<svg viewBox="0 0 24 24" aria-hidden="true">' + ICON[name
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 
-const CSS = `
+const PLAYER_CSS = `
 :host { all: initial; position: fixed; inset: 0; z-index: 2147483000; display: block; background: #000;
   color: #f1f1f3; font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
   --accent: #4f8cff; --panel: rgba(18,18,22,.92); -webkit-font-smoothing: antialiased; }
@@ -1998,6 +2257,7 @@ class Stream {
     // The element says 0 and paused until it gets there, so it cannot be asked (a second
     // reload in that window would start at 0).
     this.starting = null;     // { at, play } or null
+    this.renewedAt = 0;       // when access was last renewed for this stream (see the player's recoverAccess)
     this.arrived = null;      // listener clearing `starting`
   }
 
@@ -2069,10 +2329,6 @@ class Stream {
     if (height === this.capHeight) return;
     this.capHeight = height;
     if (this.quality === 'auto') this.applyQuality(false);
-  }
-
-  get level() {
-    return this.hls && this.hls.currentLevel >= 0 ? this.hls.currentLevel : -1;
   }
 
   // Loads `uri` starting at `startAt` seconds. `onReady` runs once the manifest is parsed;
@@ -2311,9 +2567,7 @@ class SessionKeeper {
     if (r && r.body) r.body.cancel().catch(() => {});
     // A redirect (to the login page) or a refusal: the school login has expired.
     if (r && (r.type === 'opaqueredirect' || r.status === 401 || r.status === 403)) {
-      const e = new Error('login expired');
-      e.login = true;
-      throw e;
+      throw Object.assign(new Error('login expired'), { login: true });
     }
     if (r && r.ok) return;
     if (k >= this.retryMs.length) throw new Error('renewal failed' + (r ? ' (HTTP ' + r.status + ')' : ''));
@@ -2613,6 +2867,11 @@ class LitePlayer {
     return elem;
   }
 
+  // All elements of the player's markup matching sel (for groups such as menu items).
+  all(sel) {
+    return /** @type {HTMLElement[]} */ ([...this.root.querySelectorAll(sel)]);
+  }
+
   get secondaryPos() {
     return this.dual ? (this.primaryPos + 1) % this.sources.length : -1;
   }
@@ -2631,7 +2890,7 @@ class LitePlayer {
     const host = document.createElement('div');
     host.id = 'echo360-lite';
     const root = host.attachShadow({ mode: 'open' });
-    root.innerHTML = '<style>' + CSS + '</style>' + playerTemplate();
+    root.innerHTML = '<style>' + PLAYER_CSS + '</style>' + playerTemplate();
     this.host = host;
     this.root = root;
     this.refs = new Map();
@@ -2770,7 +3029,7 @@ class LitePlayer {
     }
     this.$('.layout').style.display = this.dual || pdf ? '' : 'none';
     this.setButton('.layout', layout === 'side' ? 'layoutSide' : layout === 'pip' ? 'layoutPip' : 'layoutSingle', tr('layout'));
-    for (const b of this.root.querySelectorAll('.layoutmenu button')) b.setAttribute('aria-checked', String(b.dataset.layout === layout));
+    for (const b of this.all('.layoutmenu button')) b.setAttribute('aria-checked', String(b.dataset.layout === layout));
     if (this.reader) {
       this.reader.setActive('main', pdf);
       if (pdf) this.redrawPdf();
@@ -3065,8 +3324,7 @@ class LitePlayer {
   }
 
   duration() {
-    const dur = this.video.duration;
-    return isFinite(dur) && dur > 0 ? dur : (isFinite(this.lesson.duration) ? this.lesson.duration : 0);
+    return mediaDuration(this.video, this.lesson);
   }
 
   // Time label, progress and buffer bars (at most once per frame, see SeekBar).
@@ -3144,7 +3402,7 @@ class LitePlayer {
     let resizeTimer = 0;
     d.add(() => clearTimeout(resizeTimer));
     d.listen(window, 'resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(guard(() => { this.quality.apply(); this.redrawPdf(); }), 500); });
-    for (const chip of this.root.querySelectorAll('.top [data-open]')) d.listen(chip, 'click', () => this.sidebar.toggle(chip.dataset.open));
+    for (const chip of this.all('.top [data-open]')) d.listen(chip, 'click', () => this.sidebar.toggle(chip.dataset.open));
     d.listen($('.panelclose'), 'click', () => this.sidebar.close());
     d.listen($('.bmbtn'), 'click', (e) => { if (this.notes) this.notes.addBookmark(e); });
     d.listen($('.flagbtn'), 'click', (e) => { if (this.notes) this.notes.toggleFlag(e); });
@@ -3229,7 +3487,7 @@ class LitePlayer {
     this.d.add(() => a.dispose());
     if (!this.prefs.audio || typeof this.prefs.audio !== 'object') this.prefs.audio = { level: false, voice: false, mono: false };
     a.settings = Object.assign({}, a.settings, this.prefs.audio);
-    for (const b of this.root.querySelectorAll('.audiomenu [data-audio]')) {
+    for (const b of this.all('.audiomenu [data-audio]')) {
       this.d.listen(b, 'click', (e) => {
         e.stopPropagation();
         if (a.reason) return;
@@ -3261,7 +3519,7 @@ class LitePlayer {
     const why = this.$('.audiomenu .why');
     why.hidden = !a.reason;
     why.textContent = a.reason === 'noWebAudio' ? tr('audioNoWebAudio') : a.reason ? tr('audioNativeHls') : '';
-    for (const b of this.root.querySelectorAll('.audiomenu [data-audio]')) {
+    for (const b of this.all('.audiomenu [data-audio]')) {
       const on = !!a.settings[b.dataset.audio];
       b.setAttribute('aria-checked', String(on));
       b.setAttribute('aria-disabled', String(!!a.reason));
@@ -3372,7 +3630,7 @@ class LitePlayer {
     const times = set.timesInSeconds;
     let pick = times[0];
     for (const x of times) { if (x <= t) pick = x; else break; }
-    return set.baseUri + '/' + pick + '.' + set.extension;
+    return thumbUrlOf(set, pick);
   }
 
   // Previous / next chapter; returns false when there are none (key not handled).
@@ -3402,7 +3660,7 @@ class LitePlayer {
   onSidebarChange() {
     const sb = this.sidebar;
     this.app.classList.toggle('panel-open', sb.isOpen);
-    for (const chip of this.root.querySelectorAll('.top [data-open]')) chip.setAttribute('aria-pressed', String(sb.visible(chip.dataset.open)));
+    for (const chip of this.all('.top [data-open]')) chip.setAttribute('aria-pressed', String(sb.visible(chip.dataset.open)));
     if (sb.visible('transcript')) this.transcript.renderMarks();
     if (!this.restoringPanel && sb.active) {
       this.prefs.panel = sb.isOpen;
@@ -3541,7 +3799,7 @@ function nextSpeed(current, dir) {
 // hover tip (time, marker or skippable stretch, preview picture), and the marks drawn on
 // the rail (chapters, skippable stretches, what was watched).
 //
-// Gets only what it needs (see the player's setupSeekBar):
+// Gets only what it needs (see the player's setupParts):
 //   $(sel)          the player's markup
 //   video, clock    the clock <video> and its Stream (position while loading)
 //   duration()      seconds
@@ -3710,12 +3968,13 @@ class SeekBar {
 // ===================================================================================
 // Keyboard shortcuts and their help panel (`?`).
 //
-// Keys are mapped to named actions the player provides (see the player's setupKeys); an
+// Keys are mapped to named actions the player provides (the player's keyActions); an
 // action returning false means "not available now" and the key is left to the page.
 // Typing in a field never triggers a shortcut.
 // ===================================================================================
 
 // As listed in the help panel: [keys, string key].
+/** @type {[string[], string][]} */
 const KEY_HELP = [
   [['Space', 'K'], 'keyPlay'], [['←', '→'], 'keySeek5'], [['J', 'L'], 'keySeek10'], [['↑', '↓'], 'keyVolume'],
   [['M'], 'keyMute'], [['F'], 'keyFullscreen'], [['S'], 'keySwap'], [['[', ']'], 'keySpeed'],
@@ -4324,7 +4583,8 @@ class SilenceUi {
   constructor(deps, disposer) {
     this.x = deps;
     this.d = disposer;
-    this.skips = [];          // skippable stretches, sorted
+    /** @type {SkipStretch[]} skippable stretches, sorted */
+    this.skips = [];
     this.contentEnd = null;   // where the lecture's content ends (an empty ending follows), or null
     this.idx = -1;            // stretch the playhead is in
     this.autoSkipped = new Set();
@@ -5196,24 +5456,6 @@ class TranscriptPanel {
 // show(visible); only the active tab of an open panel is visible, so hidden tabs do no work.
 // ===================================================================================
 
-// Small DOM helper: h('button.btn.primary', { title: 'x', onclick }, 'text', child, ...)
-function el(spec, props, ...children) {
-  const [tag, ...classes] = spec.split('.');
-  const elem = document.createElement(tag || 'div');
-  if (classes.length) elem.className = classes.join(' ');
-  if (props) {
-    for (const [k, v] of Object.entries(props)) {
-      if (v == null || v === false) continue;
-      if (k.startsWith('on') && typeof v === 'function') elem.addEventListener(k.slice(2), guard(v));
-      else if (k === 'text') elem.textContent = v;
-      else if (k in elem && typeof v !== 'string') elem[k] = v;
-      else elem.setAttribute(k, v === true ? '' : String(v));
-    }
-  }
-  for (const c of children) if (c != null && c !== false) elem.append(c);
-  return elem;
-}
-
 const SIDEBAR_TABS = ['transcript', 'slides', 'notes', 'discussion'];
 
 class Sidebar {
@@ -5447,20 +5689,7 @@ class NotesPane {
 
   // Two clicks within 3 s delete; the second click is the user action sent with the write.
   deleteButton(item) {
-    const label = item.type === 'flag' ? tr('remove') : tr('delete');
-    let armed = 0;
-    const b = el('button.link.danger', { text: label });
-    b.addEventListener('click', guard((e) => {
-      if (!armed) {
-        b.textContent = tr('confirmDelete');
-        armed = setTimeout(() => { armed = 0; b.textContent = label; }, 3000);
-        return;
-      }
-      clearTimeout(armed);
-      armed = 0;
-      this.remove(e, item);
-    }));
-    return b;
+    return confirmButton(item.type === 'flag' ? tr('remove') : tr('delete'), (e) => this.remove(e, item));
   }
 
   startEdit(item, card) {
@@ -5847,14 +6076,7 @@ function tagManager(tagStore, onClose) {
       const name = el('input.input.small', { value: tag.name, maxLength: 40, 'aria-label': tr('tagName') });
       name.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') name.blur(); });
       name.addEventListener('change', () => tagStore.rename(tag.id, name.value));
-      let armed = 0;
-      const del = el('button.link.danger', { text: tr('delete') });
-      del.addEventListener('click', () => {
-        if (!armed) { del.textContent = tr('confirmDelete'); armed = setTimeout(() => { armed = 0; del.textContent = tr('delete'); }, 3000); return; }
-        clearTimeout(armed);
-        tagStore.remove(tag.id);
-        render();
-      });
+      const del = confirmButton(tr('delete'), () => { tagStore.remove(tag.id); render(); });
       box.append(el('div.tagrow', null, swatch, name, del));
     }
     const input = el('input.input.small', { placeholder: tr('newTag'), maxLength: 40, 'aria-label': tr('newTag') });
@@ -6052,20 +6274,9 @@ class DiscussionPane {
       actions);
   }
 
+  // Two clicks within 3 s delete; the second click is the user action sent with the write.
   deleteButton(c) {
-    let armed = 0;
-    const b = el('button.link.danger', { text: tr('delete') });
-    b.addEventListener('click', guard((e) => {
-      if (!armed) {
-        b.textContent = tr('confirmDelete');
-        armed = setTimeout(() => { armed = 0; b.textContent = tr('delete'); }, 3000);
-        return;
-      }
-      clearTimeout(armed);
-      armed = 0;
-      this.write(e, () => this.api.deleteComment(e, c));
-    }));
-    return b;
+    return confirmButton(tr('delete'), (e) => this.write(e, () => this.api.deleteComment(e, c)));
   }
 
   renderReplyComposer(q) {
@@ -6140,7 +6351,7 @@ class DiscussionPane {
 
 function formatDate(iso) {
   const d = new Date(iso);
-  if (isNaN(d)) return '';
+  if (isNaN(d.getTime())) return '';
   try {
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   } catch (e) {
@@ -6329,6 +6540,7 @@ class AudioChain {
     if (s.mono) stages.push([n.mono, n.mono]);
     if (s.voice) stages.push([n.highpass, n.presence]);
     if (s.level) stages.push([n.leveller, n.trim]);
+    /** @type {AudioNode} */
     let tail = n.src;
     for (const [entry, exit] of stages) { tail.connect(entry); tail = exit; }
     tail.connect(this.ctx.destination);
@@ -6378,6 +6590,22 @@ function parseAttrs(s) {
   const re = /([A-Z0-9-]+)=("[^"]*"|[^,]*)/g;
   let m;
   while ((m = re.exec(s))) out[m[1]] = m[2].replace(/^"|"$/g, '');
+  return out;
+}
+
+// Master playlist -> { media: [attributes of each #EXT-X-MEDIA], variants: [{ attrs, uri }]
+// (each #EXT-X-STREAM-INF with the URI line after it, as written) }.
+function parseMaster(text) {
+  const out = { media: [], variants: [] };
+  const lines = String(text).split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.startsWith('#EXT-X-MEDIA:')) out.media.push(parseAttrs(line.slice(13)));
+    else if (line.startsWith('#EXT-X-STREAM-INF:')) {
+      const uri = (lines.slice(i + 1).find((l) => l && !l.startsWith('#')) || '').trim();
+      out.variants.push({ attrs: parseAttrs(line.slice(18)), uri });
+    }
+  }
   return out;
 }
 
@@ -6565,7 +6793,8 @@ function idle() {
 //   Envelope          step, length, db(i), dbAt(t), known(i), fill(start, pcm, rate), coverage()
 //   findSilences(env, opts)            -> { silences: [{ start, end }], noiseDb, speechDb, thresholdDb }
 //   silencesFromCues(cues, dur, opts)  -> [{ start, end }]
-//   speechSpans(silences, dur, env, maxSec) -> speech between silences, each piece at most
+//   speechSpans(silences, dur, env, maxSec) -> (reserved for M10, local transcription; tested)
+//                                         speech between silences, each piece at most
 //                                         maxSec long and cut at its quietest moment
 //   SilenceAnalyzer   source, silences, track, env, progress; onChange
 // ===================================================================================
@@ -6575,18 +6804,13 @@ function idle() {
 
 // URI of the audio rendition used by the lowest-bandwidth variant of a master playlist.
 function pickAudioRendition(master) {
+  const m = parseMaster(master);
   const groups = new Map();
+  for (const a of m.media) if (a.TYPE === 'AUDIO' && a.URI && !groups.has(a['GROUP-ID'])) groups.set(a['GROUP-ID'], a.URI);
   let best = null;
-  const lines = String(master).split(/\r?\n/);
-  for (const line of lines) {
-    if (line.startsWith('#EXT-X-MEDIA:')) {
-      const a = parseAttrs(line.slice(13));
-      if (a.TYPE === 'AUDIO' && a.URI && !groups.has(a['GROUP-ID'])) groups.set(a['GROUP-ID'], a.URI);
-    } else if (line.startsWith('#EXT-X-STREAM-INF:')) {
-      const a = parseAttrs(line.slice(18));
-      const bw = +a.BANDWIDTH || Infinity;
-      if (a.AUDIO && groups.has(a.AUDIO) && (!best || bw < best.bw)) best = { bw, uri: groups.get(a.AUDIO) };
-    }
+  for (const { attrs: a } of m.variants) {
+    const bw = +a.BANDWIDTH || Infinity;
+    if (a.AUDIO && groups.has(a.AUDIO) && (!best || bw < best.bw)) best = { bw, uri: groups.get(a.AUDIO) };
   }
   return best ? best.uri : (groups.size ? groups.values().next().value : null);
 }
@@ -6851,6 +7075,7 @@ function speechSpans(silences, duration, env, maxSec) {
 //   kind 'black'    the screen empty while nothing is known about the audio (no transcript,
 //                   audio not analysed): marked and skippable by hand, never automatically.
 // An empty screen with someone speaking is not skippable. Sorted by start.
+/** @returns {SkipStretch[]} */
 function skipStretches(silences, uniform, audioKnown, minSec) {
   const overlap = (a, b) => {
     let n = 0;
@@ -6958,13 +7183,12 @@ class SilenceAnalyzer {
   }
 
   duration() {
-    const v = this.video.duration;
-    return isFinite(v) && v > 0 ? v : this.lesson.duration;
+    return mediaDuration(this.video, this.lesson);
   }
 
   async runAudio() {
     const signal = this.ac.signal;
-    if (navigator.connection && navigator.connection.saveData) { this.fail('saveData'); return; }
+    if (saveDataOn()) { this.fail('saveData'); return; }
     const key = 'silence-env:' + this.lesson.mediaId;
     const cached = this.lesson.mediaId ? await idbCache.get(key) : undefined;
     await this.gate.wait(cached ? 0 : SILENCE_START_DELAY_MS); // let playback start first
@@ -7258,16 +7482,9 @@ function parseFragment(buf, segmentOffset) {
 
 // Variant URIs of a master playlist with their heights, lowest first.
 function videoVariants(master, base) {
-  const out = [];
-  const lines = String(master).split(/\r?\n/);
-  for (let i = 0; i < lines.length; i++) {
-    if (!lines[i].startsWith('#EXT-X-STREAM-INF:')) continue;
-    const a = parseAttrs(lines[i].slice(18));
-    const uri = (lines.slice(i + 1).find((l) => l && !l.startsWith('#')) || '').trim();
-    const h = a.RESOLUTION ? +a.RESOLUTION.split('x')[1] : 0;
-    if (uri) out.push({ uri: new URL(uri, base).href, height: h, bandwidth: +a.BANDWIDTH || 0 });
-  }
-  return out.sort((x, y) => x.height - y.height || x.bandwidth - y.bandwidth);
+  return parseMaster(master).variants.filter((x) => x.uri).map(({ attrs: a, uri }) => ({
+    uri: new URL(uri, base).href, height: a.RESOLUTION ? +a.RESOLUTION.split('x')[1] : 0, bandwidth: +a.BANDWIDTH || 0,
+  })).sort((x, y) => x.height - y.height || x.bandwidth - y.bandwidth);
 }
 
 class HlsVideoReader {
@@ -7434,7 +7651,7 @@ function lumaThumb(g, img) {
 let thumbCtx = null;
 function thumbContext() {
   if (!thumbCtx) {
-    const c = typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(THUMB_W, THUMB_H) : Object.assign(document.createElement('canvas'), { width: THUMB_W, height: THUMB_H });
+    const c = makeCanvas(THUMB_W, THUMB_H);
     thumbCtx = c.getContext('2d', { willReadFrequently: true });
   }
   return thumbCtx;
@@ -7547,7 +7764,7 @@ function uniformStretches(samples, duration) {
 function flatShare(img) {
   const W = 160;
   const H = 90;
-  const c = typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(W, H) : Object.assign(document.createElement('canvas'), { width: W, height: H });
+  const c = makeCanvas(W, H);
   const g = c.getContext('2d', { willReadFrequently: true });
   g.drawImage(img, 0, 0, W, H);
   const d = g.getImageData(0, 0, W, H).data;
@@ -7714,6 +7931,7 @@ class SlideAnalyzer {
     this.gate = new BackgroundGate(this.video, this.ac.signal);
     this.state = 'pending';   // pending | thumbnails | keyframes | done | unavailable
     this.progress = 0;
+    /** @type {Chapter[]} */
     this.chapters = [];
     this.uniform = [];       // stretches where the screen shows (almost) one colour
     this.screenIndex = null;
@@ -7737,8 +7955,7 @@ class SlideAnalyzer {
   }
 
   duration() {
-    const v = this.video.duration;
-    return isFinite(v) && v > 0 ? v : this.lesson.duration;
+    return mediaDuration(this.video, this.lesson);
   }
 
   thumbUrl(blob) {
@@ -7792,7 +8009,7 @@ class SlideAnalyzer {
     this.onChange();
     await gate.wait(BG_START_DELAY_MS); // let playback start first
     if (screen.thumbs) this.fromThumbnails(screen.thumbs, signal, gate);
-    if (!HlsVideoReader.supported() || (navigator.connection && navigator.connection.saveData)) {
+    if (!HlsVideoReader.supported() || saveDataOn()) {
       if (this.chapters.length) { this.state = 'done'; this.progress = 1; this.onChange(); }
       return;
     }
@@ -7904,7 +8121,7 @@ class SlideAnalyzer {
   }
 
   async loadThumb(set, t, signal) {
-    const url = set.baseUri + '/' + t + '.' + set.extension;
+    const url = thumbUrlOf(set, t);
     let r;
     try {
       r = await fetchOk(url, { signal });
@@ -7940,7 +8157,7 @@ class SlideAnalyzer {
       end: sc.end,
       precise: false,
       repTime: samples[sc.rep].t,
-      thumb: set.baseUri + '/' + samples[sc.rep].t + '.' + set.extension,
+      thumb: thumbUrlOf(set, samples[sc.rep].t),
     }));
     for (let i = 1; i < this.chapters.length; i++) this.chapters[i - 1].end = this.chapters[i].start;
     this.state = 'thumbnails';
@@ -7970,7 +8187,7 @@ class SlideAnalyzer {
     const reader = opened || await new HlsVideoReader(source.v || source.av, 360).open(signal);
     if (this.thumbsDone) await this.thumbsDone;
     if (signal.aborted) return;
-    this.reader = reader;
+    this.reader = reader;   // read by the development tools (dev/chap-run.mjs)
     const picks = reader.sampleSegments(CHAPTER_STEP_SEC);
     const n = picks.length;
     const samples = [];
@@ -8031,6 +8248,7 @@ class SlideAnalyzer {
       if (k <= 0) continue;
       await gate.turn(CHAPTER_REFINE_PACE_MS[0], CHAPTER_REFINE_PACE_MS[1], STREAM_MAX_BUFFER_SEC);
       const before = samples[k - 1].luma;
+      /** @type {number | null} */
       let at = null;
       // A segment that cannot be read keeps the coarse time.
       try {
@@ -8613,7 +8831,7 @@ class SlideTextReader {
   async run() {
     const signal = this.ac.signal;
     if (!HlsVideoReader.supported()) throw new Error('WebCodecs not available');
-    if (navigator.connection && navigator.connection.saveData) throw new Error('Data Saver is on');
+    if (saveDataOn()) throw new Error('Data Saver is on');
     this.state = 'loading';
     this.onChange();
     const url = this.source.v || this.source.av;
@@ -8806,11 +9024,14 @@ const WORD_RE = new RegExp('[\\p{sc=Han}\\p{sc=Hiragana}\\p{sc=Katakana}]+|'
   + WORD_SCRIPTS.map((x) => '\\p{sc=' + x + '}[\\p{sc=' + x + '}\\p{M}\\p{N}]*').join('|') + '|\\p{L}[\\p{L}\\p{M}\\p{N}]*', 'gu');
 function slideWords(text, scripts) {
   const key = (scripts || ['Latin']).join(',');
-  if (!slideWords.allowed || slideWords.allowed.key !== key) {
-    slideWords.allowed = new RegExp('^(?:' + key.split(',').map((x) => (x === 'Han' ? '[\\p{sc=Han}\\p{sc=Hiragana}\\p{sc=Katakana}]' : '\\p{sc=' + x + '}')).join('|') + ')', 'u');
-    slideWords.allowed.key = key;
+  // The pattern for these scripts is kept on the function itself (it also runs in the
+  // Worker, built from this function's source, where no outside variable exists).
+  const self = /** @type {any} */ (slideWords);
+  if (!self.allowed || self.allowed.key !== key) {
+    self.allowed = new RegExp('^(?:' + key.split(',').map((x) => (x === 'Han' ? '[\\p{sc=Han}\\p{sc=Hiragana}\\p{sc=Katakana}]' : '\\p{sc=' + x + '}')).join('|') + ')', 'u');
+    self.allowed.key = key;
   }
-  const allowed = slideWords.allowed;
+  const allowed = self.allowed;
   const s = String(text || '').normalize('NFKD').replace(/([\p{sc=Latin}\p{sc=Greek}\p{sc=Cyrillic}])\p{M}+/gu, '$1').normalize('NFKC');
   const out = [];
   for (const [w] of s.matchAll(WORD_RE)) {
@@ -9301,7 +9522,8 @@ class SlideDeckController {
     this.d.add(() => this.ac.abort());
     this.files = [];          // [{ hash, name }]
     this.docs = [];           // pdf.js loading tasks of the open documents, per file
-    this.pages = [];          // [{ key, file, num, title, text, doc, ar }]
+    /** @type {DeckPage[]} */
+    this.pages = [];
     this.fixes = [];          // the user's corrections [{ a, b, page }]
     this.ocr = null;          // SlideTextReader
     this.worker = new SlideTextWorker(this.d);
@@ -9780,6 +10002,7 @@ const cpuFix = (function () {
         st = churn.get(id);
         if (!st) churn.set(id, (st = { seen: new Set(), active: false }));
         if (st.active && isLocalSheet(ss)) {
+          /** @type {{ rules: any, name: string } | null} */
           let captured = null;
           const proxy = new Proxy(ss, {
             get(target, key) {
@@ -9831,7 +10054,7 @@ const cpuFix = (function () {
     let gsProto = null;
     let csProto = null;
     for (const elem of document.querySelectorAll('body, body *')) {
-      const c = elem._reactRootContainer;
+      const c = /** @type {any} */ (elem)._reactRootContainer;  // React 17's root, on its container element
       const root = c && (c._internalRoot || c);
       if (!root || !root.current) continue;
       const stack = [root.current];
@@ -9902,7 +10125,7 @@ const cpuFix = (function () {
 
 const courseList = {
   matches() {
-    return /(^|\.)echo360\.[a-z.]+$/.test(location.hostname) && /^\/section\/[^/]+\/home/.test(location.pathname);
+    return isEcho360Host() && /^\/section\/[^/]+\/home/.test(location.pathname);
   },
 
   start() {
@@ -9919,11 +10142,10 @@ const courseList = {
 
     const syllabus = () => {
       if (!server) {
-        server = fetch('/section/' + encodeURIComponent(section) + '/syllabus', { credentials: 'include', headers: { Accept: 'application/json' } })
-          .then((r) => (r.ok ? r.json() : null))
-          .then((j) => {
+        server = fetchSyllabus(section)
+          .then((data) => {
             const out = {};
-            for (const x of (j && j.data) || []) {
+            for (const x of data) {
               const l = x.lesson;
               const m = l && l.medias && l.medias[0];
               if (l && l.lesson && m) out[l.lesson.id] = { mediaId: m.id, read: !!m.isRead };
@@ -10227,9 +10449,7 @@ class Exporter {
     const p = this.p;
     const section = p.lesson.sectionId;
     if (!section) throw new Error('no course');
-    const r = await fetch('/section/' + encodeURIComponent(section) + '/syllabus', { credentials: 'include', headers: { Accept: 'application/json' } });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const list = ((await r.json()).data || []).map((x) => x.lesson).filter((x) => x && x.lesson && x.hasVideo);
+    const list = (await fetchSyllabus(section)).map((x) => x.lesson).filter((x) => x && x.lesson && x.hasVideo);
     const files = [];
     const tagStore = new TagStore({ sectionId: section, mediaId: null });
     await tagStore.load();
@@ -10377,7 +10597,10 @@ function diagnosticsText(p) {
     + (p.pdfMode ? ' (PDF view)' : '') + ', quality ' + q(p.clock) + ' / ' + q(p.follower)
     + (p.fvideo && !p.fvideo.paused ? ', sync ' + Math.round((p.fvideo.currentTime - v.currentTime) * 1000) + ' ms' : ''));
   const s = p.silence && p.silence.analyzer;
-  if (s) add('Silence detection', (s.source || '-') + (s.reason ? ' (' + s.reason + ')' : '') + ', ' + (s.silences ? s.silences.length : 0) + ' found');
+  if (s) {
+    const lv = s.stats && isFinite(s.stats.noiseDb) ? ', levels: noise ' + Math.round(s.stats.noiseDb) + ' dB, speech ' + Math.round(s.stats.speechDb) + ' dB, threshold ' + Math.round(s.stats.thresholdDb) + ' dB' : '';
+    add('Silence detection', (s.source || '-') + (s.reason ? ' (' + s.reason + ')' : '') + ', ' + (s.silences ? s.silences.length : 0) + ' found' + lv);
+  }
   const a = p.slides;
   if (a) add('Slide chapters', a.state + ', ' + a.chapters.length + ' chapters, screen view ' + (a.screenIndex == null ? 'unknown' : a.screenIndex));
   const d = p.deck;

@@ -182,9 +182,7 @@ class Exporter {
     const p = this.p;
     const section = p.lesson.sectionId;
     if (!section) throw new Error('no course');
-    const r = await fetch('/section/' + encodeURIComponent(section) + '/syllabus', { credentials: 'include', headers: { Accept: 'application/json' } });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const list = ((await r.json()).data || []).map((x) => x.lesson).filter((x) => x && x.lesson && x.hasVideo);
+    const list = (await fetchSyllabus(section)).map((x) => x.lesson).filter((x) => x && x.lesson && x.hasVideo);
     const files = [];
     const tagStore = new TagStore({ sectionId: section, mediaId: null });
     await tagStore.load();

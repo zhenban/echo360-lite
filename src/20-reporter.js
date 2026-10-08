@@ -43,6 +43,8 @@ class Reporter {
     this.lastSessionAt = 0;
     this.timer = 0;
     this.captionsAvailable = undefined;
+    /** @type {null | (() => { captions: boolean, transcript: boolean })} what the user has on (set by the player) */
+    this.stateFn = null;
     this.d = disposer;
     const onUnload = () => this.end();
     this.d.listen(window, 'pagehide', onUnload);

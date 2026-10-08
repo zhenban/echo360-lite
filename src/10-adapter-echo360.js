@@ -15,7 +15,7 @@ const echo360ClassroomAdapter = {
   id: 'echo360-classroom',
 
   matches() {
-    return /(^|\.)echo360\.[a-z.]+$/.test(location.hostname) && /^\/lesson\//.test(location.pathname);
+    return isEcho360Host() && /^\/lesson\//.test(location.pathname);
   },
 
   // The page bootstraps its React player with an inline call
@@ -82,6 +82,7 @@ const echo360ClassroomAdapter = {
     return typeof arg === 'string' ? JSON.stringify(cfg) : cfg;
   },
 
+  /** @returns {Lesson} */
   parse(arg) {
     const cfg = typeof arg === 'string' ? JSON.parse(arg) : arg;
     const video = cfg && cfg.video;
@@ -197,6 +198,7 @@ function parseVttTime(s) {
 }
 
 // Minimal WebVTT parser: cue timing lines plus text, NOTE blocks and tags removed.
+/** @returns {Cue[]} */
 function parseVtt(text) {
   const cues = [];
   const blocks = String(text || '').replace(/\r/g, '').split(/\n{2,}/);
@@ -220,4 +222,5 @@ function decodeEntities(s) {
   return s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, '\'').replace(/&nbsp;/g, ' ');
 }
 
+// One implementation today; the list is where M9's platform layer adds others.
 const ADAPTERS = [echo360ClassroomAdapter];

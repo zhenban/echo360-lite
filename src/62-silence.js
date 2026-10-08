@@ -15,7 +15,8 @@
 //   Envelope          step, length, db(i), dbAt(t), known(i), fill(start, pcm, rate), coverage()
 //   findSilences(env, opts)            -> { silences: [{ start, end }], noiseDb, speechDb, thresholdDb }
 //   silencesFromCues(cues, dur, opts)  -> [{ start, end }]
-//   speechSpans(silences, dur, env, maxSec) -> speech between silences, each piece at most
+//   speechSpans(silences, dur, env, maxSec) -> (reserved for M10, local transcription; tested)
+//                                         speech between silences, each piece at most
 //                                         maxSec long and cut at its quietest moment
 //   SilenceAnalyzer   source, silences, track, env, progress; onChange
 // ===================================================================================
@@ -25,18 +26,13 @@
 
 // URI of the audio rendition used by the lowest-bandwidth variant of a master playlist.
 function pickAudioRendition(master) {
+  const m = parseMaster(master);
   const groups = new Map();
+  for (const a of m.media) if (a.TYPE === 'AUDIO' && a.URI && !groups.has(a['GROUP-ID'])) groups.set(a['GROUP-ID'], a.URI);
   let best = null;
-  const lines = String(master).split(/\r?\n/);
-  for (const line of lines) {
-    if (line.startsWith('#EXT-X-MEDIA:')) {
-      const a = parseAttrs(line.slice(13));
-      if (a.TYPE === 'AUDIO' && a.URI && !groups.has(a['GROUP-ID'])) groups.set(a['GROUP-ID'], a.URI);
-    } else if (line.startsWith('#EXT-X-STREAM-INF:')) {
-      const a = parseAttrs(line.slice(18));
-      const bw = +a.BANDWIDTH || Infinity;
-      if (a.AUDIO && groups.has(a.AUDIO) && (!best || bw < best.bw)) best = { bw, uri: groups.get(a.AUDIO) };
-    }
+  for (const { attrs: a } of m.variants) {
+    const bw = +a.BANDWIDTH || Infinity;
+    if (a.AUDIO && groups.has(a.AUDIO) && (!best || bw < best.bw)) best = { bw, uri: groups.get(a.AUDIO) };
   }
   return best ? best.uri : (groups.size ? groups.values().next().value : null);
 }
@@ -301,6 +297,7 @@ function speechSpans(silences, duration, env, maxSec) {
 //   kind 'black'    the screen empty while nothing is known about the audio (no transcript,
 //                   audio not analysed): marked and skippable by hand, never automatically.
 // An empty screen with someone speaking is not skippable. Sorted by start.
+/** @returns {SkipStretch[]} */
 function skipStretches(silences, uniform, audioKnown, minSec) {
   const overlap = (a, b) => {
     let n = 0;
@@ -408,13 +405,12 @@ class SilenceAnalyzer {
   }
 
   duration() {
-    const v = this.video.duration;
-    return isFinite(v) && v > 0 ? v : this.lesson.duration;
+    return mediaDuration(this.video, this.lesson);
   }
 
   async runAudio() {
     const signal = this.ac.signal;
-    if (navigator.connection && navigator.connection.saveData) { this.fail('saveData'); return; }
+    if (saveDataOn()) { this.fail('saveData'); return; }
     const key = 'silence-env:' + this.lesson.mediaId;
     const cached = this.lesson.mediaId ? await idbCache.get(key) : undefined;
     await this.gate.wait(cached ? 0 : SILENCE_START_DELAY_MS); // let playback start first

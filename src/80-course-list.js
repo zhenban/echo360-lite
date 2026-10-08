@@ -13,7 +13,7 @@
 
 const courseList = {
   matches() {
-    return /(^|\.)echo360\.[a-z.]+$/.test(location.hostname) && /^\/section\/[^/]+\/home/.test(location.pathname);
+    return isEcho360Host() && /^\/section\/[^/]+\/home/.test(location.pathname);
   },
 
   start() {
@@ -30,11 +30,10 @@ const courseList = {
 
     const syllabus = () => {
       if (!server) {
-        server = fetch('/section/' + encodeURIComponent(section) + '/syllabus', { credentials: 'include', headers: { Accept: 'application/json' } })
-          .then((r) => (r.ok ? r.json() : null))
-          .then((j) => {
+        server = fetchSyllabus(section)
+          .then((data) => {
             const out = {};
-            for (const x of (j && j.data) || []) {
+            for (const x of data) {
               const l = x.lesson;
               const m = l && l.medias && l.medias[0];
               if (l && l.lesson && m) out[l.lesson.id] = { mediaId: m.id, read: !!m.isRead };
