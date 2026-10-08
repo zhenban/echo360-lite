@@ -292,8 +292,11 @@ class SlideDeckController {
     this.ocr = null;
   }
 
-  // Called when the slide analysis changes (the screen view becomes known).
+  // Called when the slide analysis changes (the screen view becomes known, or the user
+  // chose another view: reading starts again there).
   screenKnown() {
+    const a = this.slides;
+    if (this.ocr && a && a.screenIndex != null && this.ocr.source.index !== a.screenIndex) this.stopReading();
     if (this.pages.length && !this.ocr) { this.startReading(); this.onChange(); }
   }
 

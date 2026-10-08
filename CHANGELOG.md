@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.13.1
+- Fix: in the single-view layout, switching to the camera and back quickly started the recording from the beginning (and could pause it). Every reload of a view (switching views, the PDF view, retry, renewed access) now keeps the position and play state even while the previous switch is still loading; the progress bar no longer jumps to 0 during a switch.
+- Fix: on some recordings slide chapters were missing entirely ("unavailable"): the screen view could not be told from the camera when the slides were busy (handwriting on coloured backgrounds) and the camera showed a still room. The screen is now recognised by how it changes over time (still between slide changes, while a camera always moves a little), which separated the views clearly on every recording checked. When it is not clear, the most likely view is used instead of giving up.
+- The Slides tab shows which view the slides are found in, and lets you choose the other one (remembered for that recording, included in backups); "Automatic" goes back.
+
 ## 0.13.0
 Works for more courses (M8.9 C: no settings tuned to one course).
 - Slide chapters without a PDF: each recording now learns for itself how large a change of the screen is a new slide (ink, a pointer or scrolling are smaller), instead of using fixed percentages and times. Every slide change found on two hand-checked lectures; one 3-hour lecture went from 12 chapters to 87. Quick switches (a look at the code editor and back, flicking through slides) still make one chapter. Chapter pictures keep the screen's shape (4:3 screens are no longer stretched).

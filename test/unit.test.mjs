@@ -32,7 +32,7 @@ function loadSources(names, overrides) {
   const files = readdirSync(join(root, 'src')).filter((f) => f.startsWith('02-tuning') || names.some((n) => f.includes(n))).sort();
   const code = files.map((f) => readFileSync(join(root, 'src', f), 'utf8')).join('\n')
     + '\n;globalThis.__exports = {};'
-    + ['clamp', 'fmtTime', 'parseIsoDuration', 'Disposer', 'PlayedRanges', 'FollowerSync', 'CueIndex', 'parseVtt', 'AudioChain', 'seg', 'thumbnailFor', 'pickAudioRendition', 'parseMediaPlaylist', 'Envelope', 'findSilences', 'silencesFromCues', 'speechSpans', 'silenceIndexAt', 'mp4Boxes', 'parseFragment', 'videoVariants', 'thumbChange', 'learnThreshold', 'sampleChanges', 'groupSegments', 'sampleIndexAt', 'HlsVideoReader', 'buildScenes', 'chapterIndexAt', 'SessionKeeper', 'mediaSession', 'TagStore', 'watchedShare', 'makeZip', 'crc32', 'lectureMarkdown', 'mdTag', 'followSamples', 'followLecture', 'textScores', 'slideWords', 'ocrLanguage', 'TESS_LANGS', 'slideTextWorkerSource', 'FORCE_OFF', 'captionExcerpt',
+    + ['clamp', 'fmtTime', 'parseIsoDuration', 'Disposer', 'PlayedRanges', 'FollowerSync', 'CueIndex', 'parseVtt', 'AudioChain', 'seg', 'thumbnailFor', 'pickAudioRendition', 'parseMediaPlaylist', 'Envelope', 'findSilences', 'silencesFromCues', 'speechSpans', 'silenceIndexAt', 'mp4Boxes', 'parseFragment', 'videoVariants', 'Stream', 'pickScreen', 'slightChange', 'thumbChange', 'learnThreshold', 'sampleChanges', 'groupSegments', 'sampleIndexAt', 'HlsVideoReader', 'buildScenes', 'chapterIndexAt', 'SessionKeeper', 'mediaSession', 'TagStore', 'watchedShare', 'makeZip', 'crc32', 'lectureMarkdown', 'mdTag', 'followSamples', 'followLecture', 'textScores', 'slideWords', 'ocrLanguage', 'TESS_LANGS', 'slideTextWorkerSource', 'FORCE_OFF', 'captionExcerpt',
       'sanitizePrefs', 'sanitizePos', 'prefDefaults', 'guard', 'guardCore', 'featureGuard', 'unexpected', 'featureErrors', 'eventLog', 'SilenceAnalyzer', 'skipStretches', 'contentEndAt', 'frameUniform', 'uniformStretches', 'maskUrls', 'diagnosticsText', 'cacheTouched', 'cacheLastUse', 'cacheValid', 'restoreBackup', 'LitePlayer', 'NotesPane', 'DiscussionPane', 'SlideTextReader', 'SlideTextWorker', 'SlideDeckController', 'playerTemplate', 'NS']
       .map((n) => `if (typeof ${n} !== 'undefined') globalThis.__exports.${n} = ${n};`).join('\n');
   vm.runInContext(code, ctx);
@@ -404,6 +404,56 @@ test('silences from transcript gaps; speech spans cut at pauses; lookup', () => 
   assert.ok(cuts[2] >= 70 && cuts[2] < 71, String(cuts));
 });
 
+// Bug (0.13.1): in the single-view layout, switching to the camera and back quickly started
+// the recording over: the second reload asked the <video> element where it was while the
+// first was still loading, and the element says 0 (and paused) until it gets there.
+test('a stream knows where it is going while it loads; a reload in that window keeps position and play state', () => {
+  class FakeHls {
+    constructor(cfg) { this.cfg = cfg; this.levels = []; this.handlers = {}; }
+    static isSupported() { return true; }
+    on(e, fn) { (this.handlers[e] ||= []).push(fn); }
+    once(e, fn) { this.on(e, fn); }
+    loadSource(u) { this.uri = u; }
+    attachMedia() {}
+    destroy() { this.destroyed = true; }
+  }
+  FakeHls.Events = { ERROR: 'e', MANIFEST_PARSED: 'm', LEVEL_SWITCHED: 'l', MEDIA_DETACHING: 'd', MEDIA_ATTACHED: 'a' };
+  FakeHls.ErrorTypes = { NETWORK_ERROR: 'n', MEDIA_ERROR: 'x' };
+  const m = loadSources(['00-util', '35-stream'], { Hls: FakeHls });
+  const v = new FakeVideo();
+  v.currentTime = 3000;
+  v.paused = false;
+  const st = new m.Stream(v, () => {});
+  // Playing at 3000, the view switches: the new load is meant to start there and play.
+  st.load('camera.m3u8', st.position(), null, st.playing());
+  v.currentTime = 0;     // what the element says until the new source arrives
+  v.paused = true;
+  v.readyState = 0;
+  assert.equal(st.position(), 3000);
+  assert.equal(st.playing(), true);
+  // Switched back before it arrived: still 3000 and playing (before the fix: 0 and paused).
+  st.load('screen.m3u8', st.position(), null, st.playing());
+  assert.equal(st.hls.cfg.startPosition, 3000);
+  assert.equal(st.position(), 3000);
+  assert.equal(st.playing(), true);
+  // A seek or pause while loading becomes the new intent.
+  st.intend(3100, false);
+  assert.equal(st.position(), 3100);
+  assert.equal(st.playing(), false);
+  // Arrived: from now on the element is asked again.
+  v.readyState = 4;
+  v.currentTime = 3100.2;
+  v.emit('canplay');
+  assert.equal(st.starting, null);
+  v.currentTime = 3105;
+  assert.equal(st.position(), 3105);
+  // Not there yet (data at another place) is not arrival.
+  st.load('camera.m3u8', 3105, null, true);
+  v.currentTime = 0;
+  v.emit('canplay');
+  assert.equal(st.position(), 3105);
+});
+
 // ---- slide chapters ----
 
 function slidesMod() {
@@ -575,6 +625,40 @@ test('H1: sampling and chunks follow segment durations, not a fixed 10 s', () =>
   assert.equal(m.groupSegments(segs(90, 180), 60).length, 2);
   assert.equal(m.sampleIndexAt([0, 10, 20], 15), 1);
   assert.equal(m.sampleIndexAt([0, 10, 20], -1), -1);
+});
+
+// Bug (0.13.1): on a lecture whose slides are dense and handwritten on gradients, while the
+// camera films a still room, neither view was "clearly flatter", so slide chapters were
+// switched off. The screen is now told by how it changes over time (still, then a step;
+// a camera always changes a little), from measured recordings (test/fixtures).
+test('which view is the screen: still between changes beats a camera, on every measured recording, in either order', () => {
+  const m = slidesMod();
+  const fx = JSON.parse(readFileSync(join(root, 'test', 'fixtures', 'screen-views.json'), 'utf8'));
+  for (const r of fx.recordings) {
+    // Six pairs, as findScreen takes them: every other measured pair.
+    const screen = { source: { index: 1 }, vals: r.screen.filter((x, i) => i % 2 === 0) };
+    const camera = { source: { index: 2 }, vals: r.camera.filter((x, i) => i % 2 === 0) };
+    for (const order of [[screen, camera], [camera, screen]]) {
+      const res = m.pickScreen(order, true, 2);
+      assert.equal(res.best.source.index, 1, r.name);
+      assert.equal(res.sure, true, r.name);
+    }
+  }
+  // Not every view measured, or no clear difference: still an answer, marked unsure.
+  const a = { source: { index: 1 }, vals: [5, 6, 7] };
+  const b = { source: { index: 2 }, vals: [5, 7, 8] };  // median higher, but beats a in only 2/3 of pairs
+  assert.equal(m.pickScreen([a], true, 2).sure, false);
+  const tie = m.pickScreen([b, a], true, 2);
+  assert.equal(tie.best.source.index, 1);
+  assert.equal(tie.sure, false);
+  // The measure itself: re-encoding noise is not a change, sensor noise is.
+  const still = new Uint8Array(100).fill(100);
+  const again = still.map((x, i) => x + (i % 3) - 1);
+  const noisy = still.map((x, i) => x + ((i * 7) % 11) - 5);
+  assert.equal(m.slightChange(still, again), 0);
+  assert.ok(m.slightChange(still, noisy) > 0.4);
+  // A real edge moving (more than PIXEL_DIFF) is not "slight".
+  assert.equal(m.slightChange(still, still.map(() => 250)), 0);
 });
 
 // ---- slide following ----

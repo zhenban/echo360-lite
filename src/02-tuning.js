@@ -45,11 +45,15 @@ const SAME_TEXT_MAX = 12;
 // logo or a cursor may differ.
 const UNIFORM_NOISE = 10;              // brightness levels of compression noise in a block mean
 const UNIFORM_SHARE = 0.985;           // blocks that must be that close
-// Which view is the screen: its pictures are flatter than every other view's in at least
-// this share of pairs (a probability of superiority; 0.5 would be a coin toss). Measured
-// within the recording, so no fixed flatness level is needed.
+// Which view is the screen (findScreen): the chosen view's values beat another view's in at
+// least this share of pairs (a probability of superiority; 0.5 would be a coin toss) for
+// the choice to count as clear. Not clear is not a failure: the most likely view is used
+// and the user can choose another.
 const SCREEN_CLEARLY = 0.75;
-const SCREEN_PROBES = 6;               // pictures compared per view (spread over the recording)
+const SCREEN_PROBES = 6;               // keyframe pairs (or preview pictures) compared per view, spread over the recording
+// Brightness levels a pixel of a still picture moves when it is encoded again (measured:
+// 94-100% of a still screen's pixels within 2 between keyframes 10 s apart).
+const STILL_LEVELS = 2;
 const FLAT_LEVELS = 3;                 // brightness (sum of R, G, B) within which neighbours are "equal" (compression noise)
 const CHAPTER_THUMB_W = 192;           // width of chapter pictures (the list shows them at about 96 CSS px)
 // Segments (or chunks) in a row that cannot be read before an analysis stops (one is

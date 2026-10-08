@@ -160,7 +160,8 @@ class SlidesPane {
     this.status = h('div.sstatus', { 'aria-live': 'polite' });
     this.chapToggle = h('button.chaptoggle', { hidden: true, onclick: () => { this.showChapters = !this.showChapters; this.render(); } });
     this.list = h('div.slist');
-    el.append(this.deckBox, this.readerBox, this.chapToggle, this.status, this.list);
+    this.screenBox = h('div.sscreen');
+    el.append(this.deckBox, this.readerBox, this.chapToggle, this.status, this.screenBox, this.list);
     this.buildReader();
     this.d.add(this.reader.onInfo(() => { if (this.visible) this.renderPageInfo(); }));
     this.d.listen(this.list, 'click', (e) => {
@@ -205,6 +206,25 @@ class SlidesPane {
     if (on) this.render();
   }
 
+  // Which view the chapters and the reader use, and the choice of another one (the last
+  // resort when the analysis guessed wrong). Shown with two or more views.
+  renderScreen() {
+    const box = this.screenBox;
+    box.textContent = '';
+    const a = this.player.slides;
+    const sources = this.player.lesson.sources;
+    if (!a || sources.length < 2) return;
+    const how = a.manualScreen != null ? t('screenChosen') : a.screenIndex == null ? '' : a.screenSure ? t('screenFound') : t('screenGuessed');
+    box.append(h('span', { text: t('screenView') }));
+    sources.forEach((src, i) => {
+      const on = src.index === a.screenIndex;
+      box.append(h('button.sview' + (on ? '.on' : ''), { text: t('viewN', { n: i + 1 }), 'aria-pressed': String(on), title: t('screenUse', { n: i + 1 }),
+        onclick: () => { if (!on || a.manualScreen == null) a.chooseScreen(src.index).catch((e) => log.warn('screen choice:', e)); } }));
+    });
+    if (how) box.append(h('span.sviewhow', { text: how }));
+    if (a.manualScreen != null) box.append(h('button.link', { text: t('screenAuto'), onclick: () => a.chooseScreen(null).catch((e) => log.warn('screen choice:', e)) }));
+  }
+
   renderDeck() {
     const deck = this.player.deck;
     const box = this.deckBox;
@@ -235,6 +255,7 @@ class SlidesPane {
 
   render() {
     this.status.textContent = this.statusText || '';
+    this.renderScreen();
     this.renderDeck();
     const deck = this.deck;
     this.readerBox.hidden = !deck;

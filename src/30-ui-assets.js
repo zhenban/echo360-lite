@@ -185,6 +185,11 @@ select.input option { background: #1b1b20; }
 .tip .pv[hidden] { display: none; }
 .pane[data-pane=slides] { overflow-y: auto; padding: 0 12px 16px; overscroll-behavior: contain; }
 .sstatus { padding: 4px 2px 8px; font-size: 12px; opacity: .65; }
+.sscreen { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 2px 8px; font-size: 12px; }
+.sscreen:empty { display: none; }
+.sscreen > span { opacity: .65; }
+.sview { padding: 2px 8px; border-radius: 10px; border: 1px solid rgba(255,255,255,.25); background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.sview.on { background: rgba(255,255,255,.18); border-color: rgba(255,255,255,.5); }
 .slist { display: flex; flex-direction: column; gap: 8px; }
 .scard { display: flex; gap: 10px; align-items: flex-start; width: 100%; padding: 6px; border-radius: 10px; text-align: left; }
 .scard:hover { background: rgba(255,255,255,.07); }

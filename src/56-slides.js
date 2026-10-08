@@ -332,6 +332,18 @@ function thumbChange(a, b, limit) {
   return n;
 }
 
+// Share of pixels (0-1) of two brightness pictures that changed a little: more than
+// STILL_LEVELS (the same picture encoded again), at most PIXEL_DIFF (a real edge moving).
+// Sensor noise and movement in a camera picture; next to nothing on a still screen.
+function slightChange(a, b) {
+  let n = 0;
+  for (let i = 0; i < a.length; i++) {
+    const d = Math.abs(a[i] - b[i]);
+    if (d > STILL_LEVELS && d <= PIXEL_DIFF) n++;
+  }
+  return n / a.length;
+}
+
 // The change of each sample against the last earlier sample that differed visibly from the
 // one before it (so that slow changes, ink added a little at a time, still add up), in
 // changed pixels; 0 for the first. samples: [{ luma }], sets sample.change; only samples
@@ -546,6 +558,23 @@ function bitmapToBlob(canvas) {
   return canvas.convertToBlob({ type: 'image/jpeg', quality: 0.8 });
 }
 
+// The screen among scored views [{ vals, ... }] (see findScreen): the one with the lowest
+// (lowerIsScreen) or highest median; sure if every view was scored and the chosen one's
+// values beat each other view's in SCREEN_CLEARLY of all pairs. { best, sure }.
+function pickScreen(scored, lowerIsScreen, viewCount) {
+  const median = (v) => { const a = v.slice().sort((x, y) => x - y); return (a[(a.length - 1) >> 1] + a[a.length >> 1]) / 2; };
+  // Share of pairs in which a value of `a` is above one of `b` (ties count half).
+  const above = (a, b) => {
+    let w = 0;
+    for (const x of a) for (const y of b) w += x > y ? 1 : x === y ? 0.5 : 0;
+    return w / (a.length * b.length);
+  };
+  const order = scored.slice().sort((a, b) => (lowerIsScreen ? median(a.vals) - median(b.vals) : median(b.vals) - median(a.vals)));
+  const best = order[0];
+  const sure = order.length === viewCount && order.slice(1).every((o) => (lowerIsScreen ? above(o.vals, best.vals) : above(best.vals, o.vals)) >= SCREEN_CLEARLY);
+  return { best, sure };
+}
+
 // ---- the controller used by the player ----
 
 class SlideAnalyzer {
@@ -567,14 +596,19 @@ class SlideAnalyzer {
     this.uniform = [];       // stretches where the screen shows (almost) one colour
     this.screenIndex = null;
     this.guessScreen = null;
+    this.screenSure = true;     // false: the views did not differ clearly (the screen is a guess)
+    this.manualScreen = null;   // the view the user chose, if any
     this.reader = null;
     this.urls = [];
     this.d.add(() => { for (const u of this.urls) URL.revokeObjectURL(u); this.urlOf = null; });
   }
 
+  // Each run has its own signal and gate: a run replaced by chooseScreen stops at its next
+  // step and never writes into the new one's results.
   start() {
-    this.run().catch((e) => {
-      if (this.ac.signal.aborted) return;
+    const signal = this.ac.signal;
+    this.run(signal, this.gate).catch((e) => {
+      if (signal.aborted) return;
       log.warn('slide detection stopped:', e && e.message ? e.message : e);
       if (!this.chapters.length) { this.state = 'unavailable'; this.onChange(); }
     });
@@ -608,97 +642,143 @@ class SlideAnalyzer {
     this.urls = [...this.urlOf.values()];
   }
 
-  async run() {
-    const signal = this.ac.signal;
+  async run(signal, gate) {
     const key = 'slides:' + this.lesson.mediaId;
-    const cached = this.lesson.mediaId ? await idbCache.get(key) : undefined;
-    if (cacheValid('slides', cached) && Array.isArray(cached.chapters)) {
+    const id = this.lesson.mediaId;
+    const pick = id ? await idbCache.get('screenpick:' + id) : null;
+    this.manualScreen = pick && this.lesson.sources.some((x) => x.index === pick.index) ? pick.index : null;
+    const cached = id ? await idbCache.get(key) : undefined;
+    if (signal.aborted) return;
+    // A result for another view than the one chosen by hand is made again.
+    if (cacheValid('slides', cached) && Array.isArray(cached.chapters) && (this.manualScreen == null || cached.screen === this.manualScreen)) {
       cacheTouch(key);
       this.uniform = Array.isArray(cached.uniform) ? cached.uniform : [];
       this.screenIndex = cached.screen;
+      this.screenSure = cached.sure !== false;
       this.chapters = cached.chapters.map((c) => Object.assign({}, c, { thumb: c.blob ? this.thumbUrl(c.blob) : c.thumb }));
       this.state = 'done';
       this.progress = 1;
       this.onChange();
       return;
     }
-    // Which view is the screen is needed early (quality settings are per view); it only
-    // takes a few small thumbnails.
+    // Which view is the screen is needed early (quality settings are per view).
     const screen = await this.findScreen(signal);
+    if (signal.aborted) return;
     if (!screen) { this.state = 'unavailable'; this.onChange(); return; }
     this.screenIndex = screen.source.index;
+    this.screenSure = screen.sure;
     this.onChange();
-    await this.gate.wait(BG_START_DELAY_MS); // let playback start first
-    if (screen.thumbs) this.fromThumbnails(screen.thumbs);
+    await gate.wait(BG_START_DELAY_MS); // let playback start first
+    if (screen.thumbs) this.fromThumbnails(screen.thumbs, signal, gate);
     if (!HlsVideoReader.supported() || (navigator.connection && navigator.connection.saveData)) {
       if (this.chapters.length) { this.state = 'done'; this.progress = 1; this.onChange(); }
       return;
     }
-    await this.fromKeyframes(screen.source, signal);
-    this.save(key);
+    await this.fromKeyframes(screen.source, signal, gate, screen.reader);
+    if (!signal.aborted) this.save(key);
   }
 
-  // Which view is the screen: the one whose thumbnails have clearly more flat area than
-  // every other view's (a slide or a document is flatter than a camera picture). "Clearly"
-  // is measured within this recording, not against a fixed level: a busy screen (a browser
-  // with toolbars, a code editor) can be less flat than a slide show and still be much
-  // flatter than the camera. With a single view, that view.
-  // Also sets this.guessScreen: the flattest view even when not clearly so (the slide
-  // reader still needs one to read).
+  // The user says which view is the screen (index), or leaves it to the analysis (null).
+  // Kept per recording; the chapters are found again from that view.
+  async chooseScreen(index) {
+    const id = this.lesson.mediaId;
+    if (id) {
+      if (index == null) await idbCache.del('screenpick:' + id);
+      else await idbCache.put('screenpick:' + id, { index });
+    }
+    // Confirming the view in use only remembers it.
+    if (index != null && index === this.screenIndex) {
+      this.manualScreen = index;
+      this.screenSure = true;
+      this.onChange();
+      return;
+    }
+    this.ac.abort();
+    this.ac = new AbortController();
+    this.gate = new BackgroundGate(this.video, this.ac.signal);
+    if (this.lesson.mediaId) await idbCache.del('slides:' + this.lesson.mediaId);
+    this.state = 'pending';
+    this.progress = 0;
+    this.chapters = [];
+    this.uniform = [];
+    this.thumbsDone = null;
+    this.lumas = null;
+    this.pruneThumbs();
+    this.onChange();
+    this.start();
+  }
+
+  // Which view is the screen: { source, thumbs (its preview set or null), sure, reader },
+  // or null if no view can be read at all.
+  // 1. The view the user chose for this recording.
+  // 2. With one view, that view.
+  // 3. How each view changes over time, from pairs of keyframes CHAPTER_STEP_SEC apart
+  //    spread over the recording: a screen is still between changes (the same picture is
+  //    encoded the same way, so nearly every pixel stays within STILL_LEVELS) and then
+  //    changes in a step; a camera always changes a little everywhere (sensor noise, people
+  //    moving). The share of slightly changed pixels per pair is lower for the screen on
+  //    every recording checked (median about 0.2-11% against 12-35%, the highest screen
+  //    value from a document camera). Echo360's data does not say which view is which.
+  // 4. Without WebCodecs: the preview pictures' flat area (slides and documents are
+  //    flatter than camera pictures; weaker, a busy screen can be less flat).
+  // The most likely view is used even when the views do not differ clearly (sure = false):
+  // a wrong guess shows wrong chapters that the user can fix by choosing the view, while
+  // giving up would hide the feature. "Clearly" is SCREEN_CLEARLY: the chosen view's
+  // values are below (or for flatness above) another view's in that share of pairs.
   async findScreen(signal) {
-    const sets = this.lesson.thumbnails || [];
-    let scored = [];
-    for (const src of this.lesson.sources) {
-      const set = sets.find((s) => s.sourceIndex === src.index);
-      if (!set || !Array.isArray(set.timesInSeconds) || !set.timesInSeconds.length) continue;
+    const sources = this.lesson.sources;
+    const setOf = (src) => (this.lesson.thumbnails || []).find((x) => x.sourceIndex === src.index && Array.isArray(x.timesInSeconds) && x.timesInSeconds.length) || null;
+    if (this.manualScreen != null) {
+      const src = sources.find((x) => x.index === this.manualScreen);
+      this.guessScreen = src.index;
+      return { source: src, thumbs: setOf(src), sure: true, reader: null };
+    }
+    if (sources.length === 1) { this.guessScreen = sources[0].index; return { source: sources[0], thumbs: setOf(sources[0]), sure: true, reader: null }; }
+    const decide = (scored, lowerIsScreen) => {
+      const r = pickScreen(scored, lowerIsScreen, sources.length);
+      this.guessScreen = r.best.source.index;
+      return { source: r.best.source, thumbs: setOf(r.best.source), sure: r.sure, reader: r.best.reader || null };
+    };
+    if (HlsVideoReader.supported()) {
+      const scored = [];
+      for (const src of sources) {
+        const vals = [];
+        let rd = null;
+        try {
+          rd = await new HlsVideoReader(src.v || src.av, 360).open(signal);
+          const picks = rd.sampleSegments(CHAPTER_STEP_SEC);
+          for (let k = 0; k < SCREEN_PROBES && picks.length > 1; k++) {
+            const q = Math.floor(((k + 0.5) * (picks.length - 1)) / SCREEN_PROBES);
+            let a = null;
+            let b = null;
+            try {
+              await rd.keyframe(picks[q], signal, (f) => { a = frameLuma(f); });
+              await rd.keyframe(picks[q + 1], signal, (f) => { b = frameLuma(f); });
+            } catch (e) { if (signal.aborted) throw e; continue; }
+            vals.push(slightChange(a, b));
+          }
+        } catch (e) { if (signal.aborted) throw e; }
+        if (vals.length >= SCREEN_PROBES / 2) scored.push({ source: src, vals, reader: rd });
+      }
+      if (scored.length) return decide(scored, true);
+    }
+    const scored = [];
+    for (const src of sources) {
+      const set = setOf(src);
+      if (!set) continue;
       const ts = set.timesInSeconds;
       const vals = [];
       for (let k = 0; k < SCREEN_PROBES; k++) {
-        const t = ts[Math.floor(((k + 0.5) * ts.length) / SCREEN_PROBES)];
         // One picture that cannot be read does not decide anything.
         let img = null;
-        try { img = await this.loadThumb(set, t, signal); } catch (e) { if (signal.aborted) throw e; }
+        try { img = await this.loadThumb(set, ts[Math.floor(((k + 0.5) * ts.length) / SCREEN_PROBES)], signal); } catch (e) { if (signal.aborted) throw e; }
         if (!img) continue;
         vals.push(flatShare(img));
         img.close();
       }
-      if (vals.length >= SCREEN_PROBES / 2) scored.push({ source: src, set, vals });
+      if (vals.length >= SCREEN_PROBES / 2) scored.push({ source: src, vals });
     }
-    // No usable thumbnails for some view: a few keyframes of each view instead (360p,
-    // about 20 KB each).
-    if (this.lesson.sources.length > 1 && scored.length < this.lesson.sources.length && HlsVideoReader.supported()) {
-      scored = [];
-      for (const src of this.lesson.sources) {
-        const vals = [];
-        try {
-          const rd = await new HlsVideoReader(src.v || src.av, 360).open(signal);
-          const n = rd.segments.length;
-          for (let k = 0; k < SCREEN_PROBES; k++) {
-            await rd.keyframe(Math.floor(((k + 0.5) * n) / SCREEN_PROBES), signal, (f) => vals.push(flatShare(f)));
-          }
-        } catch (e) { if (signal.aborted) throw e; }
-        if (vals.length >= SCREEN_PROBES / 2) scored.push({ source: src, set: null, vals });
-      }
-    }
-    if (!scored.length) {
-      // No usable thumbnails: a single view is assumed to be worth scanning.
-      if (this.lesson.sources.length === 1) { this.guessScreen = this.lesson.sources[0].index; return { source: this.lesson.sources[0], thumbs: null }; }
-      return null;
-    }
-    const median = (v) => { const a = v.slice().sort((x, y) => x - y); return (a[(a.length - 1) >> 1] + a[a.length >> 1]) / 2; };
-    scored.sort((a, b) => median(b.vals) - median(a.vals));
-    const best = scored[0];
-    this.guessScreen = best.source.index;
-    if (scored.length === 1) return this.lesson.sources.length === 1 ? { source: best.source, thumbs: best.set } : null;
-    // Chance that a picture of the best view is flatter than one of the other view
-    // (ties count half); 3 in 4 or more against every other view.
-    const beats = (a, b) => {
-      let w = 0;
-      for (const x of a) for (const y of b) w += x > y ? 1 : x === y ? 0.5 : 0;
-      return w / (a.length * b.length);
-    };
-    if (scored.slice(1).every((o) => beats(best.vals, o.vals) >= SCREEN_CLEARLY)) return { source: best.source, thumbs: best.set };
-    return null;
+    return scored.length ? decide(scored, false) : null;
   }
 
   async loadThumb(set, t, signal) {
@@ -717,21 +797,21 @@ class SlideAnalyzer {
 
   // Coarse chapters from the per-minute thumbnails: a change between two thumbnails is
   // placed half way between them.
-  async fromThumbnailsAsync(set) {
+  async fromThumbnailsAsync(set, signal, gate) {
     const samples = [];
     let fails = 0;
     for (const t of set.timesInSeconds) {
-      await this.gate.wait(0);
+      await gate.wait(0);
       // A preview picture that cannot be read is left out.
       let img = null;
-      try { img = await this.loadThumb(set, t, this.ac.signal); fails = 0; } catch (e) {
-        if (this.ac.signal.aborted || ++fails >= ANALYSIS_MAX_FAILS) throw e;
+      try { img = await this.loadThumb(set, t, signal); fails = 0; } catch (e) {
+        if (signal.aborted || ++fails >= ANALYSIS_MAX_FAILS) throw e;
         continue;
       }
       samples.push({ t, luma: frameLuma(img) });
       img.close();
     }
-    if (samples.length < 2) return;
+    if (samples.length < 2 || signal.aborted) return;
     const scenes = buildScenes(samples, this.duration(), { single: false });
     this.chapters = scenes.map((sc, i) => ({
       start: i === 0 ? 0 : (samples[sc.first].t + samples[sc.first - 1].t) / 2,
@@ -745,8 +825,8 @@ class SlideAnalyzer {
     this.onChange();
   }
 
-  fromThumbnails(set) {
-    this.thumbsDone = this.fromThumbnailsAsync(set).catch((e) => { if (!this.ac.signal.aborted) log.warn('thumbnails:', e.message); });
+  fromThumbnails(set, signal, gate) {
+    this.thumbsDone = this.fromThumbnailsAsync(set, signal, gate).catch((e) => { if (!signal.aborted) log.warn('thumbnails:', e.message); });
   }
 
   // The 360p brightness picture of the screen view at sample time t, while the scan keeps
@@ -764,21 +844,23 @@ class SlideAnalyzer {
     return this.sharing;
   }
 
-  async fromKeyframes(source, signal) {
-    const reader = await new HlsVideoReader(source.v || source.av, 360).open(signal);
-    this.reader = reader;
+  async fromKeyframes(source, signal, gate, opened) {
+    const reader = opened || await new HlsVideoReader(source.v || source.av, 360).open(signal);
     if (this.thumbsDone) await this.thumbsDone;
+    if (signal.aborted) return;
+    this.reader = reader;
     const picks = reader.sampleSegments(CHAPTER_STEP_SEC);
     const n = picks.length;
     const samples = [];
-    this.lumas = new Map();
+    const lumas = new Map();
+    this.lumas = lumas;
     if (store.get('debug', false)) this.samples = samples; // for tuning, development only
     const thumbs = new Map();
     let lastBuild = 0;
     let fails = 0;
     for (let q = 0; q < n; q++) {
       const i = picks[q];
-      await this.gate.turn(CHAPTER_PACE_MS[0], CHAPTER_PACE_MS[1], BG_MIN_BUFFER_SEC);
+      await gate.turn(CHAPTER_PACE_MS[0], CHAPTER_PACE_MS[1], BG_MIN_BUFFER_SEC);
       let luma = null;
       let pic = null;
       // One segment that cannot be read (a missing keyframe, a failed request) does not end
@@ -801,11 +883,12 @@ class SlideAnalyzer {
         continue;
       }
       samples.push({ t, luma, uniform: frameUniform(luma) });
-      this.lumas.set(Math.round(t * 10), luma);
+      lumas.set(Math.round(t * 10), luma);
       sampleChanges(samples, j);
       // Keep a small picture only for the last frame of each run of the same picture.
       if (thumbs.has(j - 1) && samples[j].change < SAME_TEXT_MAX) thumbs.delete(j - 1);
       thumbs.set(j, await bitmapToBlob(pic));
+      if (signal.aborted) return;
       this.progress = ((q + 1) / n) * 0.8;
       if (q - lastBuild >= 30) {
         lastBuild = q;
@@ -824,7 +907,7 @@ class SlideAnalyzer {
     for (let c = 1; c < chs.length; c++) {
       const k = chs[c].firstSample;
       if (k <= 0) continue;
-      await this.gate.turn(CHAPTER_REFINE_PACE_MS[0], CHAPTER_REFINE_PACE_MS[1], STREAM_MAX_BUFFER_SEC);
+      await gate.turn(CHAPTER_REFINE_PACE_MS[0], CHAPTER_REFINE_PACE_MS[1], STREAM_MAX_BUFFER_SEC);
       const before = samples[k - 1].luma;
       let at = null;
       // A segment that cannot be read keeps the coarse time.
@@ -876,6 +959,7 @@ class SlideAnalyzer {
       v: cacheVersion('slides'),
       uniform: this.uniform,
       screen: this.screenIndex,
+      sure: this.screenSure !== false,
       at: Date.now(),
       chapters: this.chapters.map((c) => ({ start: c.start, end: c.end, precise: c.precise, repTime: c.repTime, blob: c.blob || null, thumb: c.blob ? '' : c.thumb })),
     });

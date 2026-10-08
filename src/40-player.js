@@ -231,8 +231,8 @@ class LitePlayer {
     this.clock.priority = this.roleOf(pos) === 'camera' ? 'low' : 'high';
     this.clock.load(source.av, startAt, () => {
       v.playbackRate = this.prefs.rate;
-      if (autoplay) v.play().catch(() => {});
-    });
+      if (this.clock.playing()) v.play().catch(() => {});
+    }, autoplay);
   }
 
   ensureFollower() {
@@ -242,8 +242,8 @@ class LitePlayer {
     const uri = source.v || source.av;
     if (this.follower.uri !== uri) {
       if (source.poster) this.fvideo.poster = source.poster;
-      // Before the clock has loaded its currentTime is still 0; start at the resume point.
-      const at = this.video.readyState > 0 ? this.video.currentTime : this.startAt;
+      // Where the clock is, or is about to be while it is (re)loading.
+      const at = this.clock.position();
       this.followerPos = pos;
       this.follower.quality = this.qualityFor(pos);
       this.follower.priority = this.roleOf(pos) === 'camera' ? 'low' : 'high';
@@ -274,8 +274,9 @@ class LitePlayer {
     if (layout === 'single' || pdf) {
       this.dropFollower();
       if (this.clockPos !== this.primaryPos && this.sources[this.primaryPos].av) {
-        const v = this.video;
-        this.loadClock(this.primaryPos, v.currentTime, !v.paused);
+        // Asked of the stream, not the element: a switch made while the previous one is
+        // still loading would otherwise read 0 (and paused) and start over.
+        this.loadClock(this.primaryPos, this.clock.position(), this.clock.playing());
       }
     } else {
       this.ensureFollower();
@@ -482,7 +483,7 @@ class LitePlayer {
       return;
     }
     this.showError(t('playbackFailedTitle'), t('playbackFailedText', { detail: f.details }),
-      [[t('retry'), () => { this.hideError(); this.loadClock(this.clockPos, this.video.currentTime, true); }, true],
+      [[t('retry'), () => { this.hideError(); this.loadClock(this.clockPos, this.clock.position(), true); }, true],
         [t('useOriginal'), () => this.opts.onFallback('error')]]);
   }
 
@@ -498,7 +499,7 @@ class LitePlayer {
     this.session.renew(true).then(() => {
       if (this.destroyed || stream.hls !== engine) return;
       stream.renewedAt = Date.now();
-      stream.resume(stream.video.currentTime);
+      stream.resume(stream.position());
     }, () => { if (!this.destroyed) fail(); });
   }
 
@@ -619,7 +620,7 @@ class LitePlayer {
   }
 
   savePosition(pos) {
-    store.set('pos:' + this.lesson.id, { t: pos === undefined ? this.video.currentTime : pos, at: Date.now() });
+    store.set('pos:' + this.lesson.id, { t: pos === undefined ? this.clock.position() : pos, at: Date.now() });
   }
 
   duration() {
@@ -634,7 +635,7 @@ class LitePlayer {
     if (!force && this.stage.classList.contains('idle')) return;
     const v = this.video;
     const dur = this.duration();
-    const ct = v.currentTime;
+    const ct = this.clock.position();
     const sec = Math.floor(ct);
     if (force || sec !== this.lastSecond) {
       this.lastSecond = sec;
@@ -666,6 +667,7 @@ class LitePlayer {
   seek(target) {
     const dur = this.duration();
     const to = clamp(target, 0, dur ? dur - 0.1 : target);
+    this.clock.intend(to, null);
     this.video.currentTime = to;
     this.render(true);
     if (this.loop) this.loop.seeked(to);
@@ -673,7 +675,10 @@ class LitePlayer {
 
   togglePlay() {
     const v = this.video;
-    if (v.paused || v.ended) v.play().catch(() => {}); else v.pause();
+    // While (re)loading the element says paused: go by what the stream is meant to do.
+    const play = this.clock.starting ? !this.clock.playing() : v.paused || v.ended;
+    this.clock.intend(null, play);
+    if (play) v.play().catch(() => {}); else v.pause();
   }
 
   setRate(r) {
@@ -1260,7 +1265,7 @@ class LitePlayer {
     this.renderChapterMarks();
     // The tab also holds the slide reader: it is there once the analysis has an answer,
     // even when no chapters were found.
-    if (!a.chapters.length && a.state !== 'done' && a.state !== 'unavailable') return;
+    if (!this.slidesPane && !a.chapters.length && a.state !== 'done' && a.state !== 'unavailable') return;
     if (a.state === 'unavailable' && this.deck) this.deck.screenKnown();
     if (!this.slidesPane) {
       this.slidesPane = new SlidesPane(this, this.$('.pane[data-pane=slides]'));

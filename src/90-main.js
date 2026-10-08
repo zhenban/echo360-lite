@@ -46,7 +46,7 @@
           startOriginal(callOriginal, handoff, null);
         },
       });
-      if (store.get('debug', false)) window.__echo360LitePlayer = player; // development only
+      if (store.get('debug', false)) { window.__echo360LitePlayer = player; window.__echo360LiteDev = { HlsVideoReader, frameLuma, thumbChange, learnThreshold }; } // development only
       // Any unexpected error in our handlers from now on: hand the page to the original player.
       unexpected.handler = () => {
         if (!player) return;

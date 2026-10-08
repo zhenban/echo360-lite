@@ -214,7 +214,7 @@ class Exporter {
 
 // ---- backup ----
 
-const BACKUP_KEYS = /^(tags|tagmap|deck|deckref|watched):/;
+const BACKUP_KEYS = /^(tags|tagmap|deck|deckref|watched|screenpick):/;
 
 // The shape each restored IndexedDB entry must have (anything else is skipped, so a
 // damaged backup cannot plant data that breaks a later visit).
@@ -228,6 +228,7 @@ const BACKUP_DB_SHAPES = {
   deckref: (v) => Array.isArray(v) && v.every(isStr),
   watched: (v) => v && isNum(v.d) && Array.isArray(v.r) && v.r.every((x) => Array.isArray(x) && x.length === 2 && isNum(x[0]) && isNum(x[1])) && (v.e == null || isNum(v.e)),
   deckfile: (v) => v instanceof Blob,
+  screenpick: (v) => v && isNum(v.index),
 };
 
 async function blobToBase64(blob) {

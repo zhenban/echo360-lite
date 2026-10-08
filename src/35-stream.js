@@ -29,6 +29,28 @@ class Stream {
     this.capHeight = 0;    // 0 = no cap
     this.onLevel = null;   // called when the playing rendition changes
     this.priority = 'high'; // 'low': steps down first and up last when bandwidth is short
+    // While a load is starting: where it is meant to start and whether it should play.
+    // The element says 0 and paused until it gets there, so it cannot be asked (a second
+    // reload in that window would start at 0).
+    this.starting = null;     // { at, play } or null
+    this.arrived = null;      // listener clearing `starting`
+  }
+
+  // Where this stream is (or, while starting, is about to be).
+  position() {
+    return this.starting ? this.starting.at : this.video.currentTime;
+  }
+
+  // Whether it plays (or, while starting, is going to).
+  playing() {
+    return this.starting ? this.starting.play : !this.video.paused;
+  }
+
+  // The user seeked or played/paused before the load arrived: that is the new intent.
+  intend(at, play) {
+    if (!this.starting) return;
+    if (at != null) this.starting.at = at;
+    if (play != null) this.starting.play = play;
   }
 
   // Renditions as [{ height, bitrate }], in hls.js order (lowest first).
@@ -88,10 +110,20 @@ class Stream {
     return this.hls && this.hls.currentLevel >= 0 ? this.hls.currentLevel : -1;
   }
 
-  // Loads `uri` starting at `startAt` seconds. `onReady` runs once the manifest is parsed.
-  load(uri, startAt, onReady) {
+  // Loads `uri` starting at `startAt` seconds. `onReady` runs once the manifest is parsed;
+  // `play`: whether it is meant to play (what playing() says until it has arrived).
+  load(uri, startAt, onReady, play) {
     this.destroyEngine();
     this.uri = uri;
+    this.starting = { at: startAt || 0, play: !!play };
+    const v0 = this.video;
+    // Arrived: data is there at (about) the intended position.
+    this.arrived = () => {
+      const s = this.starting;
+      if (s && v0.readyState >= 2 && Math.abs(v0.currentTime - s.at) <= 1) this.clearStarting();
+    };
+    v0.addEventListener('canplay', this.arrived);
+    v0.addEventListener('seeked', this.arrived);
     this.netRetries = 0;
     this.mediaRecoveries = 0;
     const v = this.video;
@@ -187,8 +219,18 @@ class Stream {
     h.startLoad(at);
   }
 
+  clearStarting() {
+    this.starting = null;
+    if (this.arrived) {
+      this.video.removeEventListener('canplay', this.arrived);
+      this.video.removeEventListener('seeked', this.arrived);
+      this.arrived = null;
+    }
+  }
+
   destroyEngine() {
     clearTimeout(this.retryTimer);
+    this.clearStarting();
     if (this.pendingRestore) { this.video.removeEventListener('loadedmetadata', this.pendingRestore); this.pendingRestore = null; }
     if (this.hls) { this.hls.destroy(); this.hls = null; }
   }
