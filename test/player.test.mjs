@@ -106,3 +106,41 @@ test('T1.2/E1: a broken lesson page goes to the original player untouched, with 
   await pg.w.happyDOM.abort();
   pg.w.close();
 });
+
+test('touch release keeps controls visible so a second tap can pause; mouse leave still hides them', async () => {
+  const pg = page();
+  const { w } = pg;
+  pg.start();
+  const p = pg.player();
+  let paused = false;
+  let toggles = 0;
+  Object.defineProperty(p.video, 'paused', { configurable: true, get: () => paused });
+  p.togglePlay = () => { toggles++; paused = !paused; };
+  const pointer = (type, pointerType) => new w.PointerEvent(type, { bubbles: type !== 'pointerleave', pointerType, button: 0 });
+  const tap = () => {
+    p.video.dispatchEvent(pointer('pointerdown', 'touch'));
+    p.video.dispatchEvent(pointer('pointerup', 'touch'));
+    p.stage.dispatchEvent(pointer('pointerleave', 'touch'));
+    p.video.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+  };
+  try {
+    p.stage.classList.add('idle');
+    tap();
+    assert.equal(p.stage.classList.contains('idle'), false, 'lifting a finger does not hide the controls');
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    assert.equal(toggles, 0, 'the first tap only wakes the controls');
+    tap();
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    assert.equal(toggles, 1, 'the next tap toggles playback');
+    assert.equal(paused, true, 'the recording is paused');
+    paused = false;
+    p.stage.dispatchEvent(pointer('pointerleave', 'mouse'));
+    assert.equal(p.stage.classList.contains('idle'), true, 'a mouse leaving during playback still hides controls');
+    p.stage.dispatchEvent(pointer('pointermove', 'mouse'));
+    assert.equal(p.stage.classList.contains('idle'), false, 'mouse movement still wakes controls');
+  } finally {
+    p.destroy();
+    await w.happyDOM.abort();
+    w.close();
+  }
+});

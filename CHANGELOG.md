@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.15.1
+- Fix: on touchscreens, lifting a finger while a recording plays no longer immediately hides the controls. When controls are hidden, the first tap shows them and the next tap can pause playback.
+
 ## 0.15.0
 The project is renamed **Lite Player for Echo360** (Echo360 轻量播放器), so that it does not read like an Echo360 product. The repository moved to `zhenban/lite-player-for-echo360` (old links redirect).
 - This is a new userscript for your manager (new name and namespace): remove the old "Echo360 Lite Player" and install `lite-player-for-echo360.user.js`.
