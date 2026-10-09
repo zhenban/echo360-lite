@@ -1,7 +1,9 @@
 // ==UserScript==
 // @name         Lite Player for Echo360
 // @namespace    lite-player-for-echo360
-// @version      0.15.1
+// @version      0.15.2
+// @updateURL    https://github.com/zhenban/lite-player-for-echo360/releases/latest/download/lite-player-for-echo360.user.js
+// @downloadURL  https://github.com/zhenban/lite-player-for-echo360/releases/latest/download/lite-player-for-echo360.user.js
 // @description  Unofficial, lightweight player for Echo360 lecture recordings: far lower CPU use, both views side by side, slide chapters, a PDF that follows the lecture. Falls back to the original player automatically if anything is not recognised.
 // @license      GPL-3.0-or-later
 // @match        https://echo360.net.au/lesson/*
@@ -17,7 +19,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.15.1';
+  const VERSION = '0.15.2';
 
 // ---- 00-util.js ----
 // ===================================================================================
@@ -6488,7 +6490,10 @@ class AudioChain {
   build() {
     if (this.ctx || this.reason) return !!this.ctx;
     const Ctx = window.AudioContext || window.webkitAudioContext;
-    const ctx = new Ctx();
+    // Lecture playback does not need interactive latency. Android's default interactive
+    // route can use game/speaker processing that changes the sound even with all stages
+    // bypassed; prefer the media playback route and its power-efficient buffering.
+    const ctx = new Ctx({ latencyHint: 'playback' });
     const n = {};
     n.src = ctx.createMediaElementSource(this.video);
     n.mono = ctx.createGain();
