@@ -2,11 +2,24 @@
 
 # Echo360 Lite Player（Echo360 轻量播放器）
 
-一个用户脚本：用轻量的原生播放器替换 Echo360 课程回放页面的播放器。
+[![CI](https://github.com/zhenban/echo360-lite/actions/workflows/ci.yml/badge.svg)](https://github.com/zhenban/echo360-lite/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/zhenban/echo360-lite)](https://github.com/zhenban/echo360-lite/releases/latest)
+[![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
 
-原播放器播放时会让一个 CPU 核心一直满载，风扇响、耗电。Echo360 Lite 用浏览器自带的视频播放器播放同样的视频流，开销接近直接播放视频文件，另外还加了一些方便看网课的功能。
+**一个用户脚本：用轻快的播放器看 Echo360 课程回放：CPU 占用低得多，两路画面并排，幻灯片章节，PDF 跟着讲课翻页，字幕、笔记等等。**
 
-> 状态：**0.12.0，开发中。** 在 `echo360.net.au`（澳大利亚）上测试过。认不出页面时会自动改用原播放器。
+![播放器：屏幕和摄像机并排，侧栏是幻灯片章节](docs/screenshot.jpg)
+
+> **非官方项目。** 本项目与 Echo360、UNSW 没有任何关系，也未获其认可或支持。提到 “Echo360” 只是为了说明脚本适用于哪个网站。
+
+原播放器播放时会让一个 CPU 核心一直满载，风扇响、耗电。Echo360 Lite 用浏览器自带的视频播放器播放同样的视频流，开销接近直接播放视频文件。在 `echo360.net.au`（澳大利亚）上测试过；认不出页面时会自动改用原播放器。
+
+## 安装
+
+1. 安装用户脚本管理器：[Tampermonkey](https://www.tampermonkey.net/) 或 [Violentmonkey](https://violentmonkey.github.io/)。
+   Chrome / Edge：在 `chrome://extensions` 打开脚本管理器的“详细信息”，开启 **“允许用户脚本”**（旧版本是开启“开发者模式”）。
+2. 安装脚本：从最新版本下载 **[echo360-lite.user.js](https://github.com/zhenban/echo360-lite/releases/latest/download/echo360-lite.user.js)**（脚本管理器会提示安装）。每个版本都附有更新说明。
+3. 打开任意一节 Echo360 课程回放，浏览器控制台（F12）会显示 `[Echo360 Lite] v… active`。
 
 ## 功能
 
@@ -57,18 +70,11 @@
 | `[` / `]` | 减速 / 加速 |
 | `Esc` | 关闭菜单 |
 
-## 安装
-
-1. 安装用户脚本管理器：[Tampermonkey](https://www.tampermonkey.net/) 或 [Violentmonkey](https://violentmonkey.github.io/)。
-   Chrome / Edge：在 `chrome://extensions` 打开 Tampermonkey 的“详细信息”，开启 **“允许用户脚本”**（旧版本是开启“开发者模式”）。
-2. 安装 [`dist/echo360-lite.user.js`](dist/echo360-lite.user.js)（打开 raw 文件，脚本管理器会提示安装）。
-3. 打开任意一节 Echo360 课程回放，浏览器控制台（F12）会显示 `[Echo360 Lite] v… active`。
-
 ## 隐私
 
 - 脚本只在 Echo360 课程页面运行，除了 Echo360 本身，不向任何地方发送数据。
 - 设置、续播位置和分析缓存只保存在你的浏览器里（localStorage 和 IndexedDB）。
-- hls.js 从 jsDelivr 以固定版本加载；pdf.js 和 Tesseract.js（文字识别）也是，只在录像添加了幻灯片 PDF 时加载。文字识别在你的浏览器里进行。
+- hls.js 从 jsDelivr 以固定版本加载，并附有 SHA-256 哈希（Tampermonkey 会拒绝不匹配的文件，此时脚本保留原播放器；Violentmonkey 目前不检查哈希）；pdf.js 和 Tesseract.js（文字识别）也以固定版本加载，只在录像添加了幻灯片 PDF 时加载。文字识别在你的浏览器里进行。
 - 标签、观看进度、幻灯片文件和备份只存在你的设备上。导出和备份文件里从不包含视频本身或视频地址。
 - 不会替你发布任何内容：对 Echo360 的写入（笔记、帖子、标记）只在你点击时发生；老师或同学能看到的内容，发送前会明确提示。
 - 不提供下载功能。
@@ -97,4 +103,21 @@ npm run ci         # 代码检查、类型检查、测试、dist/ 与源码一�
 
 ## 许可
 
-[MIT](LICENSE)
+Copyright (C) 2026 zhenban。Echo360 Lite 是自由软件：你可以按照自由软件基金会发布的 [GNU 通用公共许可证](LICENSE)第 3 版（或你选择的任何更高版本）的条款重新分发和修改它。发布它是希望它有用，但不提供任何担保。
+
+**v0.14.0 及以前**的版本以 MIT 许可证发布，这些版本仍然适用 MIT；之后的版本使用 GPL。
+
+运行时加载的第三方库（固定版本，从 jsDelivr 加载，不包含在本仓库中）：
+
+| 库 | 用途 | 许可证 |
+|---|---|---|
+| [hls.js](https://github.com/video-dev/hls.js) 1.7.3 | 播放 HLS 视频流 | Apache-2.0 |
+| [pdf.js](https://github.com/mozilla/pdf.js)（pdfjs-dist 6.4.299） | 读取幻灯片 PDF | Apache-2.0 |
+| [Tesseract.js](https://github.com/naptha/tesseract.js) 7.0.0 和 tesseract.js-core 7.0.0 | 文字识别 | Apache-2.0 |
+| [tesseract.js-data](https://github.com/naptha/tessdata) 1.0.0（语言数据） | 文字识别 | MIT |
+
+Apache-2.0 和 MIT 的代码可以和 GPLv3 代码组合使用，所以这些库与本许可证兼容。
+
+## 安全
+
+如何私下报告安全问题，见 [SECURITY.md](SECURITY.md)。

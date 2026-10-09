@@ -1,0 +1,54 @@
+name: Bug report
+description: Something does not work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please do not include anything personal (your name, student number, course discussion posts, or the address of a recording).
+        **Security problem?** Do not open an issue; see [SECURITY.md](https://github.com/zhenban/echo360-lite/blob/main/SECURITY.md).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and version
+      placeholder: e.g. Chrome 154, Firefox 157, Edge 154
+    validations:
+      required: true
+  - type: dropdown
+    id: manager
+    attributes:
+      label: Userscript manager
+      options:
+        - Tampermonkey
+        - Violentmonkey
+        - Other (say which below)
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Script version
+      description: Shown in the ⋯ menu of the player, and in your userscript manager.
+      placeholder: e.g. 0.15.0
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: In the player, open the ⋯ menu, choose "Copy diagnostics" and paste the text here. It contains no sign-in data, addresses, names, notes or posts.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: Steps to reproduce, screenshots (check they show nothing personal), how often it happens.

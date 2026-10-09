@@ -1,0 +1,41 @@
+name: Release
+# Pushing a tag vX.Y.Z publishes a GitHub release with the userscript attached and that
+# version's section of CHANGELOG.md as the notes. "Run workflow" (Actions tab) does the same
+# for a tag that already exists (for tags made before this workflow).
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to release (e.g. v0.14.0)
+        required: true
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - name: Which tag
+        run: echo "TAG=${{ inputs.tag || github.ref_name }}" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: The tag matches VERSION
+        run: test "v$(cat VERSION)" = "$TAG"
+      - name: Checks (lint, types, tests, dist/ in sync)
+        run: npm run ci
+      - name: Notes from CHANGELOG.md
+        run: |
+          awk -v v="## $(cat VERSION)" '$0 == v {on = 1; next} on && /^## / {exit} on {print}' CHANGELOG.md > notes.md
+          test -s notes.md
+          printf '\n---\nInstall: open the attached `echo360-lite.user.js` with Tampermonkey or Violentmonkey installed.\n' >> notes.md
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$TAG" dist/echo360-lite.user.js --title "Echo360 Lite $TAG" --notes-file notes.md --verify-tag

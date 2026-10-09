@@ -18,5 +18,7 @@ jobs:
         run: npm run typecheck
       - name: Unit tests
         run: npm test
+      - name: Required libraries match their hashes
+        run: npm run check-requires
       - name: dist/ matches the sources
         run: npm run check-dist

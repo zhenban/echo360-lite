@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.1
+- License: from this version on, Echo360 Lite is licensed under the GNU General Public License v3 or later (GPL-3.0-or-later). Versions up to 0.14.0 remain under the MIT License.
+- hls.js is now required with its SHA-256 hash: Tampermonkey refuses a modified file (the script then leaves the original player in place). Violentmonkey does not check hashes yet.
+- The project page: an install link to the latest release, a screenshot, a note that this is an unofficial project (not affiliated with Echo360 or UNSW), a bug report form, and how to report security problems privately (SECURITY.md). Releases are published on GitHub with the script attached.
+- No change to how the player works.
+
 ## 0.14.0
 Under the hood (M8.9 E and F): the player is split into small parts, the code is checked automatically, and a smoke test runs real recordings in Chrome and Firefox. Nothing should look different; please report anything that does.
 - The player's start-up is caught however Echo360's page sets it up (one way, defining the start function with `defineProperty`, used to slip past and leave the original player).
@@ -40,7 +46,7 @@ More robust:
 - Console output: warnings and errors only, in one format (details with localStorage `echo360lite:debug` = true).
 
 ## 0.11.2
-Stability fixes from an independent code review (REVIEW-quality.md).
+Stability fixes from an independent code review ([docs/REVIEW-quality.md](docs/REVIEW-quality.md)).
 - If anything fails while the player is being set up, everything it already made is removed and the original player takes over cleanly (before, a black overlay could stay over the original player). Browsers that cannot play the streams go to the original player before anything is built.
 - Settings are checked field by field when they are read and when a backup is restored; a damaged value falls back to its default instead of breaking every later visit. A restore only accepts known entries, each checked.
 - The side panel's close button works again (it shared a name with the PDF view's close button, which closed both).

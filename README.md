@@ -2,11 +2,24 @@
 
 # Echo360 Lite Player
 
-A userscript that replaces the Echo360 lecture-recording player with a lightweight native one.
+[![CI](https://github.com/zhenban/echo360-lite/actions/workflows/ci.yml/badge.svg)](https://github.com/zhenban/echo360-lite/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/zhenban/echo360-lite)](https://github.com/zhenban/echo360-lite/releases/latest)
+[![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
 
-The stock player keeps one CPU core busy for the whole lecture (loud fans, drained battery). Echo360 Lite plays the same streams with the browser's own video player, at close to the cost of playing a plain video file, and adds a few things that make watching lectures easier.
+**A userscript that plays Echo360 lecture recordings in a light, fast player: far less CPU, both views side by side, slide chapters, a PDF that follows the lecture, captions, notes and more.**
 
-> Status: **0.12.0, in development.** Tested on `echo360.net.au` (Australia). If the page is not recognised, the original player is used automatically.
+![The player: screen and camera side by side, slide chapters in the side panel](docs/screenshot.jpg)
+
+> **Unofficial.** This project is not affiliated with, endorsed by or supported by Echo360 or UNSW. "Echo360" is used only to say which site the script works with.
+
+The stock player keeps one CPU core busy for the whole lecture (loud fans, drained battery). Echo360 Lite plays the same streams with the browser's own video player, at close to the cost of playing a plain video file. Tested on `echo360.net.au` (Australia); if a page is not recognised, the original player is used automatically.
+
+## Install
+
+1. Install a userscript manager: [Tampermonkey](https://www.tampermonkey.net/) or [Violentmonkey](https://violentmonkey.github.io/).
+   In Chrome or Edge, open the manager's details at `chrome://extensions` and turn on **Allow user scripts** (on older versions, turn on Developer mode).
+2. Install the script: **[echo360-lite.user.js](https://github.com/zhenban/echo360-lite/releases/latest/download/echo360-lite.user.js)** from the latest release (your manager offers to install it). Each release lists what changed.
+3. Open any Echo360 lecture recording. The browser console (F12) shows `[Echo360 Lite] v… active`.
 
 ## Features
 
@@ -57,18 +70,11 @@ The stock player keeps one CPU core busy for the whole lecture (loud fans, drain
 | `[` / `]` | Slower / faster |
 | `Esc` | Close menus |
 
-## Install
-
-1. Install a userscript manager: [Tampermonkey](https://www.tampermonkey.net/) or [Violentmonkey](https://violentmonkey.github.io/).
-   In Chrome or Edge, open the Tampermonkey details at `chrome://extensions` and turn on **Allow user scripts** (on older versions, turn on Developer mode).
-2. Install [`dist/echo360-lite.user.js`](dist/echo360-lite.user.js) (open the raw file and your manager will offer to install it).
-3. Open any Echo360 lecture recording. The browser console (F12) shows `[Echo360 Lite] v… active`.
-
 ## Privacy
 
 - The script only runs on Echo360 lecture pages and sends nothing anywhere except Echo360 itself.
 - Settings, resume positions and analysis caches are stored only in your browser (localStorage and IndexedDB).
-- hls.js is loaded from jsDelivr at a pinned version; pdf.js and Tesseract.js (text recognition) too, only when a recording has a slide PDF. Text recognition runs in your browser.
+- hls.js is loaded from jsDelivr at a pinned version with its SHA-256 hash (Tampermonkey refuses a file that does not match, and the script then leaves the original player in place; Violentmonkey does not check hashes yet); pdf.js and Tesseract.js (text recognition) are loaded at pinned versions only when a recording has a slide PDF. Text recognition runs in your browser.
 - Tags, watch progress, slide files and backups stay on your device. Exports and backups never contain the video or its address.
 - Nothing is ever posted for you. Writes to Echo360 (notes, posts, flags) only happen when you click. Anything your instructors or classmates can see is labelled before you send it.
 - There is no download feature.
@@ -97,4 +103,21 @@ Source files in `src/` are plain scripts concatenated in name order. Code and co
 
 ## License
 
-[MIT](LICENSE)
+Copyright (C) 2026 zhenban. Echo360 Lite is free software: you can redistribute it and/or modify it under the terms of the [GNU General Public License](LICENSE) as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. It is distributed in the hope that it will be useful, but without any warranty.
+
+Versions up to and including **v0.14.0** were released under the MIT License; those releases stay under MIT. Later versions are under the GPL.
+
+Libraries loaded at run time (from jsDelivr, pinned versions; not included in this repository):
+
+| Library | Used for | License |
+|---|---|---|
+| [hls.js](https://github.com/video-dev/hls.js) 1.7.3 | playing the HLS streams | Apache-2.0 |
+| [pdf.js](https://github.com/mozilla/pdf.js) (pdfjs-dist 6.4.299) | reading slide PDFs | Apache-2.0 |
+| [Tesseract.js](https://github.com/naptha/tesseract.js) 7.0.0 and tesseract.js-core 7.0.0 | text recognition | Apache-2.0 |
+| [tesseract.js-data](https://github.com/naptha/tessdata) 1.0.0 (language data) | text recognition | MIT |
+
+Apache-2.0 and MIT code may be combined with GPLv3 code, so these libraries are compatible with this license.
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for how to report a security problem privately.

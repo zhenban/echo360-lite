@@ -240,7 +240,14 @@ npm test             # unit tests and whole-page tests (test/*.test.mjs)
 npm run lint         # ESLint; no-shadow keeps locals from hiding shared names
 npm run typecheck    # TypeScript checks the JavaScript (tsconfig.json, types/)
 npm run ci           # all of the above, plus "dist/ matches src/" (what GitHub runs)
+npm run check-requires   # each @require matches its SHA-256 hash (needs the network; CI runs it)
 ```
+
+- **Releasing:** set `VERSION`, add the version's section to `CHANGELOG.md`, build, commit,
+  then push a tag `vX.Y.Z`. The Release workflow checks everything again and publishes a
+  GitHub release with `echo360-lite.user.js` and that CHANGELOG section.
+- **A new `@require`:** add `#sha256-<base64>` of the exact file (`openssl dgst -sha256
+  -binary file | base64`); `check-requires` fails without it.
 
 - **Tests** load the sources into a sandbox (`loadSources`), or the whole script into a
   simulated page (`test/player.test.mjs`). Labelled lectures are replayed in the tests from

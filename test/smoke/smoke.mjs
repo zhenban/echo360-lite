@@ -126,9 +126,12 @@ const hlsUrl = /@require\s+(\S+hls[^\s]*)/.exec(readFileSync(join(root, 'src', '
 const hls = await (await fetch(hlsUrl)).text();
 const lite = readFileSync(join(root, 'dist', 'echo360-lite.user.js'), 'utf8');
 const version = /@version\s+(\S+)/.exec(lite)[1];
+// --no-inject: test the script as installed in the browser's userscript manager (it must
+// be this build, and run in the page, as with Violentmonkey's @inject-into page).
+const inject = !process.argv.includes('--no-inject');
 await driver.addInitScript('if (/^https:\\/\\/echo360\\.net\\.au\\/(lesson\\/|section\\/[^/]+\\/home)/.test(location.href)) {\n'
   + 'try { localStorage.setItem("echo360lite:debug", "true"); localStorage.setItem("echo360lite:dryRun", "\\"public\\""); } catch (e) {}\n'
-  + hls + '\n;\n' + lite + '\n}\n//# sourceURL=echo360-lite.user.js');
+  + (inject ? hls + '\n;\n' + lite : '') + '\n}\n//# sourceURL=echo360-lite.user.js');
 
 const evalIn = (expr) => driver.evaluate(expr);
 const key = (k) => driver.key(k);
@@ -140,6 +143,11 @@ const until = async (expr, sec) => {
 };
 const open = async (lesson) => {
   log.length = 0;
+  await driver.navigate('https://echo360.net.au/lesson/' + lesson + '/classroom');
+  await sleep(1500);
+  const ok = await until(`!!(${P} && ${P}.video)`, 40);
+  if (ok || inject) return ok;
+  // An installed script may have started before the debug switch was set: once more.
   await driver.navigate('https://echo360.net.au/lesson/' + lesson + '/classroom');
   await sleep(1500);
   return until(`!!(${P} && ${P}.video)`, 40);
@@ -159,7 +167,8 @@ async function smoke(lec) {
   check('starts', true, ((Date.now() - t0) / 1000).toFixed(1) + ' s, ' + info.views + ' view(s)');
 
   // Playback, with a real key press (playback needs a user action).
-  const stage = await evalIn(`(() => { const b = ${P}.stage.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + 40 }; })()`);
+  // Focus the page by clicking the title (a click on a picture would play or pause it).
+  const stage = await evalIn(`(() => { const b = ${P}.$('.title').getBoundingClientRect(); return { x: b.left + Math.min(20, b.width / 2), y: b.top + b.height / 2 }; })()`);
   await clickAt(stage.x, stage.y);
   await sleep(400);
   const before = await state();
