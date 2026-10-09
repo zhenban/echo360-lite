@@ -1,5 +1,8 @@
 # Changelog
 
+## Unreleased
+- Development: added agent instructions covering isolated clones, owner-approved pull requests, the existing code and performance standards, local milestone records, and verification requirements. No player behavior change.
+
 ## 0.15.0
 The project is renamed **Lite Player for Echo360** (Echo360 轻量播放器), so that it does not read like an Echo360 product. The repository moved to `zhenban/lite-player-for-echo360` (old links redirect).
 - This is a new userscript for your manager (new name and namespace): remove the old "Echo360 Lite Player" and install `lite-player-for-echo360.user.js`.
