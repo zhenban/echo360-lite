@@ -91,7 +91,7 @@ const idbCache = {
     if (this.db) return this.db;
     const p = new Promise((resolve, reject) => {
       if (typeof indexedDB === 'undefined') { reject(new Error('no IndexedDB')); return; }
-      const req = indexedDB.open('echo360lite', 1);
+      const req = indexedDB.open('lite-player-for-echo360', 1);
       req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains('cache')) req.result.createObjectStore('cache'); };
       req.onsuccess = () => {
         const db = req.result;

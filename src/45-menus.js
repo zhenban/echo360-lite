@@ -190,7 +190,7 @@ class MenuBar {
       const n = await analysisCaches.clear();
       size.textContent = tr('cachesCleared', { n });
     }));
-    m.append(el('div.head', { text: 'Echo360 Lite ' + VERSION }),
+    m.append(el('div.head', { text: 'Lite Player for Echo360 ' + VERSION }),
       el('div.row', { title: tr('cachesInfo') }, size, clear),
       el('button', { text: tr('diagMenu'), onclick: (e) => { e.stopPropagation(); m.hidden = true; this.showDiagnostics(); } }),
       el('button', { text: tr('keysTitle') + ' (?)', onclick: (e) => { e.stopPropagation(); m.hidden = true; x.showKeys(); } }));

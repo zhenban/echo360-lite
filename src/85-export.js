@@ -237,7 +237,7 @@ async function blobToBase64(blob) {
 }
 
 async function makeBackup(withPdfs) {
-  const out = { app: 'echo360-lite', v: 1, created: new Date().toISOString(), local: {}, db: {} };
+  const out = { app: 'lite-player-for-echo360', v: 1, created: new Date().toISOString(), local: {}, db: {} };
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
     const key = k && k.startsWith(NS) ? k.slice(NS.length) : null;
@@ -257,7 +257,7 @@ async function makeBackup(withPdfs) {
 // first; the IndexedDB entries are then written in one transaction (all or none), and only
 // then the settings. Returns the number of entries written.
 async function restoreBackup(data, db = idbCache) {
-  if (!data || data.app !== 'echo360-lite' || data.v !== 1 || !data.db || typeof data.db !== 'object') throw new Error(tr('backupInvalid'));
+  if (!data || data.app !== 'lite-player-for-echo360' || data.v !== 1 || !data.db || typeof data.db !== 'object') throw new Error(tr('backupInvalid'));
   // Settings and positions: only known keys, each validated like the player does (a
   // damaged value becomes the default instead of breaking every later visit).
   const local = [];

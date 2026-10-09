@@ -45,7 +45,7 @@ class PopoutController {
     }
     if (x.isDestroyed()) { pip.close(); return; }
     const playing = !x.video.paused;
-    const holder = el('div.e3l-holder', { style: 'display:flex;align-items:center;justify-content:center;gap:12px;width:100%;height:' + Math.round(r.height) + 'px;background:#111;color:#ccc;font:14px system-ui,sans-serif' },
+    const holder = el('div.lp360-holder', { style: 'display:flex;align-items:center;justify-content:center;gap:12px;width:100%;height:' + Math.round(r.height) + 'px;background:#111;color:#ccc;font:14px system-ui,sans-serif' },
       el('span', { text: tr('popoutHere') }),
       el('button', { text: tr('popoutBack'), style: 'padding:6px 12px;border-radius:8px;border:0;cursor:pointer', onclick: () => pip.close() }));
     const doc = pip.document;

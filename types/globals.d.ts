@@ -12,9 +12,9 @@ interface Window {
   webkitAudioContext?: typeof AudioContext;
   webkitOfflineAudioContext?: typeof OfflineAudioContext;
   documentPictureInPicture?: { requestWindow(opts?: { width?: number; height?: number }): Promise<Window> };
-  __echo360LiteDryRun?: object[];       // development: writes recorded instead of sent
-  __echo360LitePlayer?: object;         // development (debug on)
-  __echo360LiteDev?: object;            // development (debug on)
+  __litePlayerForEcho360DryRun?: object[];       // development: writes recorded instead of sent
+  __litePlayerForEcho360?: object;         // development (debug on)
+  __litePlayerForEcho360Dev?: object;            // development (debug on)
 }
 
 interface Navigator {

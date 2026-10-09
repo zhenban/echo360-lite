@@ -1,4 +1,4 @@
-# Echo360 Lite: how it is built
+# Lite Player for Echo360: how it is built
 
 This is a guide to the code for someone who knows a little JavaScript. It explains where
 things are, how the script starts, who owns what, how the background analyses work and what
@@ -7,8 +7,8 @@ which file to open.
 
 ## 1. What runs, and how it is built
 
-Echo360 Lite is a userscript: the browser extension that runs userscripts (Violentmonkey,
-Tampermonkey) loads one file, `dist/echo360-lite.user.js`, into Echo360's lesson pages and
+Lite Player for Echo360 is a userscript: the browser extension that runs userscripts (Violentmonkey,
+Tampermonkey) loads one file, `dist/lite-player-for-echo360.user.js`, into Echo360's lesson pages and
 course pages before the page's own scripts run.
 
 That file is made by `node build.mjs` (or `npm run build`) from the files in `src/`:
@@ -202,7 +202,7 @@ screen keyframes (720p where the 360p picture changed; else the text is reused)
 
 ## 7. What is stored
 
-IndexedDB database `echo360lite`, store `cache` (`61-media-io.js` `idbCache`); formats in
+IndexedDB database `lite-player-for-echo360`, store `cache` (`61-media-io.js` `idbCache`); formats in
 `04-types.js`:
 
 | Key | What | Kind |
@@ -216,7 +216,7 @@ IndexedDB database `echo360lite`, store `cache` (`61-media-io.js` `idbCache`); f
 | `screenpick:<mediaId>` | screen view chosen by hand | user data |
 
 User data is included in backups (`85-export.js`); analysis results are not.
-`localStorage` (prefix `echo360lite:`): `prefs` (settings), `pos:<id>` (resume point),
+`localStorage` (prefix `lite-player-for-echo360:`): `prefs` (settings), `pos:<id>` (resume point),
 and the switches below.
 
 ## 8. Talking to Echo360
@@ -235,7 +235,7 @@ and the switches below.
 
 ```sh
 npm install          # ESLint, TypeScript (type checking only), happy-dom (page tests)
-npm run build        # src/ -> dist/echo360-lite.user.js
+npm run build        # src/ -> dist/lite-player-for-echo360.user.js
 npm test             # unit tests and whole-page tests (test/*.test.mjs)
 npm run lint         # ESLint; no-shadow keeps locals from hiding shared names
 npm run typecheck    # TypeScript checks the JavaScript (tsconfig.json, types/)
@@ -245,15 +245,15 @@ npm run check-requires   # each @require matches its SHA-256 hash (needs the net
 
 - **Releasing:** set `VERSION`, add the version's section to `CHANGELOG.md`, build, commit,
   then push a tag `vX.Y.Z`. The Release workflow checks everything again and publishes a
-  GitHub release with `echo360-lite.user.js` and that CHANGELOG section.
+  GitHub release with `lite-player-for-echo360.user.js` and that CHANGELOG section.
 - **A new `@require`:** add `#sha256-<base64>` of the exact file (`openssl dgst -sha256
   -binary file | base64`); `check-requires` fails without it.
 
 - **Tests** load the sources into a sandbox (`loadSources`), or the whole script into a
   simulated page (`test/player.test.mjs`). Labelled lectures are replayed in the tests from
   `test/fixtures` as hashed word bags (no slide text is in the repository).
-- **Switches** in `localStorage` (prefix `echo360lite:`): `debug` = `true` (more logging; the
-  player is reachable as `window.__echo360LitePlayer`), `dryRun` = `"public"` or `"all"`
+- **Switches** in `localStorage` (prefix `lite-player-for-echo360:`): `debug` = `true` (more logging; the
+  player is reachable as `window.__litePlayerForEcho360`), `dryRun` = `"public"` or `"all"`
   (writes are recorded, not sent), `forceOriginal` = `true` (always the original player),
   `silenceFromAudio` = `true` (analyse the audio even with a transcript).
 - **Changing a threshold:** it is in `02-tuning.js`; run the tests (the labelled lectures

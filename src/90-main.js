@@ -8,7 +8,7 @@
   window.addEventListener('unhandledrejection', (ev) => {
     const r = ev.reason;
     const stack = String((r && r.stack) || '');
-    if (/echo360[ -]lite/i.test(stack)) { log.warn('unhandled rejection', r); logEvent('warn', 'unhandled rejection: ' + ((r && r.message) || r)); }
+    if (/lite[ -]player[ -]for[ -]echo360/i.test(stack)) { log.warn('unhandled rejection', r); logEvent('warn', 'unhandled rejection: ' + ((r && r.message) || r)); }
   });
   if (courseList.matches()) { try { courseList.start(); } catch (e) { /* the page works without it */ } return; }
   const adapter = ADAPTERS.find((a) => { try { return a.matches(); } catch (e) { return false; } });
@@ -46,7 +46,7 @@
           startOriginal(callOriginal, handoff, null);
         },
       });
-      if (store.get('debug', false)) { window.__echo360LitePlayer = player; window.__echo360LiteDev = { HlsVideoReader, frameLuma, thumbChange, learnThreshold }; } // development only
+      if (store.get('debug', false)) { window.__litePlayerForEcho360 = player; window.__litePlayerForEcho360Dev = { HlsVideoReader, frameLuma, thumbChange, learnThreshold }; } // development only
       // Any unexpected error in our handlers from now on: hand the page to the original player.
       unexpected.handler = () => {
         if (!player) return;

@@ -36,7 +36,7 @@ function page() {
   const w = new Window({ url: 'https://echo360.net.au/lesson/x/classroom', settings: { disableJavaScriptFileLoading: true, disableCSSFileLoading: true } });
   const hlsLog = [];
   w.Hls = fakeHls(hlsLog);
-  w.localStorage.setItem('echo360lite:debug', 'true');
+  w.localStorage.setItem('lite-player-for-echo360:debug', 'true');
   // No network: every request fails (the player must cope).
   w.fetch = () => Promise.reject(new Error('offline in tests'));
   const intervals = new Set();
@@ -54,7 +54,7 @@ function page() {
     w.Echo.echoPlayerV2FullApp = (arg) => { originalArg = arg; };
     w.eval('Echo["echoPlayerV2FullApp"](' + JSON.stringify(boot) + ')');
   };
-  return { w, start, intervals, hlsLog, original: () => originalArg, player: () => w.__echo360LitePlayer };
+  return { w, start, intervals, hlsLog, original: () => originalArg, player: () => w.__litePlayerForEcho360 };
 }
 
 test('T1.2: the player takes over the page, and leaves nothing behind when it is destroyed', async () => {
@@ -65,7 +65,7 @@ test('T1.2: the player takes over the page, and leaves nothing behind when it is
   const p = pg.player();
   assert.ok(p, 'player created');
   assert.equal(pg.original(), null, 'the original player did not start');
-  const host = w.document.querySelector('#echo360-lite-host, .echo360-lite-host') || p.host;
+  const host = w.document.querySelector('#lite-player-for-echo360-host, .lite-player-for-echo360-host') || p.host;
   assert.ok(host && host.isConnected, 'the player is on the page');
   assert.equal(w.document.documentElement.style.overflow || w.document.body.style.overflow, 'hidden');
   assert.ok(pg.hlsLog.includes('new'), 'a stream was set up');

@@ -28,7 +28,7 @@ function diagnosticsText(p) {
   const q = (st) => (st && st.hls && st.hls.levels && st.hls.levels.length ? st.height + 'p of ' + Math.max(...st.hls.levels.map((l) => l.height)) + 'p' : '-');
   const lines = [];
   const add = (k, val) => lines.push(k + ': ' + val);
-  add('Echo360 Lite', VERSION);
+  add('Lite Player for Echo360', VERSION);
   add('Browser', browserName());
   add('Script manager', scriptManager());
   add('Page', location.hostname + ' (lesson page)');

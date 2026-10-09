@@ -163,5 +163,5 @@
 //   deckref:<hash>       [mediaId]   recordings using a slide file
 //   deckfile:<hash>      Blob        the slide file
 //   screenpick:<mediaId> { index }   the screen view chosen by hand
-// localStorage (prefix echo360lite:): prefs (39-prefs.js), pos:<lesson id> { t, at },
+// localStorage (prefix lite-player-for-echo360:): prefs (39-prefs.js), pos:<lesson id> { t, at },
 // debug, dryRun, forceOriginal, silenceFromAudio (development switches).

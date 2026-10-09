@@ -147,7 +147,7 @@ class LitePlayer {
 
   buildDom() {
     const host = document.createElement('div');
-    host.id = 'echo360-lite';
+    host.id = 'lite-player-for-echo360';
     const root = host.attachShadow({ mode: 'open' });
     root.innerHTML = '<style>' + PLAYER_CSS + '</style>' + playerTemplate();
     this.host = host;

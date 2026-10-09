@@ -1,9 +1,9 @@
 **English** | [简体中文](README.zh-CN.md)
 
-# Echo360 Lite Player
+# Lite Player for Echo360
 
-[![CI](https://github.com/zhenban/echo360-lite/actions/workflows/ci.yml/badge.svg)](https://github.com/zhenban/echo360-lite/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/zhenban/echo360-lite)](https://github.com/zhenban/echo360-lite/releases/latest)
+[![CI](https://github.com/zhenban/lite-player-for-echo360/actions/workflows/ci.yml/badge.svg)](https://github.com/zhenban/lite-player-for-echo360/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/zhenban/lite-player-for-echo360)](https://github.com/zhenban/lite-player-for-echo360/releases/latest)
 [![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
 
 **A userscript that plays Echo360 lecture recordings in a light, fast player: far less CPU, both views side by side, slide chapters, a PDF that follows the lecture, captions, notes and more.**
@@ -12,14 +12,14 @@
 
 > **Unofficial.** This project is not affiliated with, endorsed by or supported by Echo360 or UNSW. "Echo360" is used only to say which site the script works with.
 
-The stock player keeps one CPU core busy for the whole lecture (loud fans, drained battery). Echo360 Lite plays the same streams with the browser's own video player, at close to the cost of playing a plain video file. Tested on `echo360.net.au` (Australia); if a page is not recognised, the original player is used automatically.
+The stock player keeps one CPU core busy for the whole lecture (loud fans, drained battery). Lite Player for Echo360 plays the same streams with the browser's own video player, at close to the cost of playing a plain video file. Tested on `echo360.net.au` (Australia); if a page is not recognised, the original player is used automatically.
 
 ## Install
 
 1. Install a userscript manager: [Tampermonkey](https://www.tampermonkey.net/) or [Violentmonkey](https://violentmonkey.github.io/).
    In Chrome or Edge, open the manager's details at `chrome://extensions` and turn on **Allow user scripts** (on older versions, turn on Developer mode).
-2. Install the script: **[echo360-lite.user.js](https://github.com/zhenban/echo360-lite/releases/latest/download/echo360-lite.user.js)** from the latest release (your manager offers to install it). Each release lists what changed.
-3. Open any Echo360 lecture recording. The browser console (F12) shows `[Echo360 Lite] v… active`.
+2. Install the script: **[lite-player-for-echo360.user.js](https://github.com/zhenban/lite-player-for-echo360/releases/latest/download/lite-player-for-echo360.user.js)** from the latest release (your manager offers to install it). Each release lists what changed.
+3. Open any Echo360 lecture recording. The browser console (F12) shows `[Lite Player for Echo360] v… active`.
 
 ## Features
 
@@ -92,7 +92,7 @@ The stock player keeps one CPU core busy for the whole lecture (loud fans, drain
 
 ```sh
 npm install        # development tools (ESLint, TypeScript for checking, happy-dom)
-npm run build      # src/*.js -> dist/echo360-lite.user.js (readable, not minified)
+npm run build      # src/*.js -> dist/lite-player-for-echo360.user.js (readable, not minified)
 npm test           # unit and whole-page tests
 npm run ci         # lint, type check, tests, dist/ in sync (what GitHub Actions runs)
 ```
@@ -103,7 +103,7 @@ Source files in `src/` are plain scripts concatenated in name order. Code and co
 
 ## License
 
-Copyright (C) 2026 zhenban. Echo360 Lite is free software: you can redistribute it and/or modify it under the terms of the [GNU General Public License](LICENSE) as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. It is distributed in the hope that it will be useful, but without any warranty.
+Copyright (C) 2026 zhenban. Lite Player for Echo360 is free software: you can redistribute it and/or modify it under the terms of the [GNU General Public License](LICENSE) as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. It is distributed in the hope that it will be useful, but without any warranty.
 
 Versions up to and including **v0.14.0** were released under the MIT License; those releases stay under MIT. Later versions are under the GPL.
 

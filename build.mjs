@@ -1,4 +1,4 @@
-// Builds dist/echo360-lite.user.js from src/ by plain concatenation, so the published file
+// Builds dist/lite-player-for-echo360.user.js from src/ by plain concatenation, so the published file
 // stays readable (Greasy Fork does not accept minified or obfuscated code).
 //
 //   node build.mjs
@@ -55,7 +55,7 @@ ${parts.join('\n')}
   // The concatenation must be valid JavaScript (each file alone can be, while the joined
   // script is not): compile it before writing anything.
   try {
-    new vm.Script(out, { filename: 'echo360-lite.user.js' });
+    new vm.Script(out, { filename: 'lite-player-for-echo360.user.js' });
   } catch (e) {
     console.error('build failed: the joined script does not compile:', e.message);
     return null;
@@ -67,6 +67,6 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const r = assemble();
   if (!r) process.exit(1);
   mkdirSync(join(root, 'dist'), { recursive: true });
-  writeFileSync(join(root, 'dist', 'echo360-lite.user.js'), r.out);
-  console.log(`built dist/echo360-lite.user.js v${r.version} (${r.count} modules, ${r.out.length} bytes)`);
+  writeFileSync(join(root, 'dist', 'lite-player-for-echo360.user.js'), r.out);
+  console.log(`built dist/lite-player-for-echo360.user.js v${r.version} (${r.count} modules, ${r.out.length} bytes)`);
 }

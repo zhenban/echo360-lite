@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Echo360 Lite Player
-// @namespace    echo360-lite
+// @name         Lite Player for Echo360
+// @namespace    lite-player-for-echo360
 // @version      {{VERSION}}
-// @description  Replaces the Echo360 lecture player with a lightweight native player (far lower CPU use). Falls back to the original player automatically if anything is not recognised.
+// @description  Unofficial, lightweight player for Echo360 lecture recordings: far lower CPU use, both views side by side, slide chapters, a PDF that follows the lecture. Falls back to the original player automatically if anything is not recognised.
 // @license      GPL-3.0-or-later
 // @match        https://echo360.net.au/lesson/*
 // @match        https://echo360.net.au/section/*/home

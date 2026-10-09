@@ -657,7 +657,7 @@ test('T1.3 reporting: after handing over to the original player, nothing more is
 
 function apiRig(dryRun) {
   const sent = [];
-  const local = new Map(dryRun ? [['echo360lite:dryRun', JSON.stringify(dryRun)]] : []);
+  const local = new Map(dryRun ? [['lite-player-for-echo360:dryRun', JSON.stringify(dryRun)]] : []);
   const m = loadSources(['00-util', '10-adapter', '11-echo360-api'], {
     localStorage: { getItem: (k) => (local.has(k) ? local.get(k) : null), setItem: (k, v) => local.set(k, v) },
   });
@@ -666,7 +666,7 @@ function apiRig(dryRun) {
     return Promise.resolve({ ok: true, status: 200, json: async () => ({ status: 'ok', data: [{ id: 'n1', createdAt: 'x' }] }) });
   });
   const lesson = { lessonId: 'L1', mediaId: 'M1', sectionId: 'S1', thumbnails: [] };
-  return { m, api: new m.Echo360Api(lesson), sent, dry: () => m.window.__echo360LiteDryRun || [] };
+  return { m, api: new m.Echo360Api(lesson), sent, dry: () => m.window.__litePlayerForEcho360DryRun || [] };
 }
 
 // Every write the API offers, with plausible arguments, and whether it is public.
@@ -1187,16 +1187,16 @@ test('E2: a backup restore takes only known keys, validated, and skips damaged e
   // In-memory IndexedDB stand-in.
   const ctxIdb = { get: async (k) => db.get(k), put: async (k, v) => { db.set(k, v); }, putMany: async (es) => { for (const [k, v] of es) db.set(k, v); }, del: async (k) => { db.delete(k); }, keys: async () => [...db.keys()] };
   const n = await m.restoreBackup({
-    app: 'echo360-lite', v: 1,
+    app: 'lite-player-for-echo360', v: 1,
     local: { prefs: JSON.stringify({ rate: 'x', layout: 'pip' }), 'pos:abc': JSON.stringify({ t: 30 }), debug: 'true', 'evil:key': '1', 'pos:bad': '{"t":"no"}' },
     db: { 'tags:s': { tags: [{ id: 'a', name: 'A', color: '#fff' }] }, 'tags:bad': { tags: 'nope' }, 'watched:l': { d: 100, r: [[0, 10]] }, 'other:x': 1 },
   }, ctxIdb);
   assert.equal(n, 4);
-  assert.equal(JSON.parse(local.get('echo360lite:prefs')).rate, 1);
-  assert.equal(JSON.parse(local.get('echo360lite:prefs')).layout, 'pip');
-  assert.equal(local.has('echo360lite:debug'), false);
-  assert.equal(local.has('echo360lite:evil:key'), false);
-  assert.equal(local.has('echo360lite:pos:bad'), false);
+  assert.equal(JSON.parse(local.get('lite-player-for-echo360:prefs')).rate, 1);
+  assert.equal(JSON.parse(local.get('lite-player-for-echo360:prefs')).layout, 'pip');
+  assert.equal(local.has('lite-player-for-echo360:debug'), false);
+  assert.equal(local.has('lite-player-for-echo360:evil:key'), false);
+  assert.equal(local.has('lite-player-for-echo360:pos:bad'), false);
   assert.equal(db.has('tags:bad'), false);
   assert.equal(db.has('other:x'), false);
   assert.equal(db.has('watched:l'), true);
@@ -1204,9 +1204,9 @@ test('E2: a backup restore takes only known keys, validated, and skips damaged e
 
 test('T1.5 backup: everything made by a backup comes back from it, through a file', async () => {
   const local = new Map([
-    ['echo360lite:prefs', JSON.stringify({ rate: 1.5, layout: 'pip' })],
-    ['echo360lite:pos:abc', JSON.stringify({ t: 30, at: 1 })],
-    ['echo360lite:debug', 'true'],
+    ['lite-player-for-echo360:prefs', JSON.stringify({ rate: 1.5, layout: 'pip' })],
+    ['lite-player-for-echo360:pos:abc', JSON.stringify({ t: 30, at: 1 })],
+    ['lite-player-for-echo360:debug', 'true'],
     ['someone-else', 'x'],
   ]);
   const ls = { getItem: (k) => (local.has(k) ? local.get(k) : null), setItem: (k, v) => local.set(k, v), key: (i) => [...local.keys()][i], get length() { return local.size; } };
@@ -1232,10 +1232,10 @@ test('T1.5 backup: everything made by a backup comes back from it, through a fil
   await m.restoreBackup(data, target);
   for (const k of ['tags:s', 'tagmap:m', 'watched:l', 'screenpick:m', 'deck:m']) assert.equal(JSON.stringify(db2.get(k)), JSON.stringify(before.db.get(k)), k);
   assert.equal(db2.has('slides:m'), false);
-  assert.equal(JSON.parse(local.get('echo360lite:prefs')).rate, 1.5);
-  assert.equal(JSON.parse(local.get('echo360lite:prefs')).layout, 'pip');
-  assert.equal(JSON.parse(local.get('echo360lite:pos:abc')).t, 30);
-  assert.equal(local.has('echo360lite:debug'), false);
+  assert.equal(JSON.parse(local.get('lite-player-for-echo360:prefs')).rate, 1.5);
+  assert.equal(JSON.parse(local.get('lite-player-for-echo360:prefs')).layout, 'pip');
+  assert.equal(JSON.parse(local.get('lite-player-for-echo360:pos:abc')).t, 30);
+  assert.equal(local.has('lite-player-for-echo360:debug'), false);
 });
 
 test('S1: every element the player looks up by a single class exists exactly once in its markup', () => {
@@ -1378,7 +1378,7 @@ test('B9: a restore that cannot write its entries writes nothing (no settings ei
     localStorage: { getItem: () => null, setItem: (k, v) => local.set(k, v), key: () => null, length: 0 },
   });
   const failing = { putMany: async () => { throw new Error('disk full'); } };
-  await assert.rejects(m.restoreBackup({ app: 'echo360-lite', v: 1, local: { prefs: '{"rate":1.5}' }, db: { 'tags:s': { tags: [] } } }, failing), /disk full/);
+  await assert.rejects(m.restoreBackup({ app: 'lite-player-for-echo360', v: 1, local: { prefs: '{"rate":1.5}' }, db: { 'tags:s': { tags: [] } } }, failing), /disk full/);
   assert.equal(local.size, 0);
 });
 

@@ -21,12 +21,12 @@ const courseList = {
     const known = new Map();   // lessonId -> label info (null while loading)
     let server = null;         // promise of { lessonId: { mediaId, read } } from the syllabus
     const style = document.createElement('style');
-    style.textContent = '.e3l-watch{display:inline-flex;align-items:center;gap:6px;margin-left:12px;font-size:12px;line-height:18px;'
+    style.textContent = '.lp360-watch{display:inline-flex;align-items:center;gap:6px;margin-left:12px;font-size:12px;line-height:18px;'
       + 'vertical-align:middle;color:#1d6b4f;white-space:nowrap}'
-      + '.e3l-bar{position:relative;width:72px;height:6px;border-radius:3px;background:#e2e8f0;overflow:hidden}'
-      + '.e3l-bar i{position:absolute;top:0;bottom:0;background:#2f855a}'
-      + '.e3l-bar b{position:absolute;top:-1px;bottom:-1px;width:2px;margin-left:-1px;background:#2d3748}'
-      + '.e3l-watch.e3l-done{color:#22543d;font-weight:600}.e3l-watch .e3l-last{color:#4a5568}';
+      + '.lp360-bar{position:relative;width:72px;height:6px;border-radius:3px;background:#e2e8f0;overflow:hidden}'
+      + '.lp360-bar i{position:absolute;top:0;bottom:0;background:#2f855a}'
+      + '.lp360-bar b{position:absolute;top:-1px;bottom:-1px;width:2px;margin-left:-1px;background:#2d3748}'
+      + '.lp360-watch.lp360-done{color:#22543d;font-weight:600}.lp360-watch .lp360-last{color:#4a5568}';
 
     const syllabus = () => {
       if (!server) {
@@ -57,12 +57,12 @@ const courseList = {
 
     const label = (row, info) => {
       const host = row.querySelector('.header-details') || row.querySelector('header') || row;
-      let elem = host.querySelector('.e3l-watch');
+      let elem = host.querySelector('.lp360-watch');
       if (!info) { if (elem) elem.remove(); return; }
       if (!elem) { elem = document.createElement('span'); host.append(elem); }
       elem.textContent = '';
       const bar = document.createElement('span');
-      bar.className = 'e3l-bar';
+      bar.className = 'lp360-bar';
       const dur = info.dur;
       const tips = [];
       if (info.ranges) {
@@ -84,11 +84,11 @@ const courseList = {
         const pct = Math.max(1, Math.round(info.share * 100)); // never "0%" for something watched
         txt.textContent = tr('listWatched', { pct });
         tips.push(tr('listWatchedTitle', { pct }));
-        elem.className = 'e3l-watch' + (pct >= LIST_DONE_PCT ? ' e3l-done' : '');
+        elem.className = 'lp360-watch' + (pct >= LIST_DONE_PCT ? ' lp360-done' : '');
       } else {
         txt.textContent = tr('listLastAt', { time: fmtTime(info.last) });
-        txt.className = 'e3l-last';
-        elem.className = 'e3l-watch';
+        txt.className = 'lp360-last';
+        elem.className = 'lp360-watch';
       }
       if (info.last != null) tips.push(tr('listLastAtTitle', { time: fmtTime(info.last) }));
       elem.append(txt);
@@ -128,7 +128,7 @@ const courseList = {
         const lid = row.getAttribute('data-test-lessonid');
         // Rows drawn again lose the label; a row that has it is left alone (labelling is
         // itself a change the observer sees).
-        if (known.has(lid)) { if (known.get(lid) && !row.querySelector('.e3l-watch')) label(row, known.get(lid)); continue; }
+        if (known.has(lid)) { if (known.get(lid) && !row.querySelector('.lp360-watch')) label(row, known.get(lid)); continue; }
         known.set(lid, null);
         queue.push(() => lookup(lid).then((info) => {
           known.set(lid, info);

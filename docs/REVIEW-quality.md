@@ -1,4 +1,4 @@
-# Echo360 Lite: code quality review
+# Lite Player for Echo360: code quality review
 
 - Scope: `src/` (32 modules, about 7,900 lines), `build.mjs`, `test/unit.test.mjs`, version 0.11.1 (commit `48ca63b`).
 - Method: every source file was read in full. All conclusions come from the code alone, not from the author's intent or development notes.
@@ -158,7 +158,7 @@ Overall: the `Disposer` + `AbortController` + `BackgroundGate` design is sound, 
 - `80-course-list.js`: a `MutationObserver` on the whole `document.body` subtree is never disconnected. Acceptable for a long-lived course page, but if the site navigates in-page (SPA) to another course, the `section` in the closure is stale and `known` is never cleared.
 - `60-cpufix.js`: permanently patches styled-components prototypes and adds a capture-phase `timeupdate` listener on `window`. This is by design.
 - `20-reporter.js` registers a `beforeunload` listener, which keeps the page out of the bfcache in some browsers (Firefox). `pagehide` alone is enough.
-- `90-main.js`: with debug on, `window.__echo360LitePlayer` still references the player after it was destroyed.
+- `90-main.js`: with debug on, `window.__litePlayerForEcho360` still references the player after it was destroyed.
 
 ---
 
@@ -342,7 +342,7 @@ Most of the constants below carry comments such as "measured on a real lecture" 
 - The fixtures currently contain only times and page numbers, without OCR text or frame signatures, so they cannot be replayed directly. **Fix**: also store the OCR text (`texts/at`) and the PDF page text, compute accuracy with `followLecture` and assert a lower bound (e.g. ≥ 90%). If that is not possible, delete the files so readers do not assume there is regression protection.
 
 ### T3 🟡 Test infrastructure
-- The command in the test file's header, `node --test test/`, **fails outright** on Node 22 (`Cannot find module '/home/user/echo360-lite/test'`, reproduced). Only `node --test test/unit.test.mjs` works.
+- The command in the test file's header, `node --test test/`, **fails outright** on Node 22 (`Cannot find module '/home/user/lite-player-for-echo360/test'`, reproduced). Only `node --test test/unit.test.mjs` works.
 - There is no `package.json`, hence no `npm test`, no lint and no CI. Nothing stops a PR that breaks the build or the tests.
 - `loadSources()` selects source files by substring match (`f.includes(n)`); a name like `'47-'` loads both the notes and the tags file, which is fragile.
 - **Fix**: add a minimal `package.json` (`"test": "node --test test/*.test.mjs"`, `"build": "node build.mjs"`) and a GitHub Actions job that runs build and tests and checks that `dist/` is in sync with the sources.
@@ -363,7 +363,7 @@ From largest to smallest impact:
 8. **Milestone numbers in comments (M7.5, M8.4, M10, ...) refer to a plan that is not in the repository.** Outsiders cannot follow them, and the `CHANGELOG` is written for users.
 9. **The generated `dist/` file (8,700 lines) is committed.** Newcomers may edit `dist/` directly and lose the change on the next build. State "only edit `src/`" in a developer section of the README, and have CI check that `dist/` matches the sources.
 
-**Recommendation: add a 1–2 page `ARCHITECTURE.md`** with a module map (one line per file plus dependencies), the startup flow (`main → intercept → parse → LitePlayer`), the lifecycle rules (who owns which Disposer), a diagram of the three background analysis pipelines, all cache keys and their formats, and the debug switches (`echo360lite:debug`, `dryRun`, `silenceFromAudio`).
+**Recommendation: add a 1–2 page `ARCHITECTURE.md`** with a module map (one line per file plus dependencies), the startup flow (`main → intercept → parse → LitePlayer`), the lifecycle rules (who owns which Disposer), a diagram of the three background analysis pipelines, all cache keys and their formats, and the debug switches (`lite-player-for-echo360:debug`, `dryRun`, `silenceFromAudio`).
 
 ---
 

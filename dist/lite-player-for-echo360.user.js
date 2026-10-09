@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Echo360 Lite Player
-// @namespace    echo360-lite
-// @version      0.14.1
-// @description  Replaces the Echo360 lecture player with a lightweight native player (far lower CPU use). Falls back to the original player automatically if anything is not recognised.
+// @name         Lite Player for Echo360
+// @namespace    lite-player-for-echo360
+// @version      0.15.0
+// @description  Unofficial, lightweight player for Echo360 lecture recordings: far lower CPU use, both views side by side, slide chapters, a PDF that follows the lecture. Falls back to the original player automatically if anything is not recognised.
 // @license      GPL-3.0-or-later
 // @match        https://echo360.net.au/lesson/*
 // @match        https://echo360.net.au/section/*/home
@@ -17,15 +17,15 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.14.1';
+  const VERSION = '0.15.0';
 
 // ---- 00-util.js ----
 // ===================================================================================
 // Utilities
 // ===================================================================================
 
-const TAG = '[Echo360 Lite]';
-const NS = 'echo360lite:';
+const TAG = '[Lite Player for Echo360]';
+const NS = 'lite-player-for-echo360:';
 const HlsLib = typeof Hls !== 'undefined' ? Hls : window.Hls;
 
 // After a backup has been restored, this page must not write its older data back over
@@ -128,8 +128,8 @@ function featureGuard(name, fn) {
   }
 }
 
-// One log format: "[Echo360 Lite] ..." in the console. Warnings and errors always (and kept
-// for diagnostics); information only with localStorage["echo360lite:debug"] = true.
+// One log format: "[Lite Player for Echo360] ..." in the console. Warnings and errors always (and kept
+// for diagnostics); information only with localStorage["lite-player-for-echo360:debug"] = true.
 const log = {
   info(...a) { if (store.get('debug', false)) console.info(TAG, ...a); },
   warn(...a) { console.warn(TAG, ...a); logEvent('warn', a.map(logText).join(' ')); },
@@ -521,12 +521,12 @@ const STRINGS = {
     backupRestore: 'Restore from a backup…',
     backupMade: 'Backup saved ({n} items)',
     backupRestored: 'Restored {n} items. Reloading…',
-    backupInvalid: 'This is not an Echo360 Lite backup file',
+    backupInvalid: 'This is not an Lite Player for Echo360 backup file',
     mdRecorded: 'Recorded {date}',
     mdOpen: 'Open in Echo360',
     mdNothing: 'No notes or bookmarks.',
     mdNoTime: '(no time)',
-    mdFooter: 'Exported from Echo360 Lite on {date}. Tags are your private local tags.',
+    mdFooter: 'Exported from Lite Player for Echo360 on {date}. Tags are your private local tags.',
     keyPopout: 'Floating window (keeps playing on top of other windows)',
     popout: 'Floating window',
     popoutHere: 'Playing in a floating window.',
@@ -553,8 +553,8 @@ const STRINGS = {
     playbackFailedText: 'The video could not be loaded ({detail}). You can retry or switch to the original player.',
     retry: 'Retry',
     close: 'Close',
-    errorNotice: 'Echo360 Lite ran into an unexpected error and switched to the original player (with the CPU fix enabled).',
-    fallbackNotice:'Echo360 Lite could not take over this page, so the original player is being used (with the CPU fix enabled).',
+    errorNotice: 'Lite Player for Echo360 ran into an unexpected error and switched to the original player (with the CPU fix enabled).',
+    fallbackNotice:'Lite Player for Echo360 could not take over this page, so the original player is being used (with the CPU fix enabled).',
   },
 };
 
@@ -1014,7 +1014,7 @@ async function fetchSyllabus(section) {
 //   deckref:<hash>       [mediaId]   recordings using a slide file
 //   deckfile:<hash>      Blob        the slide file
 //   screenpick:<mediaId> { index }   the screen view chosen by hand
-// localStorage (prefix echo360lite:): prefs (39-prefs.js), pos:<lesson id> { t, at },
+// localStorage (prefix lite-player-for-echo360:): prefs (39-prefs.js), pos:<lesson id> { t, at },
 // debug, dryRun, forceOriginal, silenceFromAudio (development switches).
 
 // ---- 10-adapter-echo360.js ----
@@ -1259,8 +1259,8 @@ const ADAPTERS = [echo360ClassroomAdapter];
 // Every write takes the user event that caused it and refuses to run without a trusted
 // one, so nothing is ever written to Echo360 without an explicit user action.
 //
-// Dry run (development): localStorage "echo360lite:dryRun" = "public" or "all". Matching
-// writes are fully built but only recorded (console + window.__echo360LiteDryRun), never
+// Dry run (development): localStorage "lite-player-for-echo360:dryRun" = "public" or "all". Matching
+// writes are fully built but only recorded (console + window.__litePlayerForEcho360DryRun), never
 // sent. Public = visible to the instructor or the class (discussion, likes, saves, flags).
 // ===================================================================================
 
@@ -1314,7 +1314,7 @@ class Echo360Api {
     requireGesture(ev);
     if (this.dryRun === 'all' || (this.dryRun === 'public' && visibility === 'public')) {
       const rec = { method, url: new URL(path, location.origin).href, body: body === undefined ? null : JSON.stringify(body), visibility };
-      (window.__echo360LiteDryRun = window.__echo360LiteDryRun || []).push(rec);
+      (window.__litePlayerForEcho360DryRun = window.__litePlayerForEcho360DryRun || []).push(rec);
       log.info('DRY RUN (not sent):', method, rec.url, rec.body || '');
       return Promise.resolve(dryRunResult(method, path, body));
     }
@@ -2888,7 +2888,7 @@ class LitePlayer {
 
   buildDom() {
     const host = document.createElement('div');
-    host.id = 'echo360-lite';
+    host.id = 'lite-player-for-echo360';
     const root = host.attachShadow({ mode: 'open' });
     root.innerHTML = '<style>' + PLAYER_CSS + '</style>' + playerTemplate();
     this.host = host;
@@ -4450,7 +4450,7 @@ class MenuBar {
       const n = await analysisCaches.clear();
       size.textContent = tr('cachesCleared', { n });
     }));
-    m.append(el('div.head', { text: 'Echo360 Lite ' + VERSION }),
+    m.append(el('div.head', { text: 'Lite Player for Echo360 ' + VERSION }),
       el('div.row', { title: tr('cachesInfo') }, size, clear),
       el('button', { text: tr('diagMenu'), onclick: (e) => { e.stopPropagation(); m.hidden = true; this.showDiagnostics(); } }),
       el('button', { text: tr('keysTitle') + ' (?)', onclick: (e) => { e.stopPropagation(); m.hidden = true; x.showKeys(); } }));
@@ -4518,7 +4518,7 @@ class PopoutController {
     }
     if (x.isDestroyed()) { pip.close(); return; }
     const playing = !x.video.paused;
-    const holder = el('div.e3l-holder', { style: 'display:flex;align-items:center;justify-content:center;gap:12px;width:100%;height:' + Math.round(r.height) + 'px;background:#111;color:#ccc;font:14px system-ui,sans-serif' },
+    const holder = el('div.lp360-holder', { style: 'display:flex;align-items:center;justify-content:center;gap:12px;width:100%;height:' + Math.round(r.height) + 'px;background:#111;color:#ccc;font:14px system-ui,sans-serif' },
       el('span', { text: tr('popoutHere') }),
       el('button', { text: tr('popoutBack'), style: 'padding:6px 12px;border-radius:8px;border:0;cursor:pointer', onclick: () => pip.close() }));
     const doc = pip.document;
@@ -5851,7 +5851,7 @@ class NotesPane {
     const backup = el('button.pbtn', { text: tr('backupMake') });
     backup.addEventListener('click', guard(() => busy(backup, async () => {
       const data = await makeBackup(pdfs.checked);
-      const name = 'echo360-lite-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+      const name = 'lite-player-for-echo360-backup-' + new Date().toISOString().slice(0, 10) + '.json';
       downloadBlob(new Blob([JSON.stringify(data)], { type: 'application/json' }), name);
       this.p.toast(tr('backupMade', { n: Object.keys(data.db).length }));
     })));
@@ -6673,7 +6673,7 @@ const idbCache = {
     if (this.db) return this.db;
     const p = new Promise((resolve, reject) => {
       if (typeof indexedDB === 'undefined') { reject(new Error('no IndexedDB')); return; }
-      const req = indexedDB.open('echo360lite', 1);
+      const req = indexedDB.open('lite-player-for-echo360', 1);
       req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains('cache')) req.result.createObjectStore('cache'); };
       req.onsuccess = () => {
         const db = req.result;
@@ -9952,7 +9952,7 @@ const cpuFix = (function () {
   function ownSheet() {
     if (own.sheet && own.sheet.ownerNode && own.sheet.ownerNode.isConnected) return own.sheet;
     const elem = document.createElement('style');
-    elem.setAttribute('data-echo360-lite-cpu-fix', '');
+    elem.setAttribute('data-lite-player-for-echo360-cpu-fix', '');
     document.head.appendChild(elem);
     own.sheet = elem.sheet;
     own.names.clear();
@@ -10133,12 +10133,12 @@ const courseList = {
     const known = new Map();   // lessonId -> label info (null while loading)
     let server = null;         // promise of { lessonId: { mediaId, read } } from the syllabus
     const style = document.createElement('style');
-    style.textContent = '.e3l-watch{display:inline-flex;align-items:center;gap:6px;margin-left:12px;font-size:12px;line-height:18px;'
+    style.textContent = '.lp360-watch{display:inline-flex;align-items:center;gap:6px;margin-left:12px;font-size:12px;line-height:18px;'
       + 'vertical-align:middle;color:#1d6b4f;white-space:nowrap}'
-      + '.e3l-bar{position:relative;width:72px;height:6px;border-radius:3px;background:#e2e8f0;overflow:hidden}'
-      + '.e3l-bar i{position:absolute;top:0;bottom:0;background:#2f855a}'
-      + '.e3l-bar b{position:absolute;top:-1px;bottom:-1px;width:2px;margin-left:-1px;background:#2d3748}'
-      + '.e3l-watch.e3l-done{color:#22543d;font-weight:600}.e3l-watch .e3l-last{color:#4a5568}';
+      + '.lp360-bar{position:relative;width:72px;height:6px;border-radius:3px;background:#e2e8f0;overflow:hidden}'
+      + '.lp360-bar i{position:absolute;top:0;bottom:0;background:#2f855a}'
+      + '.lp360-bar b{position:absolute;top:-1px;bottom:-1px;width:2px;margin-left:-1px;background:#2d3748}'
+      + '.lp360-watch.lp360-done{color:#22543d;font-weight:600}.lp360-watch .lp360-last{color:#4a5568}';
 
     const syllabus = () => {
       if (!server) {
@@ -10169,12 +10169,12 @@ const courseList = {
 
     const label = (row, info) => {
       const host = row.querySelector('.header-details') || row.querySelector('header') || row;
-      let elem = host.querySelector('.e3l-watch');
+      let elem = host.querySelector('.lp360-watch');
       if (!info) { if (elem) elem.remove(); return; }
       if (!elem) { elem = document.createElement('span'); host.append(elem); }
       elem.textContent = '';
       const bar = document.createElement('span');
-      bar.className = 'e3l-bar';
+      bar.className = 'lp360-bar';
       const dur = info.dur;
       const tips = [];
       if (info.ranges) {
@@ -10196,11 +10196,11 @@ const courseList = {
         const pct = Math.max(1, Math.round(info.share * 100)); // never "0%" for something watched
         txt.textContent = tr('listWatched', { pct });
         tips.push(tr('listWatchedTitle', { pct }));
-        elem.className = 'e3l-watch' + (pct >= LIST_DONE_PCT ? ' e3l-done' : '');
+        elem.className = 'lp360-watch' + (pct >= LIST_DONE_PCT ? ' lp360-done' : '');
       } else {
         txt.textContent = tr('listLastAt', { time: fmtTime(info.last) });
-        txt.className = 'e3l-last';
-        elem.className = 'e3l-watch';
+        txt.className = 'lp360-last';
+        elem.className = 'lp360-watch';
       }
       if (info.last != null) tips.push(tr('listLastAtTitle', { time: fmtTime(info.last) }));
       elem.append(txt);
@@ -10240,7 +10240,7 @@ const courseList = {
         const lid = row.getAttribute('data-test-lessonid');
         // Rows drawn again lose the label; a row that has it is left alone (labelling is
         // itself a change the observer sees).
-        if (known.has(lid)) { if (known.get(lid) && !row.querySelector('.e3l-watch')) label(row, known.get(lid)); continue; }
+        if (known.has(lid)) { if (known.get(lid) && !row.querySelector('.lp360-watch')) label(row, known.get(lid)); continue; }
         known.set(lid, null);
         queue.push(() => lookup(lid).then((info) => {
           known.set(lid, info);
@@ -10504,7 +10504,7 @@ async function blobToBase64(blob) {
 }
 
 async function makeBackup(withPdfs) {
-  const out = { app: 'echo360-lite', v: 1, created: new Date().toISOString(), local: {}, db: {} };
+  const out = { app: 'lite-player-for-echo360', v: 1, created: new Date().toISOString(), local: {}, db: {} };
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
     const key = k && k.startsWith(NS) ? k.slice(NS.length) : null;
@@ -10524,7 +10524,7 @@ async function makeBackup(withPdfs) {
 // first; the IndexedDB entries are then written in one transaction (all or none), and only
 // then the settings. Returns the number of entries written.
 async function restoreBackup(data, db = idbCache) {
-  if (!data || data.app !== 'echo360-lite' || data.v !== 1 || !data.db || typeof data.db !== 'object') throw new Error(tr('backupInvalid'));
+  if (!data || data.app !== 'lite-player-for-echo360' || data.v !== 1 || !data.db || typeof data.db !== 'object') throw new Error(tr('backupInvalid'));
   // Settings and positions: only known keys, each validated like the player does (a
   // damaged value becomes the default instead of breaking every later visit).
   const local = [];
@@ -10588,7 +10588,7 @@ function diagnosticsText(p) {
   const q = (st) => (st && st.hls && st.hls.levels && st.hls.levels.length ? st.height + 'p of ' + Math.max(...st.hls.levels.map((l) => l.height)) + 'p' : '-');
   const lines = [];
   const add = (k, val) => lines.push(k + ': ' + val);
-  add('Echo360 Lite', VERSION);
+  add('Lite Player for Echo360', VERSION);
   add('Browser', browserName());
   add('Script manager', scriptManager());
   add('Page', location.hostname + ' (lesson page)');
@@ -10630,7 +10630,7 @@ function diagnosticsText(p) {
   window.addEventListener('unhandledrejection', (ev) => {
     const r = ev.reason;
     const stack = String((r && r.stack) || '');
-    if (/echo360[ -]lite/i.test(stack)) { log.warn('unhandled rejection', r); logEvent('warn', 'unhandled rejection: ' + ((r && r.message) || r)); }
+    if (/lite[ -]player[ -]for[ -]echo360/i.test(stack)) { log.warn('unhandled rejection', r); logEvent('warn', 'unhandled rejection: ' + ((r && r.message) || r)); }
   });
   if (courseList.matches()) { try { courseList.start(); } catch (e) { /* the page works without it */ } return; }
   const adapter = ADAPTERS.find((a) => { try { return a.matches(); } catch (e) { return false; } });
@@ -10668,7 +10668,7 @@ function diagnosticsText(p) {
           startOriginal(callOriginal, handoff, null);
         },
       });
-      if (store.get('debug', false)) { window.__echo360LitePlayer = player; window.__echo360LiteDev = { HlsVideoReader, frameLuma, thumbChange, learnThreshold }; } // development only
+      if (store.get('debug', false)) { window.__litePlayerForEcho360 = player; window.__litePlayerForEcho360Dev = { HlsVideoReader, frameLuma, thumbChange, learnThreshold }; } // development only
       // Any unexpected error in our handlers from now on: hand the page to the original player.
       unexpected.handler = () => {
         if (!player) return;

@@ -1,9 +1,9 @@
 [English](README.md) | **简体中文**
 
-# Echo360 Lite Player（Echo360 轻量播放器）
+# Echo360 轻量播放器（Lite Player for Echo360）
 
-[![CI](https://github.com/zhenban/echo360-lite/actions/workflows/ci.yml/badge.svg)](https://github.com/zhenban/echo360-lite/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/zhenban/echo360-lite)](https://github.com/zhenban/echo360-lite/releases/latest)
+[![CI](https://github.com/zhenban/lite-player-for-echo360/actions/workflows/ci.yml/badge.svg)](https://github.com/zhenban/lite-player-for-echo360/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/zhenban/lite-player-for-echo360)](https://github.com/zhenban/lite-player-for-echo360/releases/latest)
 [![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
 
 **一个用户脚本：用轻快的播放器看 Echo360 课程回放：CPU 占用低得多，两路画面并排，幻灯片章节，PDF 跟着讲课翻页，字幕、笔记等等。**
@@ -12,14 +12,14 @@
 
 > **非官方项目。** 本项目与 Echo360、UNSW 没有任何关系，也未获其认可或支持。提到 “Echo360” 只是为了说明脚本适用于哪个网站。
 
-原播放器播放时会让一个 CPU 核心一直满载，风扇响、耗电。Echo360 Lite 用浏览器自带的视频播放器播放同样的视频流，开销接近直接播放视频文件。在 `echo360.net.au`（澳大利亚）上测试过；认不出页面时会自动改用原播放器。
+原播放器播放时会让一个 CPU 核心一直满载，风扇响、耗电。Echo360 轻量播放器用浏览器自带的视频播放器播放同样的视频流，开销接近直接播放视频文件。在 `echo360.net.au`（澳大利亚）上测试过；认不出页面时会自动改用原播放器。
 
 ## 安装
 
 1. 安装用户脚本管理器：[Tampermonkey](https://www.tampermonkey.net/) 或 [Violentmonkey](https://violentmonkey.github.io/)。
    Chrome / Edge：在 `chrome://extensions` 打开脚本管理器的“详细信息”，开启 **“允许用户脚本”**（旧版本是开启“开发者模式”）。
-2. 安装脚本：从最新版本下载 **[echo360-lite.user.js](https://github.com/zhenban/echo360-lite/releases/latest/download/echo360-lite.user.js)**（脚本管理器会提示安装）。每个版本都附有更新说明。
-3. 打开任意一节 Echo360 课程回放，浏览器控制台（F12）会显示 `[Echo360 Lite] v… active`。
+2. 安装脚本：从最新版本下载 **[lite-player-for-echo360.user.js](https://github.com/zhenban/lite-player-for-echo360/releases/latest/download/lite-player-for-echo360.user.js)**（脚本管理器会提示安装）。每个版本都附有更新说明。
+3. 打开任意一节 Echo360 课程回放，浏览器控制台（F12）会显示 `[Lite Player for Echo360] v… active`。
 
 ## 功能
 
@@ -92,7 +92,7 @@
 
 ```sh
 npm install        # 开发工具（ESLint、用于检查的 TypeScript、happy-dom）
-npm run build      # src/*.js -> dist/echo360-lite.user.js（可读，不压缩）
+npm run build      # src/*.js -> dist/lite-player-for-echo360.user.js（可读，不压缩）
 npm test           # 单元测试和整页测试
 npm run ci         # 代码检查、类型检查、测试、dist/ 与源码一致（GitHub Actions 运行的就是这些）
 ```
@@ -103,7 +103,7 @@ npm run ci         # 代码检查、类型检查、测试、dist/ 与源码一�
 
 ## 许可
 
-Copyright (C) 2026 zhenban。Echo360 Lite 是自由软件：你可以按照自由软件基金会发布的 [GNU 通用公共许可证](LICENSE)第 3 版（或你选择的任何更高版本）的条款重新分发和修改它。发布它是希望它有用，但不提供任何担保。
+Copyright (C) 2026 zhenban。Echo360 轻量播放器（Lite Player for Echo360）是自由软件：你可以按照自由软件基金会发布的 [GNU 通用公共许可证](LICENSE)第 3 版（或你选择的任何更高版本）的条款重新分发和修改它。发布它是希望它有用，但不提供任何担保。
 
 **v0.14.0 及以前**的版本以 MIT 许可证发布，这些版本仍然适用 MIT；之后的版本使用 GPL。
 

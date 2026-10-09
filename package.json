@@ -1,5 +1,5 @@
 {
-  "name": "echo360-lite",
+  "name": "lite-player-for-echo360",
   "private": true,
   "description": "A lightweight replacement for the Echo360 lecture player (userscript).",
   "license": "GPL-3.0-or-later",

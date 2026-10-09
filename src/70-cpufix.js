@@ -56,7 +56,7 @@ const cpuFix = (function () {
   function ownSheet() {
     if (own.sheet && own.sheet.ownerNode && own.sheet.ownerNode.isConnected) return own.sheet;
     const elem = document.createElement('style');
-    elem.setAttribute('data-echo360-lite-cpu-fix', '');
+    elem.setAttribute('data-lite-player-for-echo360-cpu-fix', '');
     document.head.appendChild(elem);
     own.sheet = elem.sheet;
     own.names.clear();

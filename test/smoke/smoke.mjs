@@ -67,6 +67,8 @@ async function cdpDriver(log) {
   });
   await c.send('Runtime.enable');
   await c.send('Page.enable');
+  // Keys and clicks only reach the tab in front.
+  await c.send('Page.bringToFront');
   const product = (await (await fetch(`http://127.0.0.1:${port}/json/version`)).json()).Browser;
   return {
     product,
@@ -95,8 +97,14 @@ async function cdpDriver(log) {
 async function bidiDriver(log) {
   const c = await socket(`ws://127.0.0.1:${port}/session`);
   const ses = await c.send('session.new', { capabilities: {} });
+  // Firefox allows one automation session: end it even when the run is stopped.
+  for (const sig of ['SIGINT', 'SIGTERM']) {
+    process.on(sig, () => { c.send('session.end', {}).catch(() => {}).finally(() => process.exit(130)); setTimeout(() => process.exit(130), 2000); });
+  }
   const tree = await c.send('browsingContext.getTree', {});
   const context = tree.contexts[0].context;
+  // A background tab is throttled (its timers slow to a crawl) and gets no input.
+  await c.send('browsingContext.activate', { context });
   await c.send('session.subscribe', { events: ['log.entryAdded'] });
   c.on((m) => {
     if (m.method === 'log.entryAdded') log.push({ level: m.params.type === 'javascript' ? 'exception' : m.params.level === 'warn' ? 'warning' : m.params.level, text: m.params.text || '' });
@@ -124,19 +132,19 @@ const driver = await (arg('protocol', 'cdp') === 'bidi' ? bidiDriver(log) : cdpD
 
 const hlsUrl = /@require\s+(\S+hls[^\s]*)/.exec(readFileSync(join(root, 'src', 'meta.txt'), 'utf8'))[1];
 const hls = await (await fetch(hlsUrl)).text();
-const lite = readFileSync(join(root, 'dist', 'echo360-lite.user.js'), 'utf8');
+const lite = readFileSync(join(root, 'dist', 'lite-player-for-echo360.user.js'), 'utf8');
 const version = /@version\s+(\S+)/.exec(lite)[1];
 // --no-inject: test the script as installed in the browser's userscript manager (it must
 // be this build, and run in the page, as with Violentmonkey's @inject-into page).
 const inject = !process.argv.includes('--no-inject');
 await driver.addInitScript('if (/^https:\\/\\/echo360\\.net\\.au\\/(lesson\\/|section\\/[^/]+\\/home)/.test(location.href)) {\n'
-  + 'try { localStorage.setItem("echo360lite:debug", "true"); localStorage.setItem("echo360lite:dryRun", "\\"public\\""); } catch (e) {}\n'
-  + (inject ? hls + '\n;\n' + lite : '') + '\n}\n//# sourceURL=echo360-lite.user.js');
+  + 'try { localStorage.setItem("lite-player-for-echo360:debug", "true"); localStorage.setItem("lite-player-for-echo360:dryRun", "\\"public\\""); } catch (e) {}\n'
+  + (inject ? hls + '\n;\n' + lite : '') + '\n}\n//# sourceURL=lite-player-for-echo360.user.js');
 
 const evalIn = (expr) => driver.evaluate(expr);
 const key = (k) => driver.key(k);
 const clickAt = (x, y) => driver.click(x, y);
-const P = 'window.__echo360LitePlayer';
+const P = 'window.__litePlayerForEcho360';
 const until = async (expr, sec) => {
   for (let i = 0; i < sec * 2; i++) { try { const v = await evalIn(expr); if (v) return v; } catch (e) { /* not yet */ } await sleep(500); }
   return null;
@@ -244,11 +252,11 @@ async function smoke(lec) {
   const at = (await state()).t;
   const orig = await evalIn(`(() => { const b = ${P}.$('.orig').getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; })()`);
   await clickAt(orig.x, orig.y);
-  const handed = await until(`!document.querySelector('#echo360-lite') && [...document.querySelectorAll('video')].some((v) => Math.abs(v.currentTime - ${at}) < 5)`, 25);
+  const handed = await until(`!document.querySelector('#lite-player-for-echo360') && [...document.querySelectorAll('video')].some((v) => Math.abs(v.currentTime - ${at}) < 5)`, 25);
   check('hands over to the original player', handed, 'at ' + at.toFixed(1));
 
   // Console: nothing from this script above info, no exceptions from it.
-  const ours = log.filter((x) => /echo360 ?lite/i.test(x.text) && (x.level === 'error' || x.level === 'warning' || x.level === 'exception'));
+  const ours = log.filter((x) => /lite[ -]player[ -]for[ -]echo360/i.test(x.text) && (x.level === 'error' || x.level === 'warning' || x.level === 'exception'));
   check('console clean', !ours.length, ours.map((x) => x.text.slice(0, 120)).join(' | '));
   r.seconds = Math.round((Date.now() - t0) / 1000);
   return r;
@@ -261,7 +269,7 @@ for (const lec of lectures) {
 }
 await driver.close();
 
-const lines = [`Smoke test, ${label} (${driver.product}), Echo360 Lite ${version}, ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`, ''];
+const lines = [`Smoke test, ${label} (${driver.product}), Lite Player for Echo360 ${version}, ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`, ''];
 for (const r of results) {
   const failed = r.checks.filter((x) => !x.ok);
   lines.push(`${failed.length ? 'FAIL' : 'ok  '} ${r.name}${r.views ? ` (${r.views} view${r.views > 1 ? 's' : ''})` : ''}${r.seconds ? `, ${r.seconds} s` : ''}${r.notes.length ? ' [' + r.notes.join('; ') + ']' : ''}`);

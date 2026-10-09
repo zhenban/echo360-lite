@@ -11,8 +11,8 @@
 // Every write takes the user event that caused it and refuses to run without a trusted
 // one, so nothing is ever written to Echo360 without an explicit user action.
 //
-// Dry run (development): localStorage "echo360lite:dryRun" = "public" or "all". Matching
-// writes are fully built but only recorded (console + window.__echo360LiteDryRun), never
+// Dry run (development): localStorage "lite-player-for-echo360:dryRun" = "public" or "all". Matching
+// writes are fully built but only recorded (console + window.__litePlayerForEcho360DryRun), never
 // sent. Public = visible to the instructor or the class (discussion, likes, saves, flags).
 // ===================================================================================
 
@@ -66,7 +66,7 @@ class Echo360Api {
     requireGesture(ev);
     if (this.dryRun === 'all' || (this.dryRun === 'public' && visibility === 'public')) {
       const rec = { method, url: new URL(path, location.origin).href, body: body === undefined ? null : JSON.stringify(body), visibility };
-      (window.__echo360LiteDryRun = window.__echo360LiteDryRun || []).push(rec);
+      (window.__litePlayerForEcho360DryRun = window.__litePlayerForEcho360DryRun || []).push(rec);
       log.info('DRY RUN (not sent):', method, rec.url, rec.body || '');
       return Promise.resolve(dryRunResult(method, path, body));
     }

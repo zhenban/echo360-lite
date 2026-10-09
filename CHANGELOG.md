@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.15.0
+The project is renamed **Lite Player for Echo360** (Echo360 轻量播放器), so that it does not read like an Echo360 product. The repository moved to `zhenban/lite-player-for-echo360` (old links redirect).
+- This is a new userscript for your manager (new name and namespace): remove the old "Echo360 Lite Player" and install `lite-player-for-echo360.user.js`.
+- Settings and data stored in the browser use new names and start empty: settings, resume points kept on this device, watched parts, tags, slide files and analysis results. Notes, bookmarks, flags and discussion are on Echo360 and are not affected. A backup made with an earlier version can be restored after one change in the file: open it in a text editor and replace `"app":"echo360-lite"` (at the very start) with `"app":"lite-player-for-echo360"`.
+- Nothing else changes.
+
 ## 0.14.1
 - License: from this version on, Echo360 Lite is licensed under the GNU General Public License v3 or later (GPL-3.0-or-later). Versions up to 0.14.0 remain under the MIT License.
 - hls.js is now required with its SHA-256 hash: Tampermonkey refuses a modified file (the script then leaves the original player in place). Violentmonkey does not check hashes yet.

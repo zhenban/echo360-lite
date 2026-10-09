@@ -2,8 +2,8 @@
 // Utilities
 // ===================================================================================
 
-const TAG = '[Echo360 Lite]';
-const NS = 'echo360lite:';
+const TAG = '[Lite Player for Echo360]';
+const NS = 'lite-player-for-echo360:';
 const HlsLib = typeof Hls !== 'undefined' ? Hls : window.Hls;
 
 // After a backup has been restored, this page must not write its older data back over
@@ -106,8 +106,8 @@ function featureGuard(name, fn) {
   }
 }
 
-// One log format: "[Echo360 Lite] ..." in the console. Warnings and errors always (and kept
-// for diagnostics); information only with localStorage["echo360lite:debug"] = true.
+// One log format: "[Lite Player for Echo360] ..." in the console. Warnings and errors always (and kept
+// for diagnostics); information only with localStorage["lite-player-for-echo360:debug"] = true.
 const log = {
   info(...a) { if (store.get('debug', false)) console.info(TAG, ...a); },
   warn(...a) { console.warn(TAG, ...a); logEvent('warn', a.map(logText).join(' ')); },
