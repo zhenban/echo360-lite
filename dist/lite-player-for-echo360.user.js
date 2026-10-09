@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lite Player for Echo360
 // @namespace    lite-player-for-echo360
-// @version      0.15.0
+// @version      0.15.1
 // @description  Unofficial, lightweight player for Echo360 lecture recordings: far lower CPU use, both views side by side, slide chapters, a PDF that follows the lecture. Falls back to the original player automatically if anything is not recognised.
 // @license      GPL-3.0-or-later
 // @match        https://echo360.net.au/lesson/*
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.15.0';
+  const VERSION = '0.15.1';
 
 // ---- 00-util.js ----
 // ===================================================================================
@@ -3455,7 +3455,11 @@ class LitePlayer {
 
     // Auto-hide
     d.listen(this.stage, 'pointermove', () => this.wake());
-    d.listen(this.stage, 'pointerleave', () => { if (!v.paused) this.stage.classList.add('idle'); });
+    d.listen(this.stage, 'pointerleave', (e) => {
+      // Touch ends with pointerleave even when the finger was lifted inside the player.
+      // Keep the controls until the idle timer expires so the next tap can pause.
+      if (e.pointerType !== 'touch' && !v.paused) this.stage.classList.add('idle');
+    });
   }
 
   // ---- captions and transcript ----

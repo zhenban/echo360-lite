@@ -714,7 +714,11 @@ class LitePlayer {
 
     // Auto-hide
     d.listen(this.stage, 'pointermove', () => this.wake());
-    d.listen(this.stage, 'pointerleave', () => { if (!v.paused) this.stage.classList.add('idle'); });
+    d.listen(this.stage, 'pointerleave', (e) => {
+      // Touch ends with pointerleave even when the finger was lifted inside the player.
+      // Keep the controls until the idle timer expires so the next tap can pause.
+      if (e.pointerType !== 'touch' && !v.paused) this.stage.classList.add('idle');
+    });
   }
 
   // ---- captions and transcript ----
