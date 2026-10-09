@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Echo360 Lite Player
 // @namespace    echo360-lite
-// @version      0.13.1
+// @version      0.14.0
 // @description  Replaces the Echo360 lecture player with a lightweight native player (far lower CPU use). Falls back to the original player automatically if anything is not recognised.
 // @license      MIT
 // @match        https://echo360.net.au/lesson/*
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.13.1';
+  const VERSION = '0.14.0';
 
 // ---- 00-util.js ----
 // ===================================================================================

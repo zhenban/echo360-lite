@@ -45,7 +45,14 @@ async function socket(url) {
       if (msg.error) rej(new Error(typeof msg.error === 'string' ? msg.error + ': ' + msg.message : msg.error.message)); else res(msg.result);
     } else if (msg.method) for (const fn of listeners) fn(msg);
   };
-  const send = (method, params = {}) => new Promise((res, rej) => { const i = ++id; pending.set(i, { res, rej }); ws.send(JSON.stringify({ id: i, method, params })); });
+  // A browser that stops answering (the computer slept, the tab hung) fails the check
+  // instead of stopping the whole run.
+  const send = (method, params = {}) => new Promise((res, rej) => {
+    const i = ++id;
+    const timer = setTimeout(() => { pending.delete(i); rej(new Error(method + ': no answer in 120 s')); }, 120000);
+    pending.set(i, { res: (v) => { clearTimeout(timer); res(v); }, rej: (e) => { clearTimeout(timer); rej(e); } });
+    ws.send(JSON.stringify({ id: i, method, params }));
+  });
   return { send, on: (fn) => listeners.push(fn), close: () => ws.close() };
 }
 
