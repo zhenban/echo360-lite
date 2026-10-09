@@ -45,7 +45,10 @@ class AudioChain {
   build() {
     if (this.ctx || this.reason) return !!this.ctx;
     const Ctx = window.AudioContext || window.webkitAudioContext;
-    const ctx = new Ctx();
+    // Lecture playback does not need interactive latency. Android's default interactive
+    // route can use game/speaker processing that changes the sound even with all stages
+    // bypassed; prefer the media playback route and its power-efficient buffering.
+    const ctx = new Ctx({ latencyHint: 'playback' });
     const n = {};
     n.src = ctx.createMediaElementSource(this.video);
     n.mono = ctx.createGain();

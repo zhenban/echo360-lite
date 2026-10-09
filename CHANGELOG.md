@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.15.2
+- Fix: audio tools request a media playback audio context instead of the default low-latency interactive context. On some Android devices, the interactive output route changed the speaker sound even with all audio tools off; playback mode avoids that route change on the tested Samsung tablet.
+- Updates: the script explicitly checks and downloads the latest published release, including when it was originally installed from a version-specific release link.
+
 ## 0.15.1
 - Fix: on touchscreens, lifting a finger while a recording plays no longer immediately hides the controls. When controls are hidden, the first tap shows them and the next tap can pause playback.
 

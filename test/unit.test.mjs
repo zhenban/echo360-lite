@@ -246,7 +246,7 @@ function fakeAudio() {
   let k = 0;
   const mk = (kind) => Object.assign(new Node(kind + (k++)), { kind, gain: param(), frequency: param(), Q: param(), threshold: param(), knee: param(), ratio: param(), attack: param(), release: param() });
   class Ctx {
-    constructor() { this.destination = new Node('dest'); this.state = 'running'; this.currentTime = 0; }
+    constructor(options) { this.options = options; this.destination = new Node('dest'); this.state = 'running'; this.currentTime = 0; }
     createMediaElementSource() { return new Node('src'); }
     createGain() { return mk('gain'); }
     createBiquadFilter() { return mk('biquad'); }
@@ -278,6 +278,7 @@ test('AudioChain wires only the enabled stages (all off = direct)', () => {
   const chain = new m.AudioChain({ paused: true });
   chain.reason = null;
   assert.equal(chain.build(), true);
+  assert.equal(chain.ctx.options?.latencyHint, 'playback', 'lecture audio uses a media playback context, not the default interactive/game route');
   assert.deepEqual(pathFromSource(edges), ['dest'], 'all off: source straight to output');
   chain.set({ mono: true });
   assert.deepEqual(pathFromSource(edges), ['gain', 'dest']);
