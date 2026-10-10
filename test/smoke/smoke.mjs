@@ -213,7 +213,7 @@ async function smoke(lec) {
     check('quick view switch keeps position', kept, (await state()).t.toFixed(1) + ' (was ' + pos.toFixed(1) + ')');
     await evalIn(`${P}.setLayout('side')`);
     await until(`${P}.video.readyState >= 2 && ${P}.fvideo.readyState >= 2`, 15);
-  } else check('single view: no layout switching offered', await evalIn(`${P}.root.querySelector('.layout').style.display === 'none'`));
+  } else check('single view: no layout switching offered', await evalIn(`${P}.root.querySelector('.layout').hidden`));
 
   // Captions.
   const cues = await until(`${P}.cues ? ${P}.cues.length : 0`, 15);
@@ -250,7 +250,12 @@ async function smoke(lec) {
 
   // Hand-over to the original player at the same place.
   const at = (await state()).t;
-  const orig = await evalIn(`(() => { const b = ${P}.$('.orig').getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; })()`);
+  // Through the settings menu (the button, then its last action), with real clicks.
+  const centre = (expr) => evalIn(`(() => { const b = (${expr}).getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; })()`);
+  const more = await centre(`${P}.$('.morebtn')`);
+  await clickAt(more.x, more.y);
+  await sleep(400);
+  const orig = await centre(`[...${P}.root.querySelectorAll('.pop:not([hidden]) .mi')].find((b) => b.textContent === ${JSON.stringify('Switch to the original player')})`);
   await clickAt(orig.x, orig.y);
   const handed = await until(`!document.querySelector('#lite-player-for-echo360') && [...document.querySelectorAll('video')].some((v) => Math.abs(v.currentTime - ${at}) < 5)`, 25);
   check('hands over to the original player', handed, 'at ' + at.toFixed(1));

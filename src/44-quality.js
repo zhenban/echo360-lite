@@ -1,11 +1,11 @@
 // ===================================================================================
-// Picture quality: per role (screen, camera) "auto" or a fixed rendition height, the
-// menu, the label on its button, and a cap for the camera while it is the small
-// picture-in-picture window (no point fetching 1080p for a thumbnail).
+// Picture quality: per role (screen, camera) "auto" or a fixed rendition height, its page
+// in the settings menu, and a cap for the camera while it is the small picture-in-picture
+// window (no point fetching 1080p for a thumbnail).
 //
-// deps: { $, prefs, savePrefs(), sources, dual, screenIndex() (null until known),
+// deps: { prefs, savePrefs(), sources, dual, screenIndex() (null until known),
 //         streams() -> [{ stream, elem, pos }] (pos -1: not playing), shown() -> the stream
-//         of the big picture, layout() }
+//         of the big picture, layout(), onChange() (the settings menu redraws) }
 // ===================================================================================
 
 class QualityController {
@@ -13,12 +13,6 @@ class QualityController {
     this.x = deps;
     this.d = disposer;
     this.levelsByRole = {};
-    const menu = deps.$('.qualitymenu');
-    this.d.listen(menu, 'click', (e) => {
-      e.stopPropagation();
-      const b = e.target.closest('button[data-q]');
-      if (b) this.set(b.dataset.role, b.dataset.q);
-    });
   }
 
   // 'screen' or 'camera'. Until the screen view is known, the first view counts as screen.
@@ -53,38 +47,43 @@ class QualityController {
     for (const { stream, pos } of this.x.streams()) {
       if (pos >= 0 && stream.levels.length) this.levelsByRole[this.roleOf(pos)] = stream.levels.map((l) => l.height);
     }
-    const h = this.x.shown().height;
-    this.x.$('.qbtn').textContent = h ? h + 'p' : tr('qualityAuto');
-    if (!this.x.$('.qualitymenu').hidden) this.renderMenu();
+    this.x.onChange();
   }
 
-  renderMenu() {
+  // Shown next to the page in the settings menu: what the big picture plays now.
+  value() {
+    const shown = this.x.shown();
+    const entry = this.x.streams().find((s) => s.stream === shown && s.pos >= 0);
+    const h = shown.height;
+    const want = this.x.prefs.quality[this.roleOf(entry ? entry.pos : 0)];
+    return want === 'auto' ? tr('qualityAuto') + (h ? ' (' + h + 'p)' : '') : want + 'p';
+  }
+
+  // The settings page: for each view, "auto" and the renditions it has.
+  items() {
     const x = this.x;
-    const menu = x.$('.qualitymenu');
-    menu.textContent = '';
-    menu.append(el('div.head', { text: tr('quality') }));
     const roles = x.dual ? ['screen', 'camera'] : [this.roleOf(0)];
     const playingAt = new Map(x.streams().filter((s) => s.pos >= 0).map((s) => [s.pos, s.stream]));
+    const items = [];
     for (const role of roles) {
       const pos = x.sources.findIndex((s, i) => this.roleOf(i) === role);
       if (pos < 0) continue;
       const stream = playingAt.get(pos);
-      const playing = stream && stream.height ? stream.height + 'p' : '';
-      if (x.dual) menu.append(el('div.sub', { text: tr(role === 'screen' ? 'qualityScreen' : 'qualityCamera') + (playing ? ' · ' + tr('qualityNow', { q: playing }) : '') }));
-      else if (playing) menu.append(el('div.sub', { text: tr('qualityNow', { q: playing }) }));
-      const want = x.prefs.quality[role];
+      const playing = stream && stream.height ? tr('qualityNow', { q: stream.height + 'p' }) : '';
+      if (x.dual) items.push({ kind: 'group', label: tr(role === 'screen' ? 'qualityScreen' : 'qualityCamera') + (playing ? ': ' + playing : '') });
+      else if (playing) items.push({ kind: 'group', label: playing });
       const heights = (this.levelsByRole[role] || []).slice().sort((a, b) => b - a);
       const opts = [['auto', tr('qualityAutoBest')]].concat(heights.map((hh) => [hh, hh + 'p']));
       for (const [val, label] of opts) {
-        menu.append(el('button', { role: 'menuitemradio', 'aria-checked': String(want === val), 'data-role': role, 'data-q': String(val), text: label }));
+        items.push({ kind: 'radio', label, checked: () => x.prefs.quality[role] === val, select: () => this.set(role, val) });
       }
     }
+    return items;
   }
 
   set(role, val) {
     this.x.prefs.quality[role] = val === 'auto' ? 'auto' : +val;
     this.x.savePrefs();
     this.apply();
-    this.renderMenu();
   }
 }

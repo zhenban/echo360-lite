@@ -13,8 +13,9 @@
 // The player assembles its parts and keeps what they share: the streams, the layout and
 // the settings. Each part gets only the functions and elements it needs, and is owned
 // through a child of the player's Disposer (released with it, or alone if it fails):
-//   SeekBar (41), KeyboardShortcuts (42), LayoutControls (43), QualityController (44),
-//   MenuBar (45), PopoutController (46), SilenceUi (47); and the features: captions and
+//   Popovers and Tooltips (32), SeekBar (41), KeyboardShortcuts (42), LayoutControls (43),
+//   QualityController (44), MenuBar (45), PopoutController (46), SilenceUi (47),
+//   SpeedControl (48); and the features: captions and
 //   transcript (53), side panel (54), notes (55), discussion (57), slides (64-68),
 //   zoom (50), A-B loop (51), watched parts (52), audio tools (60).
 // ===================================================================================
@@ -92,11 +93,14 @@ class LitePlayer {
         $: (sel) => this.$(sel), lesson, video: this.video, sources: this.sources, prefs: this.prefs, savePrefs: () => this.savePrefs(),
         seek: (t) => this.seek(t), duration: () => this.duration(), toast: (...a) => this.toast(...a), ui: this.ui,
         uniform: () => (this.slides ? this.slides.uniform : []),
+        onChange: () => this.menus.refresh(),
         onSkips: (skips, end) => {
           this.seekBar.renderSkips(skips);
           if (this.watched) this.watched.contentEnd = end && end < this.duration() ? end : null;
         },
       }, this.d.feature('silence detection'));
+      this.menuPages.silence = () => this.silence.items();
+      this.menuValues.silence = () => this.silence.value();
     });
     featureGuard('slide chapters', () => this.setupSlides());
     featureGuard('slide reader', () => this.setupDeck());
@@ -161,7 +165,8 @@ class LitePlayer {
     document.title = this.lesson.title;
     const back = this.$('.back');
     if (this.lesson.backUrl) back.href = this.lesson.backUrl; else back.style.display = 'none';
-    if (!this.dual) { this.$('.swap').style.display = 'none'; this.$('.layout').style.display = 'none'; }
+    this.app.dataset.theme = this.prefs.theme;
+    this.stage.classList.toggle('hidecc-paused', !!this.prefs.capHidePaused);
     this.stage.style.setProperty('--ratio', String(clamp(this.prefs.ratio, 0.2, 0.8)));
     this.stage.style.setProperty('--pipw', String(clamp(this.prefs.pipw, 0.15, 0.6)));
     this.app.style.setProperty('--panelw', clamp(this.prefs.panelw, 260, 640) + 'px');
@@ -286,9 +291,7 @@ class LitePlayer {
       this.fvideo.dataset.slot = clockIsPrimary ? 'secondary' : 'primary';
       pdfView.dataset.slot = 'off';
     }
-    this.$('.layout').style.display = this.dual || pdf ? '' : 'none';
-    this.setButton('.layout', layout === 'side' ? 'layoutSide' : layout === 'pip' ? 'layoutPip' : 'layoutSingle', tr('layout'));
-    for (const b of this.all('.layoutmenu button')) b.setAttribute('aria-checked', String(b.dataset.layout === layout));
+    this.renderLayoutButton();
     if (this.reader) {
       this.reader.setActive('main', pdf);
       if (pdf) this.redrawPdf();
@@ -342,6 +345,44 @@ class LitePlayer {
     if (pos >= 0 && pos === this.clockPos) return this.video;
     if (pos >= 0 && pos === this.followerPos) return this.fvideo;
     return this.layout === 'single' || this.clockPos === this.primaryPos ? this.video : this.fvideo;
+  }
+
+  // Layouts offered in the settings menu ([]: one picture only).
+  layoutChoices() {
+    return this.dual || this.pdfMode ? LAYOUTS : [];
+  }
+
+  // The layout button's cycle. With the PDF view open it switches between side by side and
+  // picture in picture: alone, the PDF or the video would be hidden (single view stays in
+  // the settings menu).
+  layoutCycle() {
+    if (this.pdfMode) return ['side', 'pip'];
+    return this.dual ? LAYOUTS : [];
+  }
+
+  nextLayout() {
+    const list = this.layoutCycle();
+    return list[(list.indexOf(this.layout) + 1) % list.length];
+  }
+
+  // The icon shows the layout now; the tooltip says what a press switches to.
+  renderLayoutButton() {
+    const b = this.$('.layout');
+    const hide = !this.layoutCycle().length;
+    if (b.hidden !== hide) { b.hidden = hide; this.menus.fitBar(); }
+    if (hide) return;
+    const now = this.layout;
+    const to = tr({ side: 'layoutToSide', pip: 'layoutToPip', single: 'layoutToSingle' }[this.nextLayout()]);
+    b.innerHTML = svg(now === 'side' ? 'layoutSide' : now === 'pip' ? 'layoutPip' : 'layoutSingle');
+    b.setAttribute('aria-label', tr('layoutNow', { layout: tr(layoutKey(now)) }) + '. ' + to);
+    b.dataset.tip = to;
+    this.menus.refresh();
+  }
+
+  setTheme(theme) {
+    this.prefs.theme = theme;
+    this.app.dataset.theme = theme;
+    this.savePrefs();
   }
 
   setLayout(layout) {
@@ -413,13 +454,16 @@ class LitePlayer {
     const savePrefs = () => this.savePrefs();
     const toast = (...a) => this.toast(...a);
     const isDestroyed = () => this.destroyed;
+    const layer = this.$('.layer');
+    this.pops = new Popovers(layer, this.d.child(), (open) => { if (open) this.wake(); else this.armIdle(); });
+    this.tooltips = new Tooltips(this.root, layer, this.d.child());
     this.seekBar = new SeekBar({
       $, video: this.video, clock: this.clock, duration: () => this.duration(), seek: (t) => this.seek(t),
       isIdle: () => this.stage.classList.contains('idle'), armIdle: () => this.armIdle(), markers: this.markers, ui: this.ui,
       previewAt: (t) => this.previewAt(t), skipAt: (t) => (this.silence ? this.silence.skipAt(t) : null),
     }, this.d.child());
     this.quality = new QualityController({
-      $, prefs: this.prefs, savePrefs, sources: this.sources, dual: this.dual,
+      prefs: this.prefs, onChange: () => { if (this.menus) this.menus.refresh(); }, savePrefs, sources: this.sources, dual: this.dual,
       screenIndex: () => (this.slides ? this.slides.screenIndex : null),
       streams: () => [{ stream: this.clock, elem: this.video, pos: this.clockPos }, { stream: this.follower, elem: this.fvideo, pos: this.followerPos }],
       shown: () => (this.layout === 'single' || this.clockPos === this.primaryPos ? this.clock : this.follower),
@@ -430,18 +474,30 @@ class LitePlayer {
       // A click swaps the two pictures (with the PDF shown: the PDF and the video).
       onPipClick: () => { if (this.pdfMode) this.swapPdf(); else this.swapViews(); },
     }, this.d.child());
+    const notesReady = () => !!(this.notes && this.notesReady);
     this.menus = new MenuBar({
-      $, root: this.root, stage: this.stage, video: this.video, prefs: this.prefs, savePrefs, cc: this.cc, toast,
-      setRate: (r) => this.setRate(r), setLayout: (l) => this.setLayout(l), cues: () => this.cues || [], screenVideo: () => this.screenVideo(),
-      title: this.lesson.title, duration: () => this.duration(), wake: () => this.wake(), showKeys: () => this.keys.showHelp(true),
+      $, root: this.root, pops: this.pops, stage: this.stage, video: this.video, prefs: this.prefs, savePrefs, cc: this.cc, toast,
+      cues: () => this.cues || [], screenVideo: () => this.screenVideo(), title: this.lesson.title, duration: () => this.duration(),
       diagnostics: () => diagnosticsText(this),
-      onOpen: (menu) => { if (menu.classList.contains('qualitymenu')) this.quality.renderMenu(); },
-      onCloseAll: () => { if (this.loop) this.loop.menu.hidden = true; },
+      layouts: () => this.layoutChoices(), layout: () => this.layout, setLayout: (l) => this.setLayout(l), swap: () => this.swapViews(),
+      pdfMode: () => this.pdfMode, setTheme: (t) => this.setTheme(t),
+      // Optional features add their pages and actions once they have started.
+      pages: this.menuPages = { quality: () => this.quality.items(), audio: null, silence: null },
+      values: this.menuValues = { quality: () => this.quality.value(), audio: () => '', silence: () => '' },
+      actions: this.menuActions = {
+        bookmark: (e) => { if (notesReady()) this.notes.addBookmark(e); },
+        popout: PopoutController.supported() ? () => this.popout.toggle() : null,
+        loopA: () => this.loop.setA(this.video.currentTime), loopB: () => this.loop.setB(this.video.currentTime),
+        loopClear: () => this.loop.clear(), loopLabel: () => (this.loop ? this.loop.label() : tr('loopNone')),
+        exportNotes: null, showKeys: () => this.keys.showHelp(true), original: () => this.opts.onFallback('user'),
+      },
     }, this.d.child());
+    this.menus.captionsAvailable(tr('captionsLoading'));
+    this.speed = new SpeedControl({ $, pops: this.pops, rate: () => this.video.playbackRate || this.prefs.rate, setRate: (r) => this.setRate(r) }, this.d.child());
     this.keys = new KeyboardShortcuts({ $, isDestroyed, wake: () => this.wake(), actions: this.keyActions() }, this.d.child());
     this.popout = new PopoutController({
       $, host: this.host, video: this.video, title: this.lesson.title, onKey: this.keys.onKey, isDestroyed, toast,
-      relayout: () => { this.quality.apply(); this.redrawPdf(); this.render(true); },
+      relayout: () => { this.quality.apply(); this.redrawPdf(); this.render(true); this.menus.fitBar(); this.pops.place(); },
     }, this.d.feature('floating window'));
   }
 
@@ -457,17 +513,20 @@ class LitePlayer {
       toggleMute: () => { v.muted = !v.muted; },
       fullscreen: () => this.toggleFullscreen(),
       swap: () => this.swapViews(),
-      captions: () => (this.cues && this.cues.length ? this.menus.setCaptions(!this.cc.on) : false),
+      captions: () => {
+        const why = unavailableReason(this.$('.ccbtn'));
+        if (why) this.toast(why); else this.menus.setCaptions(!this.cc.on);
+      },
       transcript: () => (this.sidebar.has('transcript') ? this.sidebar.toggle('transcript') : false),
       bookmark: (a, e) => (notesReady() ? this.notes.addBookmark(e) : false),
-      flag: (a, e) => (notesReady() && this.notes.canFlag ? this.notes.toggleFlag(e) : false),
+      flag: () => (notesReady() && this.notes.canFlag ? this.notes.flagByKey() : false),
       tag: (a, e) => (notesReady() ? this.notes.tagHere(e) : false),
       copyFrame: () => this.menus.copyFrame(),
       copyCaptions: () => this.menus.copyCaptions(),
       escape: () => {
         if (this.menus.diagnosticsOpen) this.menus.showDiagnostics(false);
         else if (this.keys.helpOpen) this.keys.showHelp(false);
-        else if (this.menus.anyOpen()) this.menus.closeAll();
+        else if (this.pops.isOpen()) this.pops.close(true);
         else return false;
         return true;
       },
@@ -495,14 +554,14 @@ class LitePlayer {
       // Play is normally user-initiated; also recovers a context the browser suspended.
       if (this.audio) { this.audio.resume(); this.audio.syncTimer(); }
       stage.classList.remove('paused');
-      this.setButton('.play', 'pause', tr('pause'));
+      this.setButton('.play', 'pause', tr('pause'), tr('pauseKey'));
       if (this.reporter) this.reporter.onPlay();
       this.armIdle();
     });
     on('pause', () => {
       if (this.audio) this.audio.syncTimer();
       stage.classList.add('paused');
-      this.setButton('.play', 'play', tr('play'));
+      this.setButton('.play', 'play', tr('play'), tr('playKey'));
       if (this.reporter) this.reporter.onPause();
       this.savePosition();
       this.wake();
@@ -529,7 +588,7 @@ class LitePlayer {
     on('seeked', onTime);
     on('progress', invalidate);
     on('durationchange', () => { this.render(true); if (this.loop) this.loop.render(); this.renderWatched(); this.updateMarkers(); if (this.silence) this.silence.update(); this.renderChapterMarks(); });
-    on('ratechange', () => this.menus.renderSpeed(v.playbackRate));
+    on('ratechange', () => this.speed.render(v.playbackRate));
     on('volumechange', () => {
       this.renderVolume();
       this.prefs.volume = v.volume;
@@ -559,17 +618,18 @@ class LitePlayer {
     }, STALL_CHECK_MS);
   }
 
-  setButton(sel, icon, label) {
+  setButton(sel, icon, label, tip) {
     const b = this.$(sel);
     b.innerHTML = svg(icon);
-    b.title = label;
     b.setAttribute('aria-label', label);
+    b.dataset.tip = tip;
   }
 
   renderVolume() {
     const v = this.video;
     const level = v.muted ? 0 : v.volume;
-    this.$('.mute').innerHTML = svg(v.muted || v.volume === 0 ? 'muted' : 'volume');
+    const silent = v.muted || v.volume === 0;
+    this.setButton('.mute', silent ? 'muted' : 'volume', tr(silent ? 'unmute' : 'mute'), tr(silent ? 'unmuteKey' : 'muteKey'));
     const input = this.$('.volume');
     input.value = String(level);
     input.style.setProperty('--v', level * 100 + '%');
@@ -635,7 +695,7 @@ class LitePlayer {
   armIdle() {
     clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(guard(() => {
-      if (!this.video.paused && !this.ui.dragging && !this.menus.anyOpen()) this.stage.classList.add('idle');
+      if (!this.video.paused && !this.ui.dragging && !this.pops.isOpen()) this.stage.classList.add('idle');
     }), CONTROLS_HIDE_MS);
   }
 
@@ -655,10 +715,11 @@ class LitePlayer {
     });
     d.listen($('.volume'), 'input', (e) => { v.volume = +e.target.value; v.muted = v.volume === 0; });
     d.listen($('.fs'), 'click', () => this.toggleFullscreen());
-    d.listen($('.swap'), 'click', () => this.swapViews());
-    d.listen($('.orig'), 'click', () => this.opts.onFallback('user'));
+    d.listen($('.swapdot'), 'click', (e) => { e.stopPropagation(); this.swapViews(); });
+    d.listen($('.layout'), 'click', () => this.setLayout(this.nextLayout()));
     d.listen(document, 'fullscreenchange', () => {
-      this.setButton('.fs', document.fullscreenElement ? 'exitFullscreen' : 'fullscreen', tr('fullscreen'));
+      const fs = !!document.fullscreenElement;
+      this.setButton('.fs', fs ? 'exitFullscreen' : 'fullscreen', tr(fs ? 'exitFullscreen' : 'fullscreen'), tr(fs ? 'exitFullscreenKey' : 'fullscreenKey'));
     });
     let resizeTimer = 0;
     d.add(() => clearTimeout(resizeTimer));
@@ -666,11 +727,10 @@ class LitePlayer {
     for (const chip of this.all('.top [data-open]')) d.listen(chip, 'click', () => this.sidebar.toggle(chip.dataset.open));
     d.listen($('.panelclose'), 'click', () => this.sidebar.close());
     d.listen($('.bmbtn'), 'click', (e) => { if (this.notes) this.notes.addBookmark(e); });
-    d.listen($('.flagbtn'), 'click', (e) => { if (this.notes) this.notes.toggleFlag(e); });
     d.listen($('.pextras button'), 'click', () => this.opts.onFallback('extras'));
     this.bindPanelResize();
     this.loop = new ABLoop({
-      mount: $('.speedmenu').parentElement, rail: $('.seek'), video: v, duration: () => this.duration(), seek: (t) => this.seek(t), toast: (...a) => this.toast(...a),
+      pops: this.pops, rail: $('.seek'), video: v, duration: () => this.duration(), seek: (t) => this.seek(t), toast: (...a) => this.toast(...a),
     }, this.d.feature('A-B loop'));
 
     // Click on a picture: play/pause; double click: fullscreen. While the controls are
@@ -727,21 +787,21 @@ class LitePlayer {
 
   loadCues() {
     this.cues = null;
-    if (!this.opts.fetchCues) { if (this.silence) this.silence.start([]); return; }
+    const none = () => { if (!this.destroyed) this.menus.captionsAvailable(tr('captionsNone')); };
+    if (!this.opts.fetchCues) { none(); if (this.silence) this.silence.start([]); return; }
     this.opts.fetchCues(this.lesson).then((cues) => {
       if (this.destroyed) return;
       if (this.silence) this.silence.start(cues);
-      if (!cues.length) return;
+      if (!cues.length) { none(); return; }
       this.cues = cues;
       if (this.slidesPane) this.slidesPane.invalidate();
       if (this.reporter) this.reporter.captionsAvailable = cues.length;
       this.cc.setCues(cues);
       this.transcript.setCues(cues);
-      this.$('.ccbtn').hidden = false;
-      this.menus.renderCaptionMenu();
+      this.menus.captionsAvailable('');
       if (this.prefs.captions) this.menus.setCaptions(true, true);
       this.registerTab('transcript', this.transcript);
-    });
+    }, (e) => { none(); log.warn('captions:', e && e.message ? e.message : e); });
   }
 
   // ---- audio processing ----
@@ -751,19 +811,19 @@ class LitePlayer {
     this.audio = a;
     this.d.add(() => a.dispose());
     a.settings = { level: !!this.prefs.audio.level, voice: !!this.prefs.audio.voice, mono: !!this.prefs.audio.mono };
-    for (const b of this.all('.audiomenu [data-audio]')) {
-      this.d.listen(b, 'click', (e) => {
-        e.stopPropagation();
-        if (a.reason) return;
-        const k = b.dataset.audio;
+    const why = () => (a.reason === 'noWebAudio' ? tr('audioNoWebAudio') : a.reason ? tr('audioNativeHls') : '');
+    // The settings page: one switch per tool (shown off, with the reason, when unsupported).
+    this.menuPages.audio = () => [['level', 'audioLevel'], ['voice', 'audioVoice'], ['mono', 'audioMono']].map(([k, label]) => ({
+      kind: 'toggle', label: tr(label), desc: tr(label + 'Desc'), reason: why, on: () => !!a.settings[k],
+      set: (on) => {
         a.build();
         a.resume();
-        a.set({ [k]: !a.settings[k] });
+        a.set({ [k]: !!on });
         this.prefs.audio = Object.assign({}, a.settings, { levelChosen: this.prefs.audio.levelChosen || k === 'level' });
         this.savePrefs();
-        this.renderAudioMenu();
-      });
-    }
+      },
+    }));
+    this.menuValues.audio = () => (!a.reason && a.anyOn() ? tr('on') : tr('off'));
     // Remembered settings: build the graph on the first user gesture, never before.
     if (!a.reason && a.anyOn()) {
       const onGesture = () => {
@@ -775,21 +835,6 @@ class LitePlayer {
       this.d.listen(this.host, 'pointerdown', onGesture, true);
       this.d.listen(document, 'keydown', onGesture, true);
     }
-    this.renderAudioMenu();
-  }
-
-  renderAudioMenu() {
-    const a = this.audio;
-    const why = this.$('.audiomenu .why');
-    why.hidden = !a.reason;
-    why.textContent = a.reason === 'noWebAudio' ? tr('audioNoWebAudio') : a.reason ? tr('audioNativeHls') : '';
-    for (const b of this.all('.audiomenu [data-audio]')) {
-      const on = !a.reason && !!a.settings[b.dataset.audio];   // unsupported: shown as off
-      b.setAttribute('aria-checked', String(on));
-      b.setAttribute('aria-disabled', String(!!a.reason));
-      b.querySelector('.state').textContent = on ? tr('on') : tr('off');
-    }
-    this.$('.audiobtn').classList.toggle('active', a.anyOn() && !a.reason);
   }
 
   // ---- slide chapters ----
@@ -946,7 +991,8 @@ class LitePlayer {
       if (this.destroyed || !ok) return;
       this.notesReady = true;
       this.$('.bmbtn').hidden = false;
-      this.$('.flagbtn').hidden = !canFlag;
+      this.menus.fitBar();
+      this.menuActions.exportNotes = () => this.notes.openExport();
       this.renderFlagButton();
       this.registerTab('notes', this.notes);
     });
@@ -968,13 +1014,9 @@ class LitePlayer {
     this.markers.set(items, this.duration());
   }
 
+  // The "Didn't understand" button in the Notes tab follows the part playing.
   renderFlagButton() {
-    if (!this.notes || !this.notesReady) return;
-    const on = !!this.notes.flagAt(this.video.currentTime);
-    const b = this.$('.flagbtn');
-    b.classList.toggle('active', on);
-    b.setAttribute('aria-pressed', String(on));
-    b.innerHTML = svg(on ? 'flagOn' : 'flag');
+    if (this.notes && this.notesReady) this.notes.renderFlagRow();
   }
 
   renderExtras() {
@@ -1033,11 +1075,12 @@ class LitePlayer {
     for (const [label, fn, primary] of actions) {
       const b = document.createElement('button');
       b.textContent = label;
-      if (primary) b.className = 'primary';
+      b.className = primary ? 'pbtn primary' : 'pbtn';
       b.addEventListener('click', fn);
       wrap.appendChild(b);
     }
     box.hidden = false;
+    wrap.firstChild.focus({ preventScroll: true });
     this.wake();
   }
 
@@ -1049,10 +1092,4 @@ class LitePlayer {
     this.destroyed = true;
     this.d.dispose();
   }
-}
-
-function nextSpeed(current, dir) {
-  const i = SPEEDS.findIndex((s) => s >= current - 0.001);
-  const idx = i < 0 ? SPEEDS.length - 1 : i;
-  return SPEEDS[clamp(idx + dir, 0, SPEEDS.length - 1)];
 }

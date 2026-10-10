@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lite Player for Echo360
 // @namespace    lite-player-for-echo360
-// @version      0.16.1
+// @version      0.17.0
 // @updateURL    https://github.com/zhenban/lite-player-for-echo360/releases/latest/download/lite-player-for-echo360.user.js
 // @downloadURL  https://github.com/zhenban/lite-player-for-echo360/releases/latest/download/lite-player-for-echo360.user.js
 // @description  Unofficial, lightweight player for Echo360 lecture recordings: far lower CPU use, both views side by side, slide chapters, a PDF that follows the lecture. Falls back to the original player automatically if anything is not recognised.
@@ -19,7 +19,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.16.1';
+  const VERSION = '0.17.0';
 
 // ---- 00-util.js ----
 // ===================================================================================
@@ -255,17 +255,27 @@ class FrameTask {
 const STRINGS = {
   en: {
     back: 'Back to course',
-    originalPlayer: 'Original player',
-    originalPlayerTitle: 'Switch back to the Echo360 player',
     seek: 'Playback position',
-    play: 'Play (Space)',
-    pause: 'Pause (Space)',
-    rewind: 'Back 10 seconds (J)',
-    forward: 'Forward 10 seconds (L)',
-    mute: 'Mute (M)',
+    play: 'Play',
+    playKey: 'Play (Space)',
+    pause: 'Pause',
+    pauseKey: 'Pause (Space)',
+    rewind: 'Back 10 seconds',
+    rewindKey: 'Back 10 seconds (J)',
+    forward: 'Forward 10 seconds',
+    forwardKey: 'Forward 10 seconds (L)',
+    mute: 'Mute',
+    muteKey: 'Mute (M)',
+    unmute: 'Unmute',
+    unmuteKey: 'Unmute (M)',
     volume: 'Volume',
-    swapViews: 'Swap views (S)',
+    swapViews: 'Swap views',
+    swapViewsKey: 'Swap views (S)',
     layout: 'Layout',
+    layoutNow: 'Layout: {layout}',
+    layoutToSide: 'Switch to side by side',
+    layoutToPip: 'Switch to picture in picture',
+    layoutToSingle: 'Switch to single view',
     layoutSide: 'Side by side',
     layoutPip: 'Picture in picture',
     layoutSingle: 'Single view',
@@ -275,14 +285,17 @@ const STRINGS = {
     secondViewLost: 'The second view could not be loaded and was hidden.',
     captions: 'Captions',
     captionsKey: 'Captions (C)',
+    captionsLoading: 'Captions are loading',
+    captionsNone: 'This recording has no captions',
     showCaptions: 'Show captions',
     hideCaptionsPaused: 'Hide while paused',
-    copy: 'Copy',
-    copyFrame: 'Copy the picture',
-    copyFrameDesc: 'The screen view at full resolution (or the main view), ready to paste.',
-    copyCaptions: 'Copy what was just said',
-    copyCaptionsDesc: 'The last part of the transcript in whole sentences, with the lecture name and times. Handy for asking an AI about it.',
-    copyCaptionsSpan: 'How much to copy',
+    copyFrame: 'Copy picture',
+    copyFrameKey: 'Copy picture (P)',
+    copyCaptions: 'Copy text',
+    copyCaptionsKey: 'Copy text (A)',
+    copyCaptionsSpan: 'Copy text length',
+    copyCaptionsSpanDesc: 'Copy text copies what was said just before, in whole sentences, with the lecture name and times.',
+    copySpanValue: 'Last {time}',
     copiedFrame: 'Picture copied ({w} × {h})',
     copiedCaptions: 'Copied {from}–{to} of the transcript',
     copyFailed: 'Could not copy ({msg})',
@@ -317,7 +330,11 @@ const STRINGS = {
     bookmarkedAt: 'Bookmarked at {time}',
     undo: 'Undo',
     flag: 'Didn\'t understand',
-    flagKey: 'Mark this part as not understood (U)',
+    flagRemoveLabel: 'Remove "Didn\'t understand" at {time}',
+    flagVisible: 'Visible to your instructor',
+    flagConfirm: 'Mark {time} as not understood? Your instructor will see it.',
+    flagConfirmAction: 'Mark it',
+    flagConfirmButton: 'Mark {time} for your instructor',
     flagAdded: 'Marked {time} as not understood',
     flagRemoved: 'Removed the mark at {time}',
     edit: 'Edit',
@@ -349,13 +366,13 @@ const STRINGS = {
     noPosts: 'No posts yet.',
     hiddenPosts: '{n} posts are hidden by your instructor.',
     attachment: 'Has an attachment',
-    openInOriginal: 'Open in the original player',
+    attachmentOpen: 'Has an attachment: switch to the original player to open it',
     refresh: 'Refresh',
     sortNewest: 'Newest first',
     sortVideoTime: 'By video time',
     charsLeft: '{n} characters left',
     tooLong: 'Too long by {n} characters',
-    extrasNotice: 'This recording has {what}. Open it in the original player to use them.',
+    extrasNotice: 'This recording has {what}, which only the original player shows.',
     extraPolls: 'polls',
     extraSlides: 'slides',
     extraAudioDescription: 'an audio description track',
@@ -375,7 +392,7 @@ const STRINGS = {
     qualityAutoBest: 'Auto (highest the network allows)',
     qualityScreen: 'Screen',
     qualityCamera: 'Camera',
-    qualityNow: 'playing {q}',
+    qualityNow: 'Playing {q}',
     slides: 'Slides',
     slidesKey: 'Slides (Shift+\u2190 / Shift+\u2192: previous / next)',
     slideN: 'Slide {n}',
@@ -441,20 +458,25 @@ const STRINGS = {
     silenceWaiting: 'Looking for silence\u2026',
     silenceUnavailable: 'Silence detection is not available for this recording.',
     silenceSaveData: 'Silence detection is off while Data Saver is on.',
-    silenceTip: 'silence {time}',
-    blankTip: 'black screen and silence {time}',
-    blackTip: 'black screen {time}',
-    skipBlank: 'Skip empty part ({time}) \u203a',
+    silenceTip: 'Silence, {time}',
+    blankTip: 'Black screen and silence, {time}',
+    blackTip: 'Black screen, {time}',
+    skipBlank: 'Skip empty part ({time})',
     skippedBlank: 'Skipped {time} of black screen and silence',
     contentEnded: 'The lecture has ended (black screen and silence from here).',
     contentEndSkip: 'Skip to the end',
     contentEndStop: 'Stop here',
-    skipSilence: 'Skip silence ({time}) \u203a',
+    skipSilence: 'Skip silence ({time})',
     skippedSilence: 'Skipped {time} of silence',
     audioNoWebAudio: 'Audio processing is not available in this browser.',
     audioNativeHls: 'Audio processing needs Media Source Extensions, which this browser is not using for this video.',
     speed: 'Playback speed',
-    fullscreen: 'Full screen (F)',
+    speedKey: 'Playback speed ([ and ])',
+    speedNow: 'Playback speed: {rate}',
+    fullscreen: 'Full screen',
+    fullscreenKey: 'Full screen (F)',
+    exitFullscreen: 'Exit full screen',
+    exitFullscreenKey: 'Exit full screen (F)',
     resumedAt: 'Resumed at {time}',
     startOver: 'Start over',
     authExpiredTitle: 'Playback access expired',
@@ -490,16 +512,16 @@ const STRINGS = {
     keyTranscript: 'Transcript',
     keyBookmark: 'Bookmark',
     keyTag: 'Tag the note or bookmark here (bookmarks this moment if there is none)',
-    keyFlag: '"Didn\'t understand" flag',
+    keyFlag: 'Didn\'t understand (visible to your instructor; asks first)',
     keySlide: 'Previous / next slide',
-    keyCopyFrame: 'Copy the current picture',
-    keyCopyCaptions: 'Copy what was just said',
+    keyCopyFrame: 'Copy picture',
+    keyCopyCaptions: 'Copy text',
     keyZoom: 'Zoom in / out (main picture; or the mouse wheel over any picture, drag to move)',
     keyZoomReset: 'Whole picture again (or double-click)',
-    keyLoop: 'Loop: set start / end (A-B), or right-click the progress bar',
+    keyLoop: 'Start loop here / end loop here (also in the settings menu, or right-click the progress bar)',
     keyLoopClear: 'End the loop',
     keyHelp: 'This list',
-    moreMenu: 'More',
+    moreMenu: 'Settings and more',
     cachesMeasuring: 'Analysis results on this device: measuring…',
     cachesSize: 'Analysis results on this device: {mb} MB ({n})',
     cachesUnknown: 'Analysis results on this device: unknown',
@@ -507,11 +529,13 @@ const STRINGS = {
     cachesCleared: 'Cleared {n} results; they are made again when needed',
     cachesInfo: 'Slide chapters, silences and slide text found for each recording, so they are instant next time. Not your notes, tags or slide files. Unused results go after 60 days.',
     diagMenu: 'Copy diagnostics…',
+    storageMenu: 'Storage and diagnostics',
     diagTitle: 'Diagnostics',
     diagInfo: 'For a bug report: versions, the state of each feature and recent warnings. No sign-in data, addresses, names, notes or posts. This is exactly what will be copied:',
     diagCopy: 'Copy',
     diagCopied: 'Diagnostics copied',
     keyExport: 'Export notes and bookmarks, backup',
+    exportNotes: 'Export notes and backup',
     exportMenu: 'Export…',
     exportInfo: 'Notes and bookmarks with their times and tags, as Markdown (for Obsidian and other notes apps). Each time links back to that moment. The video and its address are never included.',
     exportPictures: 'With the slide page shown at each note (as pictures in a zip)',
@@ -548,15 +572,35 @@ const STRINGS = {
     loopStart: 'Loop start (drag)',
     loopEnd: 'Loop end (drag)',
     loopClear: 'End loop',
-    loopFromHere: 'Loop from here',
-    loopToHere: 'Loop to here',
+    loopFromHere: 'Start loop here',
+    loopToHere: 'End loop here',
+    loopMenu: 'Loop a section',
+    loopNone: 'No loop',
     loopStartSet: 'Loop starts at {time}; press O at the end',
     loopSet: 'Looping {from}–{to}',
     loopCleared: 'Loop ended',
     loopOutside: 'Outside the loop {from}–{to}',
     keyEscape: 'Close menus',
+    keysMenu: 'Keyboard shortcuts',
     reload: 'Reload',
-    useOriginal: 'Use the original player',
+    useOriginal: 'Switch to the original player',
+    menuBack: 'Back',
+    theme: 'Theme',
+    themeSystem: 'Match system',
+    themeDark: 'Dark',
+    themeLight: 'Light',
+    themeNote: 'The light theme changes the side panel, menus and dialogs. The picture and its controls stay dark.',
+    layoutPdfNote: 'With the PDF view open, the layout button switches between side by side and picture in picture.',
+    overflowGroup: 'From the control bar',
+    captionsPage: 'Captions',
+    silencePage: 'Skip silence',
+    sizeS: 'Small',
+    sizeM: 'Medium',
+    sizeL: 'Large',
+    sizeXL: 'Extra large',
+    seconds: '{n} seconds',
+    minute: '1 minute',
+    minutes: '{n} minutes',
     playbackFailedTitle: 'Playback failed',
     playbackFailedText: 'The video could not be loaded ({detail}). You can retry or switch to the original player.',
     retry: 'Retry',
@@ -753,6 +797,14 @@ const CONTROLS_HIDE_MS = 2500;         // controls hide after this long without 
 const DOUBLE_CLICK_MS = 200;           // a click is single once no second one follows within this
 const DRAG_SEEK_MS = 200;              // seeking at most this often while dragging the progress bar
 const RESUME_END_SEC = 10;             // a resume point this close to the end starts over instead (nothing left to watch)
+
+// ---- menus and buttons (32-ui-kit.js, 48-speed.js, 55-notes.js) ----
+const POP_GAP = 8;                     // px between a popover and its button
+const POP_MARGIN = 8;                  // px kept free at the edges of the player
+const SHEET_BELOW = 600;               // player narrower than this (px, a phone held upright): popovers are bottom sheets
+const TIP_DELAY_MS = 500;              // hover time before a tooltip shows (a passing mouse shows none)
+const SPEED_SNAP = 0.06;               // a speed this close to a stop takes the stop (so a finger can hit 1.5x)
+const FLAG_CONFIRM_MS = 4000;          // "Didn't understand": time to press again to confirm
 
 // ---- session (36-session.js) ----
 const SESSION_RETRY_MS = [2000, 5000]; // waits before the two retries of a failed renewal
@@ -1732,461 +1784,563 @@ class Reporter {
 // ---- 30-ui-assets.js ----
 // ===================================================================================
 // UI assets: inline SVG icons, the stylesheet (injected once into the shadow root) and
-// the DOM template.
+// the DOM template. The look follows docs/DESIGN.md: every colour, radius, spacing and
+// duration is a token (a CSS custom property) defined at the top of the stylesheet.
 // ===================================================================================
 
+// One icon set on a 24px grid. The <svg> wrapper sets the stroke for all of them (see
+// svg()), so an icon is only its shapes and cannot drift to another weight. Filled shapes
+// mean "on" or "exists" (a bookmark here); small glyphs (the "10") are filled text.
 const ICON = {
-  play: '<path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z" fill="currentColor"/>',
-  pause: '<rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/>',
-  back10: '<path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4.5 4v4h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><text x="12.2" y="15.6" font-size="7.5" font-weight="700" text-anchor="middle" fill="currentColor" font-family="system-ui,sans-serif">10</text>',
-  fwd10: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4v4h-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><text x="11.8" y="15.6" font-size="7.5" font-weight="700" text-anchor="middle" fill="currentColor" font-family="system-ui,sans-serif">10</text>',
-  volume: '<path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z" fill="currentColor"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
-  muted: '<path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z" fill="currentColor"/><path d="M16 9.5l5 5m0-5l-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
-  popout: '<rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="11" y="11" width="8" height="6" rx="1" fill="currentColor"/>',
-  fullscreen: '<path d="M4 9V4.5h4.5M20 9V4.5h-4.5M4 15v4.5h4.5M20 15v4.5h-4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
-  exitFullscreen: '<path d="M8.5 4v4.5H4M15.5 4v4.5H20M8.5 20v-4.5H4M15.5 20v-4.5H20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
-  back: '<path d="M14.5 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
-  swap: '<path d="M5 8h13l-3.5-3.5M19 16H6l3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
-  layoutSide: '<rect x="3" y="6" width="8" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="13" y="6" width="8" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/>',
-  layoutPip: '<rect x="3" y="5" width="18" height="14" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="12.5" y="11.5" width="6" height="5" rx="1" fill="currentColor"/>',
-  cc: '<rect x="3" y="5.5" width="18" height="13" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10.5 10.2a2.2 2.2 0 1 0 0 3.6M16.5 10.2a2.2 2.2 0 1 0 0 3.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
-  slides: '<rect x="3.5" y="5" width="17" height="11.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 16.5v3M8.5 20h7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
-  transcript: '<path d="M5 6.5h14M5 10.5h14M5 14.5h9M5 18.5h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
-  bookmark: '<path d="M7 4.5h10a1 1 0 0 1 1 1V20l-6-4-6 4V5.5a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
-  bookmarkOn: '<path d="M7 4.5h10a1 1 0 0 1 1 1V20l-6-4-6 4V5.5a1 1 0 0 1 1-1z" fill="currentColor" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
-  flag: '<path d="M6 21V4.5M6 5h11l-2.5 4 2.5 4H6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
-  flagOn: '<path d="M6 21V4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M6 5h11l-2.5 4 2.5 4H6z" fill="currentColor" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
-  notes: '<path d="M6 3.5h9l3 3V20a.5.5 0 0 1-.5.5h-11A.5.5 0 0 1 6 20z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 10h6M9 13.5h6M9 17h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
-  discussion: '<path d="M4.5 5.5h15v10h-9l-4 3.5v-3.5h-2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
-  audio: '<path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
-  copy: '<rect x="8.5" y="8.5" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M15.5 5.5v-.5a1.5 1.5 0 0 0-1.5-1.5H6a1.5 1.5 0 0 0-1.5 1.5v8a1.5 1.5 0 0 0 1.5 1.5h.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
-  more: '<circle cx="5.5" cy="12" r="1.8" fill="currentColor"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/><circle cx="18.5" cy="12" r="1.8" fill="currentColor"/>',
-  close: '<path d="M6.5 6.5l11 11m0-11l-11 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
-  up: '<path d="M6.5 14.5l5.5-5.5 5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
-  down: '<path d="M6.5 9.5l5.5 5.5 5.5-5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
-  layoutSingle: '<rect x="3" y="5" width="18" height="14" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/>',
+  play: '<path d="M8 5.5v13l10.5-6.5z"/>',
+  pause: '<path d="M7.5 5.5h2.5v13H7.5zM14 5.5h2.5v13H14z"/>',
+  back10: '<path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4.5 4v4h4"/><text x="12.2" y="15.6" font-size="7.5" font-weight="600" text-anchor="middle" fill="currentColor" stroke="none" font-family="system-ui,sans-serif">10</text>',
+  fwd10: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4v4h-4"/><text x="11.8" y="15.6" font-size="7.5" font-weight="600" text-anchor="middle" fill="currentColor" stroke="none" font-family="system-ui,sans-serif">10</text>',
+  volume: '<path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>',
+  muted: '<path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M16 9.5l5 5m0-5l-5 5"/>',
+  fullscreen: '<path d="M4 9V4.5h4.5M20 9V4.5h-4.5M4 15v4.5h4.5M20 15v4.5h-4.5"/>',
+  exitFullscreen: '<path d="M8.5 4v4.5H4M15.5 4v4.5H20M8.5 20v-4.5H4M15.5 20v-4.5H20"/>',
+  back: '<path d="M14.5 6l-6 6 6 6"/>',
+  next: '<path d="M9.5 6l6 6-6 6"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  swap: '<path d="M5 8h13l-3.5-3.5M19 16H6l3.5 3.5"/>',
+  layoutSide: '<rect x="3" y="6" width="8" height="12" rx="1.5"/><rect x="13" y="6" width="8" height="12" rx="1.5"/>',
+  layoutPip: '<rect x="3" y="5" width="18" height="14" rx="1.5"/><rect x="12.5" y="11.5" width="5.5" height="4.5" rx="1"/>',
+  layoutSingle: '<rect x="3" y="5" width="18" height="14" rx="1.5"/>',
+  cc: '<rect x="3" y="5.5" width="18" height="13" rx="2.5"/><path d="M10.5 10.2a2.2 2.2 0 1 0 0 3.6M16.5 10.2a2.2 2.2 0 1 0 0 3.6"/>',
+  slides: '<rect x="3.5" y="5" width="17" height="11.5" rx="1.5"/><path d="M12 16.5v3M8.5 20h7"/>',
+  transcript: '<path d="M5 6.5h14M5 10.5h14M5 14.5h9M5 18.5h6"/>',
+  bookmark: '<path d="M7 4.5h10a1 1 0 0 1 1 1V20l-6-4-6 4V5.5a1 1 0 0 1 1-1z"/>',
+  bookmarkOn: '<path d="M7 4.5h10a1 1 0 0 1 1 1V20l-6-4-6 4V5.5a1 1 0 0 1 1-1z" fill="currentColor"/>',
+  flag: '<path d="M6 21V4.5M6 5h11l-2.5 4 2.5 4H6"/>',
+  flagOn: '<path d="M6 21V4.5"/><path d="M6 5h11l-2.5 4 2.5 4H6z" fill="currentColor"/>',
+  notes: '<path d="M6 3.5h9l3 3V20a.5.5 0 0 1-.5.5h-11A.5.5 0 0 1 6 20z"/><path d="M9 10h6M9 13.5h6M9 17h4"/>',
+  discussion: '<path d="M4.5 5.5h15v10h-9l-4 3.5v-3.5h-2z"/>',
+  copyPicture: '<path d="M15.5 5.5V5A1.5 1.5 0 0 0 14 3.5H6A1.5 1.5 0 0 0 4.5 5v8A1.5 1.5 0 0 0 6 14.5h.5"/><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M8.5 17l3.5-3.5 2.5 2.5 1.5-1.5 3.5 3.5"/>',
+  copyText: '<path d="M15.5 5.5V5A1.5 1.5 0 0 0 14 3.5H6A1.5 1.5 0 0 0 4.5 5v8A1.5 1.5 0 0 0 6 14.5h.5"/><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M11.5 12.5h5M11.5 15.5h3.5"/>',
+  more: '<circle cx="12" cy="5.5" r=".9"/><circle cx="12" cy="12" r=".9"/><circle cx="12" cy="18.5" r=".9"/>',
+  close: '<path d="M6.5 6.5l11 11m0-11l-11 11"/>',
+  up: '<path d="M6.5 14.5l5.5-5.5 5.5 5.5"/>',
+  down: '<path d="M6.5 9.5l5.5 5.5 5.5-5.5"/>',
 };
-const svg = (name) => '<svg viewBox="0 0 24 24" aria-hidden="true">' + ICON[name] + '</svg>';
+const svg = (name) => '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" '
+  + 'stroke-linecap="round" stroke-linejoin="round">' + ICON[name] + '</svg>';
 
-const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
+// Playback speed: the range of the speed control and the stops it snaps to ([ and ] step
+// between the stops).
+const SPEED_MIN = 0.5;
+const SPEED_MAX = 3;
+const SPEED_STOPS = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
+const SPEED_LABELS = [1, 1.5, 2, 2.5, 3];   // stops labelled under the track
+
+// The light theme's tokens. Only the side panel, popovers and dialogs take them: the
+// picture area and the controls over it always use the dark ones.
+const LIGHT_TOKENS = `
+  --s0: #F2F3F4; --s1: #E7E8EA; --s2: #F8F8F9; --s3: #DCDDE0;
+  --line: rgba(0,0,0,.12); --fill: rgba(0,0,0,.06); --fill-2: rgba(0,0,0,.10);
+  --text: #232529; --text-2: #555960; --text-3: #8A8D94;
+  --accent: #076B75; --on-accent: #FFFFFF; --accent-soft: rgba(7,107,117,.12);
+  --hl: rgba(255,186,0,.38); --warn-bg: rgba(181,120,0,.12); --warn-text: #6B4A00;
+  --danger: #B3261E; --danger-bg: rgba(179,38,30,.10); --shadow: 0 8px 28px rgba(0,0,0,.16);
+  color-scheme: light;`;
+const THEMED = '.panel, .pop, .dialog';
 
 const PLAYER_CSS = `
-:host { all: initial; position: fixed; inset: 0; z-index: 2147483000; display: block; background: #000;
-  color: #f1f1f3; font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
-  --accent: #4f8cff; --panel: rgba(18,18,22,.92); -webkit-font-smoothing: antialiased; }
+:host { all: initial; position: fixed; inset: 0; z-index: 2147483000; display: block;
+  --video: #000; --s0: #18191B; --s1: #222326; --s2: #2C2D31; --s3: #37383D;
+  --line: rgba(255,255,255,.10); --fill: rgba(255,255,255,.10); --fill-2: rgba(255,255,255,.16);
+  --text: #ECEDEF; --text-2: #A8ABB2; --text-3: #8A8D94;
+  --accent: #3DBEC4; --on-accent: #0B2E30; --accent-soft: rgba(61,190,196,.16);
+  --scrim: rgba(0,0,0,.72); --overlay: rgba(24,25,27,.92); --cap-bg: rgba(0,0,0,.78); --backdrop: rgba(0,0,0,.6);
+  --hl: rgba(255,196,0,.40); --warn-bg: rgba(255,170,0,.14); --warn-text: #FFD38A;
+  --danger: #FF8A80; --danger-bg: rgba(255,82,82,.14); --shadow: 0 8px 28px rgba(0,0,0,.5);
+  --mk-note: #7FA8FF; --mk-bookmark: #FF9F43; --mk-flag: #FF7A93; --mk-comment: #C3A1FF; --mk-last: #FFFFFF;
+  --sp1: 4px; --sp2: 8px; --sp3: 12px; --sp4: 16px; --sp6: 24px;
+  --r1: 4px; --r2: 8px; --r3: 12px;
+  --t-fast: 120ms; --t: 180ms; --ease: cubic-bezier(.2,.8,.2,1);
+  --btn: 40px; --panelw: 360px;
+  background: var(--video); color: var(--text); color-scheme: dark;
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif; -webkit-font-smoothing: antialiased; }
+@media (pointer: coarse) { :host { --btn: 44px; } }
+@media (prefers-reduced-motion: reduce) { :host { --t-fast: 0ms; --t: 0ms; } }
+.app[data-theme=light] :is(${THEMED}) { ${LIGHT_TOKENS} }
+@media (prefers-color-scheme: light) { .app[data-theme=system] :is(${THEMED}) { ${LIGHT_TOKENS} } }
 *, *::before, *::after { box-sizing: border-box; }
 [hidden] { display: none !important; }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
-button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
-svg { width: 24px; height: 24px; display: block; }
-.app { position: absolute; inset: 0; --panelw: 360px; }
-.stage { position: absolute; inset: 0; overflow: hidden; --ratio: .5; --pipw: .26; }
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r2); }
+svg { width: 24px; height: 24px; display: block; flex: none; }
+.num { font-variant-numeric: tabular-nums; }
+.app { position: absolute; inset: 0; }
+.stage { position: absolute; inset: 0; overflow: hidden; container: stage / inline-size; --ratio: .5; --pipw: .26; }
 .app.panel-open .stage { right: var(--panelw); }
-.captions { position: absolute; left: 50%; bottom: 96px; z-index: 4; transform: translateX(-50%); width: max-content; max-width: min(88%, 52em);
-  text-align: center; pointer-events: none; transition: bottom .2s ease; --capscale: 1; }
-.captions[hidden], .captions.empty { display: none; }
-.idle .captions { bottom: 28px; }
-.captions span { padding: .12em .45em; border-radius: 4px; background: rgba(0,0,0,.74); color: #fff;
-  font-size: calc(clamp(15px, 1.8vw, 30px) * var(--capscale)); line-height: 1.5;
-  -webkit-box-decoration-break: clone; box-decoration-break: clone; }
-.panel { position: absolute; top: 0; right: 0; bottom: 0; width: var(--panelw); z-index: 5; display: flex; flex-direction: column;
-  background: #131317; border-left: 1px solid rgba(255,255,255,.08); }
-.panel[hidden] { display: none; }
-.presize { position: absolute; left: -5px; top: 0; bottom: 0; width: 10px; cursor: col-resize; touch-action: none; }
-.phead { display: flex; align-items: center; gap: 6px; padding: 10px 8px 6px 16px; font-size: 15px; font-weight: 600; }
-.phead .ptitle { flex: 1; }
-.psearch { display: flex; align-items: center; gap: 2px; padding: 0 8px 8px 12px; }
-.tsearch { flex: 1; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid rgba(255,255,255,.14); border-radius: 8px;
-  background: rgba(255,255,255,.06); color: inherit; font: inherit; font-size: 13px; }
-.tsearch:focus { outline: none; border-color: var(--accent); }
-.tcount { min-width: 4.5em; padding: 0 4px; font-size: 12px; text-align: right; white-space: nowrap; opacity: .7; }
-.psearch .btn { width: 30px; height: 30px; }
-.psearch .btn svg, .phead .btn svg { width: 20px; height: 20px; }
-.phead .btn { width: 32px; height: 32px; }
-.tlist { flex: 1; overflow-y: auto; padding: 2px 6px 56px; overscroll-behavior: contain; }
-.trow { display: flex; gap: 10px; padding: 6px 8px; border-radius: 8px; cursor: pointer; font-size: 14px; line-height: 1.45;
-  content-visibility: auto; contain-intrinsic-size: auto 44px; }
-.trow:hover { background: rgba(255,255,255,.06); }
-.trow .ts { flex: none; width: 4.4em; padding-top: 2px; font-size: 12px; font-variant-numeric: tabular-nums; opacity: .5; }
-.trow.cur { background: rgba(79,140,255,.16); }
-.trow.cur .ts { color: var(--accent); opacity: 1; }
-/* Only the matched characters are marked (a background on the whole text, a block here,
-   fell on its last lines whatever line the match was on). */
-.trow .tx mark { background: rgba(255,196,0,.45); color: inherit; border-radius: 2px; }
-.tback { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); height: 32px; padding: 0 14px; border-radius: 16px;
-  background: var(--accent); color: #fff; font-size: 13px; box-shadow: 0 4px 16px rgba(0,0,0,.4); }
-.tback[hidden] { display: none; }
-.marks { position: absolute; left: 0; right: 0; top: 3px; height: 12px; pointer-events: none; }
-.marks i { position: absolute; top: 0; width: 2px; height: 12px; margin-left: -1px; border-radius: 1px; background: #ffc400; }
-.tabs { display: flex; gap: 2px; flex: 1; min-width: 0; }
-.tabs button { height: 32px; padding: 0 10px; border-radius: 8px; font-size: 13px; opacity: .7; white-space: nowrap; }
-.tabs button:hover { background: rgba(255,255,255,.08); opacity: 1; }
-.tabs button[aria-selected=true] { background: rgba(255,255,255,.12); opacity: 1; font-weight: 600; }
-.pane { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.pane[data-pane=notes], .pane[data-pane=discussion] { overflow-y: auto; padding: 0 12px 16px; overscroll-behavior: contain; }
-.pextras { margin: 0 12px 8px; padding: 8px 10px; border-radius: 8px; background: rgba(255,196,0,.1); font-size: 12px; line-height: 1.45; }
-.pextras button { margin-top: 4px; }
-.pinfo { margin: 2px 0 10px; font-size: 12px; line-height: 1.45; opacity: .6; }
-.pwarn { margin-bottom: 8px; padding: 7px 10px; border-radius: 8px; background: rgba(255,170,0,.14); color: #ffd38a; font-size: 12px; line-height: 1.4; }
-.composer { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
-.composer.reply { margin: 10px 0 0; }
-.input { width: 100%; padding: 8px 10px; border: 1px solid rgba(255,255,255,.14); border-radius: 8px; background: rgba(255,255,255,.06);
-  color: inherit; font: inherit; font-size: 13px; line-height: 1.45; resize: vertical; }
-.input:focus { outline: none; border-color: var(--accent); }
-.input.small { width: auto; padding: 4px 8px; }
-select.input option { background: #1b1b20; }
-.crow, .ptools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; }
-.ptools { margin-bottom: 10px; }
-.grow { flex: 1; }
-.check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; opacity: .85; }
-.check input { accent-color: var(--accent); }
-.counter { opacity: .6; } .counter.over { color: #ff8a80; opacity: 1; }
-.pbtn { height: 30px; padding: 0 12px; border-radius: 8px; background: rgba(255,255,255,.1); font-size: 13px; }
-.pbtn:hover { background: rgba(255,255,255,.16); }
-.pbtn.primary { background: var(--accent); color: #fff; font-weight: 600; }
-.pbtn:disabled { opacity: .45; cursor: default; }
-.link { font-size: 12px; opacity: .75; padding: 2px 0; }
-.link:hover { opacity: 1; text-decoration: underline; }
-.link.on { color: var(--accent); opacity: 1; }
-.link.danger:hover { color: #ff8a80; }
-.perror { margin-bottom: 10px; padding: 7px 10px; border-radius: 8px; background: rgba(255,82,82,.14); color: #ffb4ab; font-size: 12px; }
-.pempty { padding: 24px 8px; text-align: center; font-size: 13px; opacity: .55; line-height: 1.5; }
-.pmuted { font-size: 12px; opacity: .55; }
-.plist { display: flex; flex-direction: column; gap: 8px; }
-.card { padding: 10px 12px; border-radius: 10px; background: rgba(255,255,255,.045); border-left: 3px solid transparent; }
-.card.k-note { border-left-color: #6ea8ff; } .card.k-bookmark { border-left-color: #4fd1a5; } .card.k-flag { border-left-color: #ff6b6b; }
-.ihead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
-.ibody { margin-top: 6px; font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
-.iactions, .cactions { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; }
-/* Tags (local, private) */
-.itags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
-.tagchip, .tagopt { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px 2px 6px; border-radius: 10px;
-  background: rgba(255,255,255,.08); color: inherit; font: inherit; font-size: 12px; border: 0; cursor: pointer; }
-.tagchip i, .tagopt i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
-.tagopt { opacity: .6; } .tagopt.on { opacity: 1; background: rgba(255,255,255,.18); }
-.tagopt:hover, .tagchip:hover { background: rgba(255,255,255,.16); }
-.tagpick { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; border-radius: 8px; background: rgba(0,0,0,.25); }
-.tagnew { flex-basis: 100%; display: flex; gap: 8px; align-items: center; }
-.tagnew input { flex: 1; min-width: 0; }
-.addtag { font-size: 12px; }
-.tagman { padding: 10px 12px; margin-bottom: 10px; border-radius: 10px; background: rgba(255,255,255,.045); display: flex; flex-direction: column; gap: 8px; }
-.tagrow { display: flex; gap: 8px; align-items: center; }
-.tagrow input { flex: 1; min-width: 0; }
-.tagswatch { width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(255,255,255,.4); cursor: pointer; flex: none; padding: 0; }
-.kind { font-weight: 600; } .kind.k-note { color: #9cc3ff; } .kind.k-bookmark { color: #7ee2bf; } .kind.k-flag { color: #ff9a9a; }
-.chiptime { height: 22px; padding: 0 8px; border-radius: 11px; background: rgba(79,140,255,.18); color: #b9d2ff; font-size: 12px; font-variant-numeric: tabular-nums; }
-.chiptime:hover { background: rgba(79,140,255,.32); }
-.author { font-weight: 600; font-size: 13px; }
-.badge { padding: 1px 6px; border-radius: 6px; font-size: 11px; }
-.badge.inst { background: rgba(126,226,191,.16); color: #7ee2bf; }
-.comment + .comment { margin-top: 10px; }
-.replies { margin-top: 10px; padding-left: 12px; border-left: 2px solid rgba(255,255,255,.08); }
-.comment.reply .ibody { font-size: 13px; }
-.imarks { position: absolute; left: 0; right: 0; top: 0; height: 18px; pointer-events: none; }
-.mk { position: absolute; top: 2px; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%; box-shadow: 0 0 0 1.5px rgba(0,0,0,.6); }
-.mk-note { background: #6ea8ff; }
-.mk-laststop { top: -1px; width: 2px; height: 12px; margin-left: -1px; border-radius: 1px; background: rgba(255,255,255,.75); box-shadow: none; }
-.mk-bookmark { background: #4fd1a5; border-radius: 1px; }
-.mk-flag { background: #ff6b6b; top: 1px; width: 4px; height: 8px; margin-left: -2px; border-radius: 1px; }
-.mk-comment { background: #f3c969; transform: rotate(45deg); border-radius: 1px; }
-.btn.flagbtn.active { color: #ff6b6b; }
-.btn.bmbtn.active { color: #4fd1a5; }
-.audiomenu { min-width: 260px; max-width: 320px; }
-.audiomenu .opt { display: flex; flex-direction: column; align-items: stretch; gap: 2px; white-space: normal; }
-.audiomenu .opt .row1 { display: flex; justify-content: space-between; gap: 16px; }
-.audiomenu .opt .desc { font-size: 12px; opacity: .55; line-height: 1.35; }
-.audiomenu .opt[aria-disabled=true] { opacity: .45; cursor: default; }
-.audiomenu { max-height: calc(100% - 80px); overflow-y: auto; }
-.qualitymenu { min-width: 200px; }
-.copymenu { min-width: 260px; max-width: 320px; }
-.copymenu .opt { display: flex; flex-direction: column; align-items: stretch; gap: 2px; white-space: normal; }
-.copymenu .opt .row1 { display: flex; justify-content: space-between; gap: 16px; }
-.copymenu .opt .key { opacity: .5; font-size: 12px; }
-.copymenu .opt .desc { font-size: 12px; opacity: .55; line-height: 1.35; }
-.copymenu .sub { padding: 6px 10px 0; font-size: 12px; opacity: .6; }
-.copymenu .choices { display: flex; gap: 4px; padding: 4px 6px 2px; }
-.copymenu .choices button { width: auto; flex: 1; text-align: center; padding: 6px 0; }
-.qualitymenu .sub { padding: 8px 10px 2px; font-size: 12px; opacity: .6; }
-.audiomenu .sep { height: 1px; margin: 6px 4px; background: rgba(255,255,255,.1); }
-.audiomenu .silstatus { padding: 0 10px 6px; font-size: 12px; line-height: 1.4; opacity: .75; }
-.audiomenu .sub { padding: 6px 10px 0; font-size: 12px; opacity: .6; }
-.audiomenu .choices { display: flex; gap: 4px; padding: 4px 6px 2px; }
-.audiomenu .choices button { width: auto; flex: 1; text-align: center; padding: 6px 0; }
-.sils { position: absolute; inset: 0; }
-.chaps { position: absolute; inset: 0; }
-.chaps i { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: rgba(0,0,0,.75); }
-.tip .pv { display: block; width: 176px; aspect-ratio: 16 / 9; object-fit: contain; margin: 2px 0 4px; border-radius: 4px; background: #000; }
-.tip .pv[hidden] { display: none; }
-.pane[data-pane=slides] { overflow-y: auto; padding: 0 12px 16px; overscroll-behavior: contain; }
-.sstatus { padding: 4px 2px 8px; font-size: 12px; opacity: .65; }
-.sscreen { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 2px 8px; font-size: 12px; }
-.sscreen:empty { display: none; }
-.sscreen > span { opacity: .65; }
-.sview { padding: 2px 8px; border-radius: 10px; border: 1px solid rgba(255,255,255,.25); background: transparent; color: inherit; font: inherit; cursor: pointer; }
-.sview.on { background: rgba(255,255,255,.18); border-color: rgba(255,255,255,.5); }
-.slist { display: flex; flex-direction: column; gap: 8px; }
-.scard { display: flex; gap: 10px; align-items: flex-start; width: 100%; padding: 6px; border-radius: 10px; text-align: left; }
-.scard:hover { background: rgba(255,255,255,.07); }
-.scard.cur { background: rgba(79,140,255,.18); box-shadow: inset 0 0 0 1px rgba(79,140,255,.6); }
-.scard img, .scard .noimg { flex: none; width: 128px; aspect-ratio: 16 / 9; border-radius: 6px; background: #222; object-fit: contain; }
-.slist[hidden], .sstatus[hidden], .reader[hidden], .chaptoggle[hidden] { display: none; }
-.reader { padding: 4px 0 8px; }
-.rstage { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 6px; overflow: hidden; background: #fff; }
-.rpage { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; transition: opacity .18s ease; }
-.rpage.in { opacity: 1; }
-.rstale { position: absolute; inset: 0; z-index: 1; display: none; align-items: center; justify-content: center; padding: 12px; text-align: center;
-  font-size: 13px; font-weight: 600; color: #fff; background: rgba(20,20,24,.72); }
-.stale > .rstale { display: flex; }
-.pstage .rstale { z-index: 2; font-size: 15px; }
-.rbar { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
-.rnav { width: 32px; height: 28px; border-radius: 8px; font-size: 20px; line-height: 1; }
-.rnav:hover:not(:disabled) { background: rgba(255,255,255,.1); }
-.rnav:disabled { opacity: .3; cursor: default; }
-.rlabel { flex: 1; text-align: center; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rfollow { margin-top: 6px; text-align: center; font-size: 12px; }
-.rfollowing { opacity: .55; }
-.rback { padding: 5px 12px; border-radius: 14px; background: var(--accent); color: #fff; font-weight: 600; }
-.rtimes { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 8px; font-size: 12px; }
-.rtl { opacity: .6; margin-right: 2px; }
-.rtime { padding: 2px 8px; border-radius: 10px; background: rgba(255,255,255,.1); font-variant-numeric: tabular-nums; }
-.rtime:hover { background: rgba(255,255,255,.18); }
-.rfix { margin-top: 8px; font-size: 12px; }
-.rfix summary { cursor: pointer; opacity: .6; }
-.rfix[open] summary { opacity: .9; margin-bottom: 4px; }
-.rfixbtn { display: block; width: 100%; text-align: left; padding: 5px 8px; border-radius: 6px; }
-.rfixbtn:hover { background: rgba(255,255,255,.08); }
-.rmain { display: block; width: 100%; margin-top: 6px; padding: 5px 8px; border-radius: 8px; font-size: 12px; background: rgba(255,255,255,.08); }
-.rmain:hover { background: rgba(255,255,255,.14); }
-.chaptoggle { display: block; margin: 6px 0; padding: 4px 0; font-size: 12px; color: var(--accent); }
-.sdeck { padding: 8px 2px 4px; border-bottom: 1px solid rgba(255,255,255,.08); margin-bottom: 6px; }
-.sfiles { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.sfile { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 3px 4px 3px 10px; border-radius: 14px; background: rgba(255,255,255,.1); font-size: 12px; }
-.sfname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
-.sfremove { width: 20px; height: 20px; border-radius: 50%; font-size: 11px; opacity: .7; }
-.sfremove:hover { background: rgba(255,255,255,.15); opacity: 1; }
-.sfadd { padding: 4px 10px; border-radius: 14px; font-size: 12px; color: var(--accent); }
-.sfadd:hover { background: rgba(79,140,255,.12); }
-.sdmsg { margin-top: 6px; font-size: 12px; line-height: 1.4; opacity: .65; }
-.dropzone { position: absolute; inset: 12px; z-index: 6; display: flex; align-items: center; justify-content: center; border: 2px dashed var(--accent);
-  border-radius: 16px; background: rgba(10,12,20,.75); font-size: 16px; pointer-events: none; }
-.dropzone[hidden] { display: none; }
-.smeta { min-width: 0; flex: 1; }
-.stitle { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 600; }
-.stitle .st { font-weight: 400; opacity: .65; font-variant-numeric: tabular-nums; }
-.ssaid { margin-top: 3px; font-size: 12px; line-height: 1.35; opacity: .7; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.sils i { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(135deg, rgba(255,255,255,.55) 0 1.5px, transparent 1.5px 4px); opacity: .8; }
-.skipsil { position: absolute; z-index: 5; right: 14px; bottom: 96px; height: 34px; padding: 0 14px; border-radius: 17px; background: var(--panel);
-  font-size: 13px; box-shadow: 0 6px 24px rgba(0,0,0,.4); transition: opacity .4s ease; }
-.skipsil:hover { background: #2a2a31; }
-.skipsil.fade { opacity: 0; pointer-events: none; }
-.endnote { position: absolute; z-index: 5; right: 14px; bottom: 96px; display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 14px;
-  border-radius: 18px; background: var(--panel); box-shadow: 0 4px 16px rgba(0,0,0,.4); font-size: 13px; }
-.endnote[hidden] { display: none; }
-.endnote button { height: 28px; padding: 0 12px; border-radius: 14px; background: rgba(255,255,255,.12); }
-.endnote .endclose { width: 28px; padding: 0; background: none; opacity: .7; }
-.sils i.empty { opacity: 1; filter: brightness(1.4); }
-.audiomenu .why { padding: 4px 10px 6px; font-size: 12px; line-height: 1.4; color: #ffd38a; }
-.ccmenu .opt { display: flex; justify-content: space-between; gap: 16px; }
-.ccmenu .sizes { display: flex; gap: 4px; padding: 4px 6px 2px; }
-.ccmenu .sizes button { width: auto; flex: 1; text-align: center; padding: 6px 0; }
-.top .tbtn { display: inline-flex; align-items: center; gap: 6px; }
-.top .tbtn svg { width: 18px; height: 18px; }
-@media (max-width: 720px) {
-  .top .chip .lbl { display: none; }
-  .app.panel-open .stage { right: 0; }
-  .panel { width: 100%; }
-  .presize { display: none; }
-}
+
+/* ---- buttons: icon buttons and toggles (the same everywhere) ---- */
+.btn { position: relative; width: var(--btn); height: var(--btn); display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--r2); flex: none; transition: background-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
+.btn:hover { background: var(--fill); }
+.btn:active { background: var(--fill-2); }
+/* A toggle that is on: the accent colour and a bar under the icon (the bar does not rely on colour). */
+:is(.btn, .chip)[aria-pressed=true] { color: var(--accent); }
+:is(.btn, .chip)[aria-pressed=true]::after { content: ""; position: absolute; left: 50%; bottom: 3px; width: 16px; height: 2px; margin-left: -8px;
+  border-radius: 1px; background: currentColor; }
+/* Not available now (the reason is in its tooltip and shown when pressed). */
+.btn[aria-disabled=true] { color: var(--text-3); }
+.btn[aria-disabled=true]:hover { background: none; }
+.pbtn { height: 32px; padding: 0 var(--sp3); border-radius: var(--r2); background: var(--fill); font-size: 13px; }
+.pbtn:hover { background: var(--fill-2); }
+.pbtn.primary { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.pbtn:disabled { color: var(--text-3); cursor: default; }
+.link { font-size: 12px; color: var(--text-2); padding: 2px 0; }
+.link:hover { color: var(--text); text-decoration: underline; }
+.link.on { color: var(--accent); }
+.link.danger:hover { color: var(--danger); }
+
+/* ---- title bar and control bar over the picture ---- */
+.top, .bottom { position: absolute; left: 0; right: 0; transition: opacity var(--t) var(--ease); }
+.top { top: 0; z-index: 4; display: flex; align-items: center; gap: var(--sp2); padding: var(--sp2) var(--sp3) var(--sp6);
+  background: linear-gradient(var(--scrim), transparent); }
+/* The bar's background (a scrim over the picture) lets clicks through: only its buttons
+   and title take them, so toolbars and windows near the top stay usable. */
+.top { pointer-events: none; }
+.top > * { pointer-events: auto; }
+.bottom { bottom: 0; z-index: 4; padding: var(--sp6) var(--sp3) var(--sp1); background: linear-gradient(transparent, var(--scrim)); }
+.idle .top, .idle .bottom { opacity: 0; pointer-events: none; }
+.idle { cursor: none; }
+.back { display: inline-flex; align-items: center; justify-content: center; width: var(--btn); height: var(--btn); border-radius: var(--r2);
+  color: inherit; text-decoration: none; flex: none; }
+.back:hover { background: var(--fill); }
+.title { flex: 0 1 auto; margin-right: auto; min-width: 0; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chip { position: relative; flex: none; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 var(--sp3) 0 var(--sp2);
+  border-radius: var(--r2); background: var(--fill); font-size: 13px; }
+.chip:hover { background: var(--fill-2); }
+.chip svg { width: 18px; height: 18px; }
+@media (pointer: coarse) { .chip { height: 44px; } }
+.row { display: flex; align-items: center; gap: 2px; height: calc(var(--btn) + 4px); }
+.spacer { flex: 1; min-width: 0; }
+.row .out { display: none; }
+.time { margin: 0 var(--sp2); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.time .dur, .time .sep { color: var(--text-2); }
+/* Narrow bar: the time moves above the progress bar, current time left, length right. */
+.bottom.compact .time { position: absolute; left: var(--sp3); right: var(--sp3); top: 2px; margin: 0; display: flex; justify-content: space-between;
+  font-size: 12px; pointer-events: none; }
+.bottom.compact .time .sep { display: none; }
+.vol { display: flex; align-items: center; }
+.vol input { width: 72px; margin: 0 var(--sp2) 0 0; }
+@media (pointer: coarse) { .vol input { display: none; } }
+input[type=range] { -webkit-appearance: none; appearance: none; height: 4px; border-radius: 2px; cursor: pointer;
+  background: linear-gradient(to right, var(--text) var(--v, 100%), var(--fill-2) var(--v, 100%)); }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%; background: var(--text); }
+input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border: 0; border-radius: 50%; background: var(--text); }
+.speed { flex: none; min-width: 52px; height: var(--btn); padding: 0 var(--sp2); border-radius: var(--r2); font-size: 14px; font-weight: 600;
+  font-variant-numeric: tabular-nums; transition: background-color var(--t-fast) var(--ease); }
+.speed:hover, .speed[aria-expanded=true] { background: var(--fill); }
+
+/* ---- progress bar ---- */
+.seek { position: relative; height: 20px; margin: 0 2px 2px; cursor: pointer; touch-action: none; --p: 0; --b: 0; --h: 0; }
+.bottom.compact .seek { margin-top: 16px; }
+.rail { position: absolute; left: 0; right: 0; top: 8px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.22); overflow: hidden;
+  transition: transform var(--t-fast) var(--ease); }
+.seek:hover .rail, .seek.dragging .rail { transform: scaleY(1.5); }
+.bar { position: absolute; inset: 0; transform-origin: 0 50%; }
+.buf { background: rgba(255,255,255,.32); transform: scaleX(var(--b)); }
+.hov { background: rgba(255,255,255,.26); transform: scaleX(var(--h)); opacity: 0; }
+.seek:hover .hov { opacity: 1; }
+.fill { background: var(--accent); transform: scaleX(var(--p)); }
+.knob-track { position: absolute; inset: 0; transform: translateX(calc(var(--p) * 100%)); pointer-events: none; }
+.knob { position: absolute; left: -7px; top: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--accent);
+  transform: scale(0); transition: transform var(--t-fast) var(--ease); }
+.seek:hover .knob, .seek.dragging .knob, .seek:focus-visible .knob { transform: scale(1); }
+@media (pointer: coarse) { .knob { transform: scale(1); } .seek { height: 28px; } .rail { top: 12px; } .knob { top: 7px; } }
+.tip { position: absolute; bottom: 24px; left: 0; max-width: 260px; padding: var(--sp1) var(--sp2); border-radius: var(--r2); background: var(--overlay);
+  font-size: 12px; transform: translateX(-50%); pointer-events: none; opacity: 0; }
+.tip .tt { display: block; font-variant-numeric: tabular-nums; font-weight: 600; }
+.tip .tl { display: block; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tip .tl:empty { display: none; }
+.seek:hover .tip, .seek.dragging .tip { opacity: 1; }
+.tip .pv { display: block; width: 176px; aspect-ratio: 16 / 9; object-fit: contain; margin: 2px 0 var(--sp1); border-radius: var(--r1); background: var(--video); }
+.wat { position: absolute; inset: 0; pointer-events: none; }
+.wat i { position: absolute; top: 0; bottom: 0; background: rgba(255,255,255,.16); }
+.sils, .chaps { position: absolute; inset: 0; }
+.chaps i { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--video); }
+/* Skippable stretches: silences sparse diagonal lines, empty screens dense dots. */
+.sils i { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(135deg, rgba(255,255,255,.6) 0 1.5px, transparent 1.5px 5px); }
+.sils i.empty { background: radial-gradient(rgba(255,255,255,.7) .8px, transparent 1px) 0 0 / 3px 3px; }
+.marks { position: absolute; left: 0; right: 0; top: 4px; height: 12px; pointer-events: none; }
+.marks i { position: absolute; top: 0; width: 2px; height: 12px; margin-left: -1px; border-radius: 1px; background: var(--mk-bookmark); }
+/* Markers for timed items: a different shape for each kind as well as a colour. */
+.imarks { position: absolute; left: 0; right: 0; top: 0; height: 20px; pointer-events: none; }
+.mk { position: absolute; top: 1px; width: 7px; height: 7px; margin-left: -3.5px; background: var(--mk-note); }
+.mk-note { border-radius: 50%; box-shadow: 0 0 0 1.5px var(--video); }
+.mk-bookmark { width: 6px; height: 8px; margin-left: -3px; background: var(--mk-bookmark); clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 72%, 0 100%); }
+.mk-flag { width: 8px; height: 8px; margin-left: -1px; background: var(--mk-flag); clip-path: polygon(0 0, 100% 50%, 0 100%); }
+.mk-comment { background: var(--mk-comment); transform: rotate(45deg) scale(.85); }
+.mk-laststop { top: 0; width: 2px; height: 14px; margin-left: -1px; border-radius: 1px; background: var(--mk-last); }
+/* A-B loop band on the progress bar */
+.loopband { position: absolute; top: 3px; height: 14px; z-index: 2; border-radius: var(--r1); pointer-events: none;
+  background: rgba(255,255,255,.14); box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.9); min-width: 2px; }
+.loopband.open { background: none; }
+.loopband .lh { position: absolute; top: -3px; width: 8px; height: 20px; margin-left: -4px; border-radius: 3px; background: #fff;
+  pointer-events: auto; cursor: ew-resize; touch-action: none; }
+.loopband .la { left: 0; } .loopband .lb { left: 100%; }
+.loopband.open .lb { display: none; }
+.loopband .lx { position: absolute; right: -8px; top: -24px; width: 20px; height: 20px; padding: 0; border-radius: 50%; font-size: 11px; line-height: 20px;
+  text-align: center; background: #fff; color: #000; pointer-events: auto; }
+
+/* ---- the pictures ---- */
 .views { position: absolute; inset: 0; }
-video, .pdfview { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+video, .pdfview { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: contain; background: var(--video); }
 [data-slot=off] { display: none !important; }
 .l-single :is(video, .pdfview)[data-slot=secondary] { display: none; }
 .l-side :is(video, .pdfview)[data-slot=primary] { width: calc(var(--ratio) * 100%); }
 .l-side :is(video, .pdfview)[data-slot=secondary] { left: auto; right: 0; width: calc((1 - var(--ratio)) * 100%); }
 /* The lecturer's PDF as a picture of its own (see SlideReader). */
-.pdfview { background: #1a1a1d; overflow: hidden; }
+.pdfview { background: var(--s1); overflow: hidden; }
 .pstage { position: absolute; inset: 0; }
 .rpages { position: absolute; inset: 0; }
 .pstage .rpage { position: absolute; left: 50%; top: 50%; width: auto; height: auto; max-width: 100%; max-height: 100%; transform: translate(-50%, -50%); }
-.pbar { position: absolute; left: 50%; top: 58px; z-index: 3; display: flex; align-items: center; gap: 4px; padding: 3px 6px; border-radius: 16px;
-  max-width: calc(100% - 16px); overflow: hidden; transform: translateX(-50%); background: rgba(18,18,22,.82); font-size: 12px; white-space: nowrap;
-  transition: opacity .2s ease; }
+.pbar { position: absolute; left: 50%; top: 60px; z-index: 3; display: flex; align-items: center; gap: var(--sp1); padding: 2px var(--sp1); border-radius: var(--r3);
+  max-width: calc(100% - 16px); overflow: hidden; transform: translateX(-50%); background: var(--overlay); font-size: 12px; white-space: nowrap;
+  transition: opacity var(--t) var(--ease); }
 .pfollow { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .idle .pbar { opacity: 0; pointer-events: none; }
-.pnav { width: 26px; height: 24px; border-radius: 8px; font-size: 15px; line-height: 1; }
-.pnav:hover:not(:disabled) { background: rgba(255,255,255,.12); }
-.pnav:disabled { opacity: .3; }
-.plabel { padding: 0 4px; font-variant-numeric: tabular-nums; }
+.pbar .btn { width: 32px; height: 32px; }
+.pbar .btn svg { width: 20px; height: 20px; }
+.pbar .btn:disabled { color: var(--text-3); background: none; cursor: default; }
+.plabel { padding: 0 var(--sp1); font-variant-numeric: tabular-nums; }
 .pfollow .rback { padding: 3px 10px; font-size: 12px; }
-.pfollow .rfollowing { opacity: .6; padding: 0 6px; }
+.pfollow .rfollowing { color: var(--text-2); padding: 0 6px; }
 .l-pip .pdfview[data-slot=secondary] .pbar { display: none; }
 .divider { position: absolute; top: 0; bottom: 0; left: calc(var(--ratio) * 100%); width: 16px; margin-left: -8px; cursor: col-resize; z-index: 3; display: none; touch-action: none; }
-.divider::after { content: ""; position: absolute; left: 7px; top: 50%; width: 2px; height: 48px; margin-top: -24px; border-radius: 1px; background: rgba(255,255,255,.35); transition: background .15s ease; }
+.divider::after { content: ""; position: absolute; left: 7px; top: 50%; width: 2px; height: 48px; margin-top: -24px; border-radius: 1px; background: rgba(255,255,255,.35);
+  transition: background-color var(--t-fast) var(--ease); }
 .divider:hover::after, .divider.dragging::after { background: var(--accent); }
 .l-side .divider { display: block; }
+/* Swapping the two pictures, on the line between them. */
+.swapdot { position: absolute; z-index: 4; left: calc(var(--ratio) * 100%); top: 50%; width: var(--btn); height: var(--btn); margin: -84px 0 0 calc(var(--btn) / -2);
+  display: none; align-items: center; justify-content: center; border-radius: 50%; background: var(--overlay); transition: opacity var(--t) var(--ease); }
+.swapdot svg { width: 20px; height: 20px; }
+.swapdot:hover { background: var(--s3); }
+.l-side .swapdot { display: inline-flex; }
+.idle .swapdot { opacity: 0; pointer-events: none; }
 .l-pip :is(video, .pdfview)[data-slot=secondary], .pipframe { left: auto; top: auto; width: calc(var(--pipw) * 100%); height: auto; aspect-ratio: 16 / 9; }
-.l-pip :is(video, .pdfview)[data-slot=secondary] { z-index: 2; border-radius: 10px; box-shadow: 0 6px 24px rgba(0,0,0,.55); }
-.pipframe { position: absolute; z-index: 3; display: none; border-radius: 10px; cursor: grab; touch-action: none; }
+.l-pip :is(video, .pdfview)[data-slot=secondary] { z-index: 2; border-radius: var(--r2); box-shadow: var(--shadow); }
+.pipframe { position: absolute; z-index: 3; display: none; border-radius: var(--r2); cursor: grab; touch-action: none; }
 .pipframe.dragging { cursor: grabbing; }
 .l-pip .pipframe { display: block; }
 .pipframe:hover { box-shadow: inset 0 0 0 2px rgba(255,255,255,.5); }
-.grip { position: absolute; width: 18px; height: 18px; opacity: 0; transition: opacity .15s ease; touch-action: none; }
-.grip::before { content: ""; position: absolute; inset: 4px; border: 2px solid #fff; border-radius: 2px; }
+.grip { position: absolute; width: 20px; height: 20px; opacity: 0; transition: opacity var(--t-fast) var(--ease); touch-action: none; }
+.grip::before { content: ""; position: absolute; inset: 5px; border: 2px solid #fff; border-radius: 2px; }
 .pipframe:hover .grip { opacity: .9; }
-.l-pip.c-br :is(video, .pdfview)[data-slot=secondary], .l-pip.c-br .pipframe { right: 16px; bottom: 84px; }
-.l-pip.c-bl :is(video, .pdfview)[data-slot=secondary], .l-pip.c-bl .pipframe { left: 16px; bottom: 84px; }
+@media (pointer: coarse) { .grip { width: 32px; height: 32px; opacity: .9; } .grip::before { inset: 10px; } }
+.l-pip.c-br :is(video, .pdfview)[data-slot=secondary], .l-pip.c-br .pipframe { right: 16px; bottom: 88px; }
+.l-pip.c-bl :is(video, .pdfview)[data-slot=secondary], .l-pip.c-bl .pipframe { left: 16px; bottom: 88px; }
 .l-pip.c-tr :is(video, .pdfview)[data-slot=secondary], .l-pip.c-tr .pipframe { right: 16px; top: 64px; }
 .l-pip.c-tl :is(video, .pdfview)[data-slot=secondary], .l-pip.c-tl .pipframe { left: 16px; top: 64px; }
 .c-br .grip { left: 0; top: 0; cursor: nwse-resize; }
 .c-bl .grip { right: 0; top: 0; cursor: nesw-resize; }
 .c-tr .grip { left: 0; bottom: 0; cursor: nesw-resize; }
 .c-tl .grip { right: 0; bottom: 0; cursor: nwse-resize; }
-.layoutmenu button { display: flex; align-items: center; gap: 10px; }
-.layoutmenu svg { width: 20px; height: 20px; }
-.top, .bottom { position: absolute; left: 0; right: 0; transition: opacity .2s ease; }
-.top { top: 0; z-index: 4; display: flex; align-items: center; gap: 8px; padding: 10px 14px 28px;
-  background: linear-gradient(rgba(0,0,0,.72), rgba(0,0,0,0)); }
-/* The bar's background (a gradient over the picture) lets clicks through: only its buttons
-   and title take them, so toolbars and windows near the top stay usable. */
-.top { pointer-events: none; }
-.top > * { pointer-events: auto; }
-.bottom { bottom: 0; z-index: 4; padding: 28px 14px 8px; background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.78)); }
-.idle .top, .idle .bottom { opacity: 0; pointer-events: none; }
-/* Hidden controls take no clicks or taps at all: children that re-enable pointer events
-   for themselves (the title bar's buttons, the loop band's handles) must not stay
-   clickable while invisible. (Repeated after every other rule, so it always wins.) */
-.idle { cursor: none; }
-.back { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; color: inherit; text-decoration: none; flex: none; }
-.back:hover { background: rgba(255,255,255,.12); }
-.title { flex: 0 1 auto; margin-right: auto; min-width: 0; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.chip { flex: none; height: 30px; padding: 0 12px; border-radius: 15px; background: rgba(255,255,255,.12); font-size: 13px; }
-.chip:hover { background: rgba(255,255,255,.2); }
-.seek { position: relative; height: 18px; margin: 0 2px 2px; cursor: pointer; touch-action: none; --p: 0; --b: 0; --h: 0; }
-.rail { position: absolute; left: 0; right: 0; top: 7px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.22); overflow: hidden; transition: transform .12s ease; }
-.seek:hover .rail, .seek.dragging .rail { transform: scaleY(1.5); }
-.bar { position: absolute; inset: 0; transform-origin: 0 50%; }
-.buf { background: rgba(255,255,255,.32); transform: scaleX(var(--b)); }
-.hov { background: rgba(255,255,255,.28); transform: scaleX(var(--h)); opacity: 0; }
-.seek:hover .hov { opacity: 1; }
-.fill { background: var(--accent); transform: scaleX(var(--p)); }
-.knob-track { position: absolute; inset: 0; transform: translateX(calc(var(--p) * 100%)); pointer-events: none; }
-.knob { position: absolute; left: -7px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--accent);
-  box-shadow: 0 0 0 3px rgba(79,140,255,.25); transform: scale(0); transition: transform .12s ease; }
-.seek:hover .knob, .seek.dragging .knob { transform: scale(1); }
-.tip { position: absolute; bottom: 22px; left: 0; padding: 3px 7px; border-radius: 6px; background: var(--panel); font-size: 12px;
-  font-variant-numeric: tabular-nums; white-space: nowrap; transform: translateX(-50%); pointer-events: none; opacity: 0; }
-.seek:hover .tip, .seek.dragging .tip { opacity: 1; }
-.row { display: flex; align-items: center; gap: 2px; height: 44px; }
-.btn { width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; flex: none; }
-.btn:hover { background: rgba(255,255,255,.12); }
-.btn.active { color: var(--accent); }
-.time { margin: 0 10px; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; opacity: .92; }
-.spacer { flex: 1; }
-.vol { display: flex; align-items: center; }
-.vol input { width: 0; opacity: 0; transition: width .15s ease, opacity .15s ease; }
-.vol:hover input, .vol input:focus-visible { width: 84px; opacity: 1; margin: 0 6px 0 2px; }
-input[type=range] { -webkit-appearance: none; appearance: none; height: 4px; border-radius: 2px; cursor: pointer;
-  background: linear-gradient(to right, #fff var(--v, 100%), rgba(255,255,255,.3) var(--v, 100%)); }
-input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%; background: #fff; }
-input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border: 0; border-radius: 50%; background: #fff; }
-.qbtn { min-width: 52px; height: 32px; padding: 0 8px; border-radius: 16px; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.qbtn:hover { background: rgba(255,255,255,.12); }
-.speed { min-width: 52px; height: 32px; padding: 0 8px; border-radius: 16px; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.speed:hover { background: rgba(255,255,255,.12); }
-.src { height: 32px; padding: 0 10px; border-radius: 16px; display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
-.src svg { width: 18px; height: 18px; }
-.src:hover { background: rgba(255,255,255,.12); }
-.menu { position: absolute; z-index: 5; right: 14px; bottom: 64px; min-width: 120px; padding: 6px; border-radius: 12px; background: var(--panel);
-  box-shadow: 0 8px 30px rgba(0,0,0,.45); backdrop-filter: blur(8px); }
-.menu[hidden] { display: none; }
-.menu .head { padding: 4px 10px 6px; font-size: 12px; opacity: .6; }
-.menu button { display: block; width: 100%; text-align: left; padding: 7px 10px; border-radius: 8px; font-variant-numeric: tabular-nums; }
-.menu button:hover { background: rgba(255,255,255,.1); }
-.menu button[aria-checked=true] { color: var(--accent); font-weight: 600; }
+.zmap { position: absolute; z-index: 3; border: 1px solid rgba(255,255,255,.75); border-radius: var(--r1); background: rgba(0,0,0,.4); pointer-events: none; }
+.zmap i { position: absolute; border: 1.5px solid #fff; background: rgba(255,255,255,.2); border-radius: 2px; }
+.views .zoomed { cursor: grab; }
+.views .panning { cursor: grabbing; }
+
+/* ---- things shown over the picture (always dark) ---- */
+.captions { position: absolute; left: 50%; bottom: 100px; z-index: 4; transform: translateX(-50%); width: max-content; max-width: min(88%, 52em);
+  text-align: center; pointer-events: none; transition: bottom var(--t) var(--ease); --capscale: 1; }
+.captions.empty { display: none; }
+.idle .captions { bottom: 28px; }
+.captions span { padding: .12em .45em; border-radius: var(--r1); background: var(--cap-bg); color: #fff;
+  font-size: calc(clamp(15px, 1.8vw, 30px) * var(--capscale)); line-height: 1.5; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.paused.hidecc-paused .captions { display: none; }
 .center { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); pointer-events: none; }
-.spinner { width: 46px; height: 46px; border-radius: 50%; border: 3px solid rgba(255,255,255,.2); border-top-color: #fff;
+.spinner { width: 44px; height: 44px; border-radius: 50%; border: 3px solid rgba(255,255,255,.2); border-top-color: #fff;
   animation: spin .9s linear infinite; display: none; }
 .waiting .spinner { display: block; }
 @keyframes spin { to { transform: rotate(360deg); } }
 /* Paused: a small label in the title bar instead of a big icon over the picture. */
-.pausehint { flex: none; display: none; align-items: center; gap: 6px; padding: 4px 10px 4px 8px; margin-right: auto;
-  border-radius: 14px; background: rgba(255,255,255,.12); font-size: 12px; pointer-events: none; }
+.pausehint { flex: none; display: none; align-items: center; gap: 6px; padding: var(--sp1) 10px var(--sp1) var(--sp2); margin-right: auto;
+  border-radius: var(--r2); background: var(--fill); font-size: 12px; pointer-events: none; }
 .pausehint svg { width: 14px; height: 14px; }
 .paused:not(.waiting) .pausehint { display: inline-flex; }
 .paused:not(.waiting) .title { margin-right: 0; }
-.paused.hidecc-paused .captions { display: none; }
 /* Session renewal in progress: a small label in the corner, never over the controls. */
-.sessionhint { position: absolute; right: 12px; top: 60px; z-index: 5; display: flex; align-items: center; gap: 8px;
-  padding: 5px 12px 5px 9px; border-radius: 14px; background: rgba(20,20,24,.82); color: #eee; font-size: 12px;
-  pointer-events: none; }
-.sessionhint[hidden] { display: none; }
-.sessionhint i { width: 10px; height: 10px; border-radius: 50%; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff;
-  animation: spin .9s linear infinite; }
-.toast { position: absolute; z-index: 5; left: 50%; bottom: 96px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px;
-  padding: 9px 10px 9px 16px; border-radius: 12px; background: var(--panel); font-size: 13px; box-shadow: 0 8px 30px rgba(0,0,0,.4); max-width: calc(100% - 28px); }
-.toast[hidden] { display: none; }
-.toast button { color: var(--accent); font-weight: 600; padding: 4px 8px; border-radius: 6px; }
-.toast button:hover { background: rgba(255,255,255,.08); }
-.error { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.7); }
-.error[hidden] { display: none; }
-.error .card { max-width: 420px; margin: 16px; padding: 20px 22px; border-radius: 14px; background: #1b1b20; box-shadow: 0 10px 40px rgba(0,0,0,.5); }
-.error .card h2 { margin: 0 0 8px; font-size: 16px; }
-.error .card p { margin: 0 0 16px; opacity: .8; }
-.error .card .actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
-/* Watched before (this device): faint, under the buffer and the other marks */
-.wat { position: absolute; inset: 0; pointer-events: none; }
-.wat i { position: absolute; top: 0; bottom: 0; background: rgba(255,255,255,.16); }
-/* A-B loop band on the progress bar */
-.loopband { position: absolute; top: 2px; height: 14px; z-index: 2; border-radius: 4px; pointer-events: none;
-  background: rgba(246,195,67,.22); box-shadow: inset 0 0 0 1.5px rgba(246,195,67,.9); min-width: 2px; }
-.loopband[hidden] { display: none; }
-.loopband.open { background: none; }
-.loopband .lh { position: absolute; top: -3px; width: 8px; height: 20px; margin-left: -4px; border-radius: 3px; background: #f6c343;
-  pointer-events: auto; cursor: ew-resize; touch-action: none; }
-.loopband .la { left: 0; } .loopband .lb { left: 100%; }
-.loopband.open .lb { display: none; }
-.loopband .lx { position: absolute; right: -6px; top: -22px; width: 18px; height: 18px; padding: 0; border-radius: 50%; font-size: 11px; line-height: 18px;
-  text-align: center; background: #f6c343; color: #111; pointer-events: auto; }
-.loopmenu { right: auto; min-width: 180px; }
-/* Zoom: overview of the visible part, and the hand while dragging. */
-.zmap { position: absolute; z-index: 3; border: 1px solid rgba(255,255,255,.75); border-radius: 4px; background: rgba(0,0,0,.4);
-  pointer-events: none; box-shadow: 0 2px 10px rgba(0,0,0,.5); }
-.zmap[hidden] { display: none; }
-.zmap i { position: absolute; border: 1.5px solid #fff; background: rgba(255,255,255,.2); border-radius: 2px; }
-.views .zoomed { cursor: grab; }
-.views .panning { cursor: grabbing; }
-.keyhelp, .diagbox { position: absolute; inset: 0; z-index: 8; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.6); }
-.keyhelp[hidden], .diagbox[hidden] { display: none; }
-.khcard { max-width: min(640px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto; padding: 18px 22px; border-radius: 14px;
-  background: #1b1b20; box-shadow: 0 10px 40px rgba(0,0,0,.5); }
-.khcard h2 { margin: 0 0 12px; font-size: 16px; }
-.khlist { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; font-size: 13px; margin-bottom: 14px; }
-.khlist kbd { display: inline-block; min-width: 1.4em; padding: 1px 6px; margin-right: 3px; border-radius: 5px; text-align: center;
-  background: rgba(255,255,255,.12); font: 12px/1.6 ui-monospace, monospace; }
-.khcard .actions { display: flex; justify-content: flex-end; gap: 8px; }
-.diaginfo { margin: 0 0 10px; font-size: 13px; opacity: .75; }
-.diagtext { max-height: 50vh; overflow: auto; margin: 0 0 14px; padding: 10px 12px; border-radius: 8px; background: rgba(255,255,255,.06);
+.sessionhint { position: absolute; right: var(--sp3); top: 64px; z-index: 5; display: flex; align-items: center; gap: var(--sp2);
+  padding: 6px var(--sp3) 6px 10px; border-radius: var(--r2); background: var(--overlay); font-size: 12px; pointer-events: none; }
+.sessionhint i { width: 10px; height: 10px; border-radius: 50%; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; animation: spin .9s linear infinite; }
+.toast { position: absolute; z-index: 6; left: 50%; bottom: 100px; transform: translateX(-50%); display: flex; align-items: center; gap: var(--sp3);
+  padding: var(--sp2) var(--sp2) var(--sp2) var(--sp4); border-radius: var(--r3); background: var(--overlay); font-size: 13px; box-shadow: var(--shadow);
+  max-width: calc(100% - 24px); }
+.toast button { flex: none; color: var(--accent); font-weight: 600; padding: 6px 10px; border-radius: var(--r2); }
+.toast button:hover { background: var(--fill); }
+.skipsil { position: absolute; z-index: 5; right: var(--sp4); bottom: 100px; height: 36px; padding: 0 var(--sp4); border-radius: var(--r2); background: var(--overlay);
+  font-size: 13px; box-shadow: var(--shadow); transition: opacity var(--t) var(--ease); }
+.skipsil:hover { background: var(--s3); }
+.skipsil.fade { opacity: 0; pointer-events: none; }
+.endnote { position: absolute; z-index: 5; right: var(--sp4); bottom: 100px; display: flex; align-items: center; gap: var(--sp2); padding: 6px var(--sp2) 6px var(--sp4);
+  border-radius: var(--r3); background: var(--overlay); box-shadow: var(--shadow); font-size: 13px; }
+.endnote button { height: 30px; padding: 0 var(--sp3); border-radius: var(--r2); background: var(--fill); }
+.endnote .endclose { width: 30px; padding: 0; background: none; color: var(--text-2); }
+.dropzone { position: absolute; inset: var(--sp3); z-index: 6; display: flex; align-items: center; justify-content: center; border: 2px dashed var(--accent);
+  border-radius: var(--r3); background: rgba(0,0,0,.75); font-size: 16px; pointer-events: none; }
+
+/* The time above the progress bar makes the bar taller: notices move up with it. */
+.stage:has(.bottom.compact) :is(.toast, .skipsil, .endnote) { bottom: 132px; }
+.stage:has(.bottom.compact) .captions { bottom: 132px; }
+
+/* ---- dialogs (shortcuts, diagnostics, errors) ---- */
+.keyhelp, .diagbox, .error { position: absolute; inset: 0; z-index: 8; display: flex; align-items: center; justify-content: center; background: var(--backdrop); }
+.dialog { max-width: min(640px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto; padding: 20px var(--sp6); border-radius: var(--r3);
+  background: var(--s2); color: var(--text); box-shadow: var(--shadow); }
+.dialog h2 { margin: 0 0 var(--sp3); font-size: 16px; font-weight: 600; }
+.dialog p { margin: 0 0 var(--sp4); color: var(--text-2); }
+.dialog .actions { display: flex; justify-content: flex-end; gap: var(--sp2); flex-wrap: wrap; }
+.error .dialog { max-width: 440px; }
+.khlist { display: grid; grid-template-columns: max-content 1fr; gap: 6px var(--sp4); font-size: 13px; margin-bottom: var(--sp4); }
+.khlist kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; margin-right: var(--sp1); border-radius: var(--r1); text-align: center;
+  background: var(--fill); box-shadow: inset 0 -1px 0 var(--line); font: 600 12px/1.6 inherit; font-family: inherit; }
+.diaginfo { margin: 0 0 10px; font-size: 13px; }
+.diagtext { max-height: 50vh; overflow: auto; margin: 0 0 var(--sp4); padding: 10px var(--sp3); border-radius: var(--r2); background: var(--s1);
   font: 12px/1.5 ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; }
-.moremenu { min-width: 260px; }
-.moremenu .row { display: flex; align-items: center; gap: 10px; padding: 6px 10px; font-size: 13px; }
-.moremenu .row .grow { flex: 1; opacity: .8; }
-.moremenu .row button { width: auto; padding: 4px 10px; background: rgba(255,255,255,.1); }
-.kbtn { font-weight: 700; min-width: 32px; justify-content: center; }
-.error .card button { height: 34px; padding: 0 14px; border-radius: 8px; background: rgba(255,255,255,.1); }
-.error .card button.primary { background: var(--accent); color: #fff; }
-@media (max-width: 560px) {
-  .hide-sm { display: none !important; }
-  .top { padding: 6px 8px 22px; }
-  .bottom { padding: 22px 6px 4px; }
-  .time { margin: 0 6px; font-size: 12px; }
-  .btn { width: 36px; height: 36px; }
+
+/* ---- popovers, menus and the settings menu (see 32-ui-kit.js) ---- */
+.layer { position: absolute; inset: 0; z-index: 9; pointer-events: none; }
+.layer > * { pointer-events: auto; }
+.pop { position: absolute; left: 0; top: 0; min-width: 220px; max-width: min(360px, calc(100% - 16px)); overflow: auto; overscroll-behavior: contain;
+  padding: 6px; border-radius: var(--r3); background: var(--s2); color: var(--text); box-shadow: var(--shadow), 0 0 0 1px var(--line);
+  transition: opacity var(--t) var(--ease), transform var(--t) var(--ease); }
+.pop:focus-visible { outline: none; }
+.pop.entering { opacity: 0; transform: translateY(var(--from, 4px)); }
+.pop.sheet { left: 0 !important; right: 0; top: auto !important; bottom: 0; max-width: none; width: auto !important; max-height: 75% !important;
+  border-radius: var(--r3) var(--r3) 0 0; padding: var(--sp2) var(--sp2) calc(var(--sp4) + env(safe-area-inset-bottom, 0px)); }
+.pop.sheet.entering { transform: translateY(24px); }
+.mi { display: flex; align-items: center; gap: var(--sp3); width: 100%; min-height: 36px; padding: 6px 10px; border-radius: var(--r2); text-align: left; font-size: 13px; }
+@media (pointer: coarse) { .mi { min-height: 44px; } }
+.mi:hover:not([aria-disabled=true]), .mi:focus-visible { background: var(--s3); outline-offset: -2px; }
+.mi .lbl { flex: 1; min-width: 0; }
+.mi .desc { display: block; margin-top: 2px; font-size: 12px; color: var(--text-2); line-height: 1.35; }
+.mi .val { color: var(--text-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.mi .key { color: var(--text-2); font-size: 12px; min-width: 1.2em; text-align: right; }
+.mi svg { width: 20px; height: 20px; color: var(--text-2); }
+.mi .tick { width: 20px; height: 20px; flex: none; color: var(--accent); }
+.mi[aria-checked=false] .tick svg { visibility: hidden; }
+.mi[aria-disabled=true] { color: var(--text-3); cursor: default; }
+.mi[aria-disabled=true] .desc, .mi[aria-disabled=true] .val { color: var(--text-3); }
+.mi .sw { position: relative; flex: none; width: 32px; height: 18px; border-radius: 9px; background: var(--fill-2); box-shadow: inset 0 0 0 1px var(--line);
+  transition: background-color var(--t-fast) var(--ease); }
+.mi .sw::after { content: ""; position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--text-2);
+  transition: transform var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease); }
+.mi[aria-checked=true] .sw { background: var(--accent); box-shadow: none; }
+.mi[aria-checked=true] .sw::after { transform: translateX(14px); background: var(--on-accent); }
+.mhead { display: flex; align-items: center; gap: var(--sp1); padding: 2px 2px 6px; margin-bottom: var(--sp1); border-bottom: 1px solid var(--line); font-size: 13px; font-weight: 600; }
+.mhead .btn { width: 32px; height: 32px; }
+.mhead .btn svg { width: 20px; height: 20px; }
+@media (pointer: coarse) { .mhead .btn { width: 44px; height: 44px; } }
+.mgroup { padding: var(--sp2) 10px var(--sp1); font-size: 12px; color: var(--text-2); }
+.mtext { padding: var(--sp1) 10px var(--sp2); font-size: 12px; line-height: 1.4; color: var(--text-2); }
+.mtext.warn { color: var(--warn-text); }
+.msep { height: 1px; margin: 6px var(--sp1); background: var(--line); }
+.mfoot { padding: var(--sp2) 10px 2px; font-size: 12px; color: var(--text-2); }
+.mrow { display: flex; align-items: center; gap: var(--sp2); padding: var(--sp1) 10px; font-size: 13px; }
+.mrow .grow { color: var(--text-2); }
+.tooltip { position: absolute; left: 0; top: 0; max-width: 280px; padding: var(--sp1) var(--sp2); border-radius: var(--r1); background: var(--s3); color: var(--text);
+  font-size: 12px; line-height: 1.35; pointer-events: none !important; box-shadow: var(--shadow); }
+/* The speed control */
+.spd { width: 320px; max-width: 100%; padding: var(--sp2) var(--sp3) var(--sp1); }
+.pop.sheet .spd { width: auto; }
+.spd-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp3); }
+.spd-head span { font-size: 13px; color: var(--text-2); }
+.spd-val { font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.spd-track { position: relative; height: 44px; margin: 0 var(--sp2); cursor: pointer; touch-action: none; }
+.spd-track:focus-visible { outline-offset: 0; }
+.spd-rail { position: absolute; left: 0; right: 0; top: 21px; height: 2px; border-radius: 1px; background: var(--fill-2); }
+.spd-fill { position: absolute; left: 0; top: 21px; height: 2px; border-radius: 1px; background: var(--accent); width: calc(var(--f) * 100%); }
+.spd-stop { position: absolute; top: 16px; width: 2px; height: 12px; margin-left: -1px; border-radius: 1px; background: var(--text-3); }
+.spd-stop.on { background: var(--accent); }
+.spd-thumb { position: absolute; top: 12px; left: calc(var(--f) * 100%); width: 20px; height: 20px; margin-left: -10px; border-radius: 50%; background: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft); transition: left var(--t-fast) var(--ease); }
+.spd-track.dragging .spd-thumb { transition: none; }
+.spd-labels { position: relative; height: 32px; margin: 0 var(--sp2); }
+.spd-labels button { position: absolute; top: 0; height: 32px; min-width: 32px; padding: 0 var(--sp1); transform: translateX(-50%); border-radius: var(--r2);
+  font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.spd-labels button:hover { background: var(--fill); color: var(--text); }
+.spd-labels button.on { color: var(--accent); font-weight: 600; }
+@media (pointer: coarse) { .spd-labels { height: 44px; } .spd-labels button { height: 44px; min-width: 44px; } }
+
+/* ---- side panel ---- */
+.panel { position: absolute; top: 0; right: 0; bottom: 0; width: var(--panelw); z-index: 5; display: flex; flex-direction: column;
+  background: var(--s0); color: var(--text); border-left: 1px solid var(--line); }
+.presize { position: absolute; left: -5px; top: 0; bottom: 0; width: 10px; cursor: col-resize; touch-action: none; }
+.phead { display: flex; align-items: center; gap: 6px; padding: 10px var(--sp2) 6px var(--sp3); }
+.tabs { display: flex; gap: 2px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.tabs button { position: relative; height: 32px; padding: 0 10px; border-radius: var(--r2); font-size: 13px; color: var(--text-2); white-space: nowrap; }
+.tabs button:hover { background: var(--fill); color: var(--text); }
+.tabs button[aria-selected=true] { color: var(--text); font-weight: 600; }
+.tabs button[aria-selected=true]::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: 0; height: 2px; border-radius: 1px; background: var(--accent); }
+@media (pointer: coarse) { .tabs button { height: 44px; } }
+.phead .btn { width: 32px; height: 32px; }
+.phead .btn svg, .psearch .btn svg { width: 20px; height: 20px; }
+@media (pointer: coarse) { .phead .btn, .psearch .btn { width: 44px; height: 44px; } }
+.pane { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.pane[data-pane=notes], .pane[data-pane=discussion], .pane[data-pane=slides] { overflow-y: auto; padding: 0 var(--sp3) var(--sp4); overscroll-behavior: contain; }
+.psearch { display: flex; align-items: center; gap: 2px; padding: 0 var(--sp2) var(--sp2) var(--sp3); }
+.psearch .btn { width: 32px; height: 32px; }
+.tsearch { flex: 1; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r2); background: var(--s1); color: inherit; font: inherit; font-size: 13px; }
+.tsearch:focus { border-color: var(--accent); }
+.tcount { min-width: 4.5em; padding: 0 var(--sp1); font-size: 12px; text-align: right; white-space: nowrap; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.tlist { flex: 1; overflow-y: auto; padding: 2px 6px 56px; overscroll-behavior: contain; }
+.trow { display: flex; gap: 10px; padding: 6px var(--sp2); border-radius: var(--r2); cursor: pointer; font-size: 14px; line-height: 1.45;
+  content-visibility: auto; contain-intrinsic-size: auto 44px; }
+.trow:hover { background: var(--fill); }
+.trow .ts { flex: none; width: 4.4em; padding-top: 2px; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text-2); }
+.trow.cur { background: var(--accent-soft); }
+.trow.cur .ts { color: var(--accent); }
+/* Only the matched characters are marked (a background on the whole text, a block here,
+   fell on its last lines whatever line the match was on). */
+.trow .tx mark { background: var(--hl); color: inherit; border-radius: 2px; }
+.tback { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); height: 32px; padding: 0 14px; border-radius: var(--r2);
+  background: var(--accent); color: var(--on-accent); font-size: 13px; font-weight: 600; box-shadow: var(--shadow); }
+.pextras { margin: 0 var(--sp3) var(--sp2); padding: var(--sp2) 10px; border-radius: var(--r2); background: var(--warn-bg); font-size: 12px; line-height: 1.45; }
+.pextras button { margin-top: var(--sp1); }
+.pinfo { margin: 2px 0 10px; font-size: 12px; line-height: 1.45; color: var(--text-2); }
+.pwarn { margin-bottom: var(--sp2); padding: 7px 10px; border-radius: var(--r2); background: var(--warn-bg); color: var(--warn-text); font-size: 12px; line-height: 1.4; }
+.perror { margin-bottom: 10px; padding: 7px 10px; border-radius: var(--r2); background: var(--danger-bg); color: var(--danger); font-size: 12px; }
+.pempty { padding: var(--sp6) var(--sp2); text-align: center; font-size: 13px; color: var(--text-2); line-height: 1.5; }
+.pmuted { font-size: 12px; color: var(--text-2); }
+/* Marking a moment for the instructor (Notes tab). */
+.flagrow { display: flex; align-items: center; gap: var(--sp2); flex-wrap: wrap; margin: 0 0 var(--sp3); padding: var(--sp2) 10px; border-radius: var(--r2);
+  background: var(--s1); font-size: 12px; }
+.flagrow .pbtn { display: inline-flex; align-items: center; gap: 6px; }
+.flagrow .pbtn svg { width: 18px; height: 18px; color: var(--mk-flag); }
+.flagrow .pbtn.armed { background: var(--accent); color: var(--on-accent); }
+.flagrow .pbtn.armed svg { color: inherit; }
+.flagrow .who { color: var(--text-2); }
+.composer { display: flex; flex-direction: column; gap: var(--sp2); margin-bottom: var(--sp3); }
+.composer.reply { margin: 10px 0 0; }
+.input { width: 100%; padding: var(--sp2) 10px; border: 1px solid var(--line); border-radius: var(--r2); background: var(--s1);
+  color: inherit; font: inherit; font-size: 13px; line-height: 1.45; resize: vertical; }
+.input:focus { border-color: var(--accent); }
+.input.small { width: auto; padding: var(--sp1) var(--sp2); }
+select.input option { background: var(--s1); color: var(--text); }
+.crow, .ptools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; }
+.ptools { margin-bottom: 10px; }
+.grow { flex: 1; }
+.check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.check input { accent-color: var(--accent); }
+.counter { color: var(--text-2); } .counter.over { color: var(--danger); }
+.plist { display: flex; flex-direction: column; gap: var(--sp2); }
+.card { padding: 10px var(--sp3); border-radius: var(--r2); background: var(--s1); border-left: 3px solid transparent; }
+.card.k-note { border-left-color: var(--mk-note); } .card.k-bookmark { border-left-color: var(--mk-bookmark); } .card.k-flag { border-left-color: var(--mk-flag); }
+.ihead { display: flex; align-items: center; gap: var(--sp2); flex-wrap: wrap; font-size: 12px; }
+.ibody { margin-top: 6px; font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.iactions, .cactions { display: flex; gap: 14px; flex-wrap: wrap; margin-top: var(--sp2); }
+.kind { font-weight: 600; }
+.chiptime { height: 22px; padding: 0 var(--sp2); border-radius: var(--r1); background: var(--accent-soft); color: var(--accent); font-size: 12px; font-variant-numeric: tabular-nums; }
+.chiptime:hover { background: var(--fill-2); }
+.author { font-weight: 600; font-size: 13px; }
+.badge { padding: 1px 6px; border-radius: var(--r1); font-size: 11px; }
+.badge.inst { background: var(--accent-soft); color: var(--accent); }
+.comment + .comment { margin-top: 10px; }
+.replies { margin-top: 10px; padding-left: var(--sp3); border-left: 2px solid var(--line); }
+.comment.reply .ibody { font-size: 13px; }
+/* Tags (local, private) */
+.itags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+.tagchip, .tagopt { display: inline-flex; align-items: center; gap: 5px; padding: 2px var(--sp2) 2px 6px; border-radius: var(--r1);
+  background: var(--fill); color: inherit; font: inherit; font-size: 12px; border: 0; cursor: pointer; }
+.tagchip i, .tagopt i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.tagopt { color: var(--text-2); } .tagopt.on { color: var(--text); background: var(--fill-2); box-shadow: inset 0 0 0 1px var(--line); }
+.tagopt:hover, .tagchip:hover { background: var(--fill-2); }
+.tagpick { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; padding: var(--sp2); border-radius: var(--r2); background: var(--fill); }
+.tagnew { flex-basis: 100%; display: flex; gap: var(--sp2); align-items: center; }
+.tagnew input { flex: 1; min-width: 0; }
+.addtag { font-size: 12px; }
+.tagman { padding: 10px var(--sp3); margin-bottom: 10px; border-radius: var(--r2); background: var(--s1); display: flex; flex-direction: column; gap: var(--sp2); }
+.tagrow { display: flex; gap: var(--sp2); align-items: center; }
+.tagrow input { flex: 1; min-width: 0; }
+.tagswatch { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--line); cursor: pointer; flex: none; padding: 0; }
+/* Slides tab and the PDF reader */
+.sstatus { padding: var(--sp1) 2px var(--sp2); font-size: 12px; color: var(--text-2); }
+.sscreen { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 2px var(--sp2); font-size: 12px; }
+.sscreen:empty { display: none; }
+.sscreen > span { color: var(--text-2); }
+.sview { padding: 2px var(--sp2); border-radius: var(--r1); border: 1px solid var(--line); background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.sview.on { background: var(--fill-2); border-color: var(--accent); }
+.slist { display: flex; flex-direction: column; gap: var(--sp2); }
+.scard { display: flex; gap: 10px; align-items: flex-start; width: 100%; padding: 6px; border-radius: var(--r2); text-align: left; }
+.scard:hover { background: var(--fill); }
+.scard.cur { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.scard img, .scard .noimg { flex: none; width: 128px; aspect-ratio: 16 / 9; border-radius: var(--r1); background: var(--s1); object-fit: contain; }
+.smeta { min-width: 0; flex: 1; }
+.stitle { display: flex; justify-content: space-between; gap: var(--sp2); font-size: 13px; font-weight: 600; }
+.stitle .st { font-weight: 400; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.ssaid { margin-top: 3px; font-size: 12px; line-height: 1.35; color: var(--text-2); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.reader { padding: var(--sp1) 0 var(--sp2); }
+.rstage { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: var(--r1); overflow: hidden; background: #fff; }
+.rpage { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; transition: opacity var(--t) var(--ease); }
+.rpage.in { opacity: 1; }
+.rstale { position: absolute; inset: 0; z-index: 1; display: none; align-items: center; justify-content: center; padding: var(--sp3); text-align: center;
+  font-size: 13px; font-weight: 600; color: #fff; background: rgba(20,20,24,.72); }
+.stale > .rstale { display: flex; }
+.pstage .rstale { z-index: 2; font-size: 15px; }
+.rbar { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.rnav { width: 32px; height: 32px; border-radius: var(--r2); font-size: 20px; line-height: 1; }
+.rnav:hover:not(:disabled) { background: var(--fill); }
+.rnav:disabled { color: var(--text-3); cursor: default; }
+@media (pointer: coarse) { .rnav { width: 44px; height: 44px; } }
+.rlabel { flex: 1; text-align: center; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rfollow { margin-top: 6px; text-align: center; font-size: 12px; }
+.rfollowing { color: var(--text-2); }
+.rback { padding: 5px var(--sp3); border-radius: var(--r2); background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.rtimes { display: flex; flex-wrap: wrap; gap: var(--sp1); align-items: center; margin-top: var(--sp2); font-size: 12px; }
+.rtl { color: var(--text-2); margin-right: 2px; }
+.rtime { padding: 2px var(--sp2); border-radius: var(--r1); background: var(--fill); font-variant-numeric: tabular-nums; }
+.rtime:hover { background: var(--fill-2); }
+.rfix { margin-top: var(--sp2); font-size: 12px; }
+.rfix summary { cursor: pointer; color: var(--text-2); }
+.rfix[open] summary { color: var(--text); margin-bottom: var(--sp1); }
+.rfixbtn { display: block; width: 100%; text-align: left; padding: 5px var(--sp2); border-radius: var(--r2); }
+.rfixbtn:hover { background: var(--fill); }
+.rmain { display: block; width: 100%; margin-top: 6px; padding: 6px var(--sp2); border-radius: var(--r2); font-size: 12px; background: var(--fill); }
+.rmain:hover { background: var(--fill-2); }
+.chaptoggle { display: block; margin: 6px 0; padding: var(--sp1) 0; font-size: 12px; color: var(--accent); }
+.sdeck { padding: var(--sp2) 2px var(--sp1); border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+.sfiles { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.sfile { display: inline-flex; align-items: center; gap: var(--sp1); max-width: 100%; padding: 3px var(--sp1) 3px 10px; border-radius: var(--r2); background: var(--fill); font-size: 12px; }
+.sfname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+.sfremove { width: 22px; height: 22px; border-radius: var(--r1); font-size: 11px; color: var(--text-2); }
+.sfremove:hover { background: var(--fill-2); color: var(--text); }
+.sfadd { padding: var(--sp1) 10px; border-radius: var(--r2); font-size: 12px; color: var(--accent); }
+.sfadd:hover { background: var(--accent-soft); }
+.sdmsg { margin-top: 6px; font-size: 12px; line-height: 1.4; color: var(--text-2); }
+
+/* ---- narrow windows ---- */
+@media (max-width: 720px) {
+  .app.panel-open .stage { right: 0; }
+  .panel { width: 100%; }
+  .presize { display: none; }
 }
+/* The bars follow the video area's width, not the window's: an open panel narrows it. */
+@container stage (max-width: 720px) {
+  .top .chip .lbl { display: none; }
+  .top .chip { padding: 0 var(--sp2); background: none; }
+}
+@container stage (max-width: 560px) {
+  .top { padding: var(--sp1) var(--sp2) 20px; gap: var(--sp1); }
+  .paused:not(.waiting) .pausehint { display: none; }
+  .paused:not(.waiting) .title { margin-right: auto; }
+  .bottom { padding: 20px var(--sp1) var(--sp1); }
+}
+/* Hidden controls take no clicks or taps at all: children that re-enable pointer events
+   for themselves (the title bar's buttons, the loop band's handles) must not stay
+   clickable while invisible. (Repeated after every other rule, so it always wins.) */
 .stage.idle .top *, .stage.idle .bottom * { pointer-events: none; }
 `;
 
 function playerTemplate() {
   return `
-<div class="app">
+<div class="app" data-theme="system">
 <div class="stage paused l-single c-br">
   <div class="views">
     <video class="clock" playsinline preload="auto" data-slot="primary"></video>
@@ -2194,30 +2348,30 @@ function playerTemplate() {
     <div class="pdfview" data-slot="off">
       <div class="pstage"></div>
       <div class="pbar">
-        <button class="pnav pprev" title="${tr('prevPage')}" aria-label="${tr('prevPage')}">‹</button>
+        <button class="btn pprev" aria-label="${tr('prevPage')}" data-tip="${tr('prevPage')}">${svg('back')}</button>
         <span class="plabel"></span>
-        <button class="pnav pnext" title="${tr('nextPage')}" aria-label="${tr('nextPage')}">›</button>
+        <button class="btn pnext" aria-label="${tr('nextPage')}" data-tip="${tr('nextPage')}">${svg('next')}</button>
         <span class="pfollow"></span>
-        <button class="pnav pswap" title="${tr('pdfSwap')}" aria-label="${tr('pdfSwap')}">⇄</button>
-        <button class="pnav pdfclose" title="${tr('pdfMainClose')}" aria-label="${tr('pdfMainClose')}">✕</button>
+        <button class="btn pswap" aria-label="${tr('pdfSwap')}" data-tip="${tr('pdfSwap')}">${svg('swap')}</button>
+        <button class="btn pdfclose" aria-label="${tr('pdfMainClose')}" data-tip="${tr('pdfMainClose')}">${svg('close')}</button>
       </div>
     </div>
     <div class="divider" role="separator" aria-orientation="vertical" aria-label="${tr('resizeViews')}" tabindex="0"></div>
+    <button class="swapdot" aria-label="${tr('swapViews')}" data-tip="${tr('swapViewsKey')}">${svg('swap')}</button>
     <div class="pipframe" title="${tr('pipHint')}"><div class="grip" title="${tr('resizePip')}"></div></div>
   </div>
   <div class="captions" hidden><span></span></div>
   <div class="center"><div class="spinner"></div></div>
   <div class="sessionhint" role="status" hidden><i></i><span>${tr('sessionRenewing')}</span></div>
   <div class="top">
-    <a class="back" title="${tr('back')}" aria-label="${tr('back')}">${svg('back')}</a>
+    <a class="back" aria-label="${tr('back')}" data-tip="${tr('back')}">${svg('back')}</a>
     <div class="title"></div>
     <span class="pausehint" aria-hidden="true">${svg('pause')}<span>${tr('pausedHint')}</span></span>
- <button class="chip tbtn" data-open="transcript" hidden aria-pressed="false" title="${tr('transcriptKey')}">${svg('transcript')}<span class="lbl">${tr('transcript')}</span></button>
-    <button class="chip tbtn" data-open="slides" hidden aria-pressed="false" title="${tr('slidesKey')}">${svg('slides')}<span class="lbl">${tr('slides')}</span></button>
-    <button class="chip tbtn" data-open="notes" hidden aria-pressed="false" title="${tr('notes')}">${svg('notes')}<span class="lbl">${tr('notes')}</span></button>
-    <button class="chip tbtn" data-open="discussion" hidden aria-pressed="false" title="${tr('discussion')}">${svg('discussion')}<span class="lbl">${tr('discussion')}</span></button>
-    <button class="chip kbtn" title="${tr('keysTitle')} (?)" aria-label="${tr('keysTitle')}">?</button>
-    <button class="chip orig" title="${tr('originalPlayerTitle')}">${tr('originalPlayer')}</button>
+    <button class="chip tbtn" data-open="transcript" hidden aria-pressed="false" data-tip="${tr('transcriptKey')}">${svg('transcript')}<span class="lbl">${tr('transcript')}</span></button>
+    <button class="chip tbtn" data-open="slides" hidden aria-pressed="false" data-tip="${tr('slides')}">${svg('slides')}<span class="lbl">${tr('slides')}</span></button>
+    <button class="chip tbtn" data-open="notes" hidden aria-pressed="false" data-tip="${tr('notes')}">${svg('notes')}<span class="lbl">${tr('notes')}</span></button>
+    <button class="chip tbtn" data-open="discussion" hidden aria-pressed="false" data-tip="${tr('discussion')}">${svg('discussion')}<span class="lbl">${tr('discussion')}</span></button>
+    <button class="btn morebtn" aria-label="${tr('moreMenu')}" data-tip="${tr('moreMenu')}" aria-haspopup="menu" aria-expanded="false">${svg('more')}</button>
   </div>
   <div class="bottom">
     <div class="seek" role="slider" aria-label="${tr('seek')}" tabindex="0">
@@ -2225,80 +2379,39 @@ function playerTemplate() {
       <div class="imarks"></div>
       <div class="marks"></div>
       <div class="knob-track"><div class="knob"></div></div>
-      <div class="tip"><img class="pv" alt="" hidden><span class="tt">0:00</span></div>
+      <div class="tip"><img class="pv" alt="" hidden><span class="tt">0:00</span><span class="tl"></span></div>
     </div>
     <div class="row">
-      <button class="btn play" title="${tr('play')}" aria-label="${tr('play')}">${svg('play')}</button>
-      <button class="btn rew hide-sm" title="${tr('rewind')}" aria-label="${tr('rewind')}">${svg('back10')}</button>
-      <button class="btn fwd hide-sm" title="${tr('forward')}" aria-label="${tr('forward')}">${svg('fwd10')}</button>
+      <button class="btn play" aria-label="${tr('play')}" data-tip="${tr('playKey')}">${svg('play')}</button>
+      <button class="btn rew" aria-label="${tr('rewind')}" data-tip="${tr('rewindKey')}">${svg('back10')}</button>
+      <button class="btn fwd" aria-label="${tr('forward')}" data-tip="${tr('forwardKey')}">${svg('fwd10')}</button>
       <div class="vol">
-        <button class="btn mute" title="${tr('mute')}" aria-label="${tr('mute')}">${svg('volume')}</button>
-        <input class="volume hide-sm" type="range" min="0" max="1" step="0.01" aria-label="${tr('volume')}">
+        <button class="btn mute" aria-label="${tr('mute')}" data-tip="${tr('muteKey')}">${svg('volume')}</button>
+        <input class="volume" type="range" min="0" max="1" step="0.01" aria-label="${tr('volume')}">
       </div>
-      <div class="time"><span class="cur">0:00</span> / <span class="dur">0:00</span></div>
+      <div class="time"><span class="cur">0:00</span><span class="sep"> / </span><span class="dur">0:00</span></div>
       <div class="spacer"></div>
-      <button class="btn bmbtn hide-sm" hidden title="${tr('bookmarkKey')}" aria-label="${tr('bookmark')}">${svg('bookmark')}</button>
-      <button class="btn flagbtn hide-sm" hidden title="${tr('flagKey')}" aria-label="${tr('flag')}" aria-pressed="false">${svg('flag')}</button>
-      <button class="btn copybtn" title="${tr('copy')}" aria-label="${tr('copy')}" aria-haspopup="menu">${svg('copy')}</button>
-      <button class="btn audiobtn hide-sm" title="${tr('audio')}" aria-label="${tr('audio')}" aria-haspopup="menu">${svg('audio')}</button>
-      <button class="btn ccbtn" hidden title="${tr('captionsKey')}" aria-label="${tr('captions')}" aria-haspopup="menu">${svg('cc')}</button>
-      <button class="btn swap" title="${tr('swapViews')}" aria-label="${tr('swapViews')}">${svg('swap')}</button>
-      <button class="btn layout" title="${tr('layout')}" aria-label="${tr('layout')}" aria-haspopup="menu">${svg('layoutSide')}</button>
-      <button class="qbtn hide-sm" title="${tr('quality')}" aria-label="${tr('quality')}" aria-haspopup="menu"></button>
-      <button class="speed" title="${tr('speed')}" aria-label="${tr('speed')}">1x</button>
-      <button class="btn popbtn" hidden aria-pressed="false" title="${tr('popout')} (W)" aria-label="${tr('popout')}">${svg('popout')}</button>
-      <button class="btn fs" title="${tr('fullscreen')}" aria-label="${tr('fullscreen')}">${svg('fullscreen')}</button>
-      <button class="btn morebtn" title="${tr('moreMenu')}" aria-label="${tr('moreMenu')}" aria-haspopup="menu">${svg('more')}</button>
+      <button class="speed" aria-haspopup="dialog" aria-expanded="false" aria-label="${tr('speed')}" data-tip="${tr('speedKey')}">1×</button>
+      <button class="btn ccbtn" aria-pressed="false" aria-disabled="true" aria-label="${tr('captions')}" data-tip="${tr('captionsLoading')}">${svg('cc')}</button>
+      <button class="btn bmbtn" data-bar="bookmark" hidden aria-label="${tr('bookmark')}" data-tip="${tr('bookmarkKey')}">${svg('bookmark')}</button>
+      <button class="btn framebtn" data-bar="copyPicture" aria-label="${tr('copyFrame')}" data-tip="${tr('copyFrameKey')}">${svg('copyPicture')}</button>
+      <button class="btn textbtn" data-bar="copyText" aria-label="${tr('copyCaptions')}" data-tip="${tr('copyCaptionsKey')}">${svg('copyText')}</button>
+      <button class="btn layout" aria-label="${tr('layout')}">${svg('layoutSide')}</button>
+      <button class="btn fs" aria-label="${tr('fullscreen')}" data-tip="${tr('fullscreenKey')}">${svg('fullscreen')}</button>
     </div>
-  </div>
-  <div class="menu qualitymenu" hidden role="menu"></div>
-  <div class="menu speedmenu" hidden role="menu"><div class="head">${tr('speed')}</div></div>
-  <div class="menu layoutmenu" hidden role="menu"><div class="head">${tr('layout')}</div>
-    <button role="menuitemradio" data-layout="side">${svg('layoutSide')}${tr('layoutSide')}</button>
-    <button role="menuitemradio" data-layout="pip">${svg('layoutPip')}${tr('layoutPip')}</button>
-    <button role="menuitemradio" data-layout="single">${svg('layoutSingle')}${tr('layoutSingle')}</button>
-  </div>
-  <div class="menu ccmenu" hidden role="menu"><div class="head">${tr('captions')}</div>
-    <button class="opt cctoggle" role="menuitemcheckbox" aria-checked="false"><span>${tr('showCaptions')}</span><span class="state"></span></button>
-    <button class="opt cchidepaused" role="menuitemcheckbox" aria-checked="true"><span>${tr('hideCaptionsPaused')}</span><span class="state"></span></button>
-    <div class="head">${tr('captionSize')}</div>
-    <div class="sizes">
-      <button role="menuitemradio" data-size="s">S</button><button role="menuitemradio" data-size="m">M</button><button role="menuitemradio" data-size="l">L</button><button role="menuitemradio" data-size="xl">XL</button>
-    </div>
-  </div>
-  <div class="menu copymenu" hidden role="menu"><div class="head">${tr('copy')}</div>
-    <button class="opt" role="menuitem" data-copy="frame"><span class="row1"><span>${tr('copyFrame')}</span><span class="key">P</span></span><span class="desc">${tr('copyFrameDesc')}</span></button>
-    <button class="opt" role="menuitem" data-copy="captions"><span class="row1"><span>${tr('copyCaptions')}</span><span class="key">A</span></span><span class="desc">${tr('copyCaptionsDesc')}</span></button>
-    <div class="sub">${tr('copyCaptionsSpan')}</div>
-    <div class="choices copyspan">${[30, 60, 120, 300].map((s) => `<button role="menuitemradio" data-span="${s}">${s < 60 ? s + 's' : s / 60 + 'm'}</button>`).join('')}</div>
-  </div>
-  <div class="menu moremenu" hidden role="menu"></div>
-  <div class="diagbox" hidden role="dialog" aria-label="${tr('diagTitle')}"><div class="khcard"><h2>${tr('diagTitle')}</h2>
-    <p class="diaginfo">${tr('diagInfo')}</p><pre class="diagtext"></pre>
-    <div class="actions"><button class="pbtn diagcopy">${tr('diagCopy')}</button><button class="pbtn diagclose">${tr('close')}</button></div></div></div>
-  <div class="menu audiomenu" hidden role="menu"><div class="head">${tr('audio')}</div>
-    <div class="why" hidden></div>
-    <button class="opt" role="menuitemcheckbox" data-audio="level" aria-checked="false"><span class="row1"><span>${tr('audioLevel')}</span><span class="state"></span></span><span class="desc">${tr('audioLevelDesc')}</span></button>
-    <button class="opt" role="menuitemcheckbox" data-audio="voice" aria-checked="false"><span class="row1"><span>${tr('audioVoice')}</span><span class="state"></span></span><span class="desc">${tr('audioVoiceDesc')}</span></button>
-    <button class="opt" role="menuitemcheckbox" data-audio="mono" aria-checked="false"><span class="row1"><span>${tr('audioMono')}</span><span class="state"></span></span><span class="desc">${tr('audioMonoDesc')}</span></button>
-    <div class="sep"></div>
-    <div class="head">${tr('silence')}</div>
-    <div class="silstatus"></div>
-    <button class="opt" role="menuitemcheckbox" data-sil="auto" aria-checked="false"><span class="row1"><span>${tr('silenceAuto')}</span><span class="state"></span></span><span class="desc">${tr('silenceAutoDesc')}</span></button>
-    <div class="sub">${tr('silenceMin')}</div>
-    <div class="choices silmin">${SILENCE_MIN_CHOICES.map((s) => `<button role="menuitemradio" data-min="${s}">${s < 60 ? s + 's' : s / 60 + 'm'}</button>`).join('')}</div>
-    <div class="sens"><div class="sub">${tr('silenceSensitivity')}</div>
-    <div class="choices silsens"><button role="menuitemradio" data-sens="low">${tr('low')}</button><button role="menuitemradio" data-sens="normal">${tr('normal')}</button><button role="menuitemradio" data-sens="high">${tr('high')}</button></div></div>
   </div>
   <button class="skipsil fade" tabindex="-1"></button>
   <div class="endnote" hidden role="status"><span>${tr('contentEnded')}</span>
     <button class="endskip">${tr('contentEndSkip')}</button><button class="endstop">${tr('contentEndStop')}</button>
-    <button class="endclose" aria-label="${tr('close')}">✕</button></div>
-  <div class="toast" hidden><span class="msg"></span><button class="act"></button></div>
+    <button class="endclose" aria-label="${tr('close')}">${svg('close')}</button></div>
+  <div class="toast" hidden role="status"><span class="msg"></span><button class="act"></button></div>
   <div class="dropzone" hidden>${tr('dropSlides')}</div>
-  <div class="error" hidden><div class="card"><h2></h2><p></p><div class="actions"></div></div></div>
-  <div class="keyhelp" hidden role="dialog" aria-label="${tr('keysTitle')}"><div class="khcard"><h2>${tr('keysTitle')}</h2><div class="khlist"></div>
+  <div class="error" hidden><div class="dialog" role="alertdialog"><h2></h2><p></p><div class="actions"></div></div></div>
+  <div class="keyhelp" hidden><div class="dialog" role="dialog" aria-label="${tr('keysTitle')}"><h2>${tr('keysTitle')}</h2><div class="khlist"></div>
     <div class="actions"><button class="pbtn khclose">${tr('close')}</button></div></div></div>
+  <div class="diagbox" hidden><div class="dialog" role="dialog" aria-label="${tr('diagTitle')}"><h2>${tr('diagTitle')}</h2>
+    <p class="diaginfo">${tr('diagInfo')}</p><pre class="diagtext"></pre>
+    <div class="actions"><button class="pbtn diagcopy">${tr('diagCopy')}</button><button class="pbtn diagclose">${tr('close')}</button></div></div></div>
 </div>
 <aside class="panel" hidden aria-label="${tr('sidebarTabs')}">
   <div class="presize" title="${tr('resizePanel')}"></div>
@@ -2309,15 +2422,15 @@ function playerTemplate() {
       <button role="tab" data-tab="notes" hidden>${tr('notes')}</button>
       <button role="tab" data-tab="discussion" hidden>${tr('discussion')}</button>
     </div>
-    <button class="btn panelclose" title="${tr('closePanel')}" aria-label="${tr('closePanel')}">${svg('close')}</button>
+    <button class="btn panelclose" aria-label="${tr('closePanel')}" data-tip="${tr('closePanel')}">${svg('close')}</button>
   </div>
-  <div class="pextras" hidden><div class="msg"></div><button class="link">${tr('openInOriginal')}</button></div>
+  <div class="pextras" hidden><div class="msg"></div><button class="link">${tr('useOriginal')}</button></div>
   <section class="pane" data-pane="transcript" hidden>
     <div class="psearch">
       <input class="tsearch" type="search" placeholder="${tr('searchTranscript')}" aria-label="${tr('searchTranscript')}">
       <span class="tcount" aria-live="polite"></span>
-      <button class="btn tprev" title="${tr('prevMatch')}" aria-label="${tr('prevMatch')}">${svg('up')}</button>
-      <button class="btn tnext" title="${tr('nextMatch')}" aria-label="${tr('nextMatch')}">${svg('down')}</button>
+      <button class="btn tprev" aria-label="${tr('prevMatch')}" data-tip="${tr('prevMatch')}">${svg('up')}</button>
+      <button class="btn tnext" aria-label="${tr('nextMatch')}" data-tip="${tr('nextMatch')}">${svg('down')}</button>
     </div>
     <div class="tlist" tabindex="0"></div>
     <button class="tback" hidden>${tr('backToCurrent')}</button>
@@ -2326,7 +2439,367 @@ function playerTemplate() {
   <section class="pane" data-pane="notes" hidden></section>
   <section class="pane" data-pane="discussion" hidden></section>
 </aside>
+<div class="layer"></div>
 </div>`;
+}
+
+// ---- 32-ui-kit.js ----
+// ===================================================================================
+// Shared UI components (docs/DESIGN.md "Components"). Every menu and popup of the player
+// is made from these; no part positions, opens or closes one by itself.
+//
+//   Popovers      one popover open at a time, anchored to the button that opened it
+//                 (above for the control bar, below for the title bar), moved inward at
+//                 the edges, a bottom sheet when the player is phone-narrow; closes on
+//                 Esc and on a press outside, and gives the focus back to its button.
+//   SettingsMenu  a menu of items with second-level pages and a back button.
+//   Tooltips      a label above or below a control, for a mouse or keyboard only; the
+//                 same text is always the control's accessible name or in a menu too.
+//   setPressed, setUnavailable, unavailableReason   on/off and "not now (why)" states
+//                 of buttons (drawn by the stylesheet, not by colour alone).
+// ===================================================================================
+
+function setPressed(btn, on) {
+  btn.setAttribute('aria-pressed', String(!!on));
+}
+
+// A control that cannot be used now: dimmed; its tooltip says why, and so does a press
+// (a touch screen has no tooltips). reason '' makes it usable again with its tooltip `tip`.
+function setUnavailable(btn, reason, tip) {
+  btn.setAttribute('aria-disabled', String(!!reason));
+  btn.dataset.reason = reason || '';
+  btn.dataset.tip = reason || tip;
+}
+
+// An inline SVG icon in a span (el() sets only text).
+function iconEl(name, cls) {
+  const s = el('span' + (cls ? '.' + cls : ''));
+  s.innerHTML = svg(name);
+  return s;
+}
+
+function unavailableReason(btn) {
+  return btn.getAttribute('aria-disabled') === 'true' ? btn.dataset.reason || '' : '';
+}
+
+class Popovers {
+  // box: where popovers are placed (covers the whole player); onChange(open) after each
+  // open and close.
+  constructor(box, disposer, onChange) {
+    this.box = box;
+    this.d = disposer;
+    this.cur = null;   // { pop, anchor, placement, onClose }
+    this.pointerAt = 0;   // time of the last press (a popover opened by one does not focus an item)
+    this.onChange = onChange || (() => {});
+    // A press outside the open popover and its button closes it (the button's own click
+    // toggles it).
+    disposer.listen(box.getRootNode(), 'pointerdown', (e) => {
+      this.pointerAt = performance.now();
+      const c = this.cur;
+      if (!c) return;
+      const path = e.composedPath();
+      if (path.includes(c.pop.el) || (c.anchor.nodeType && path.includes(c.anchor))) return;
+      this.close(false);
+    }, true);
+    disposer.listen(windowOf(box), 'resize', () => this.place());
+    disposer.add(() => this.close(false));
+  }
+
+  // A popover element (filled by the caller). role: 'menu' (arrow keys move between its
+  // items) or 'dialog'.
+  create(cls, role, label) {
+    const elem = el('div.pop.' + cls, { role, 'aria-label': label, tabindex: '-1', hidden: true });
+    this.box.append(elem);
+    const pop = { el: elem, role };
+    this.d.listen(elem, 'keydown', (e) => this.onKey(e, pop));
+    // Focus moving elsewhere by keyboard (Tab) closes it.
+    this.d.listen(elem, 'focusout', (e) => {
+      if (this.isOpen(pop) && e.relatedTarget && !elem.contains(e.relatedTarget) && e.relatedTarget !== this.cur.anchor) this.close(false);
+    });
+    return pop;
+  }
+
+  isOpen(pop) {
+    return pop ? !!this.cur && this.cur.pop === pop : !!this.cur;
+  }
+
+  // anchor: the button (or { getBoundingClientRect } for a point, e.g. a right-click).
+  open(pop, anchor, placement, onClose) {
+    if (this.cur) this.close(false);
+    this.cur = { pop, anchor, placement, onClose };
+    if (anchor.nodeType) anchor.setAttribute('aria-expanded', 'true');
+    const elem = pop.el;
+    elem.hidden = false;
+    elem.classList.add('entering');
+    this.place();
+    void elem.offsetWidth;   // start the opening transition from the entering state
+    elem.classList.remove('entering');
+    this.focusFirst();
+    this.onChange(true);
+  }
+
+  toggle(pop, anchor, placement, onClose) {
+    if (this.isOpen(pop)) this.close(true); else this.open(pop, anchor, placement, onClose);
+  }
+
+  close(focusBack) {
+    const c = this.cur;
+    if (!c) return;
+    this.cur = null;
+    c.pop.el.hidden = true;
+    if (c.anchor.nodeType) {
+      c.anchor.setAttribute('aria-expanded', 'false');
+      if (focusBack) c.anchor.focus({ preventScroll: true });
+    }
+    if (c.onClose) c.onClose();
+    this.onChange(false);
+  }
+
+  // Opened from the keyboard: the first item takes the focus (arrow keys go on from there).
+  // Opened by a press: the popover itself does, so no item looks selected.
+  focusFirst() {
+    const c = this.cur;
+    if (!c) return;
+    if (performance.now() - this.pointerAt < 1000) { c.pop.el.focus({ preventScroll: true }); return; }
+    const first = c.pop.el.querySelector('[data-autofocus], .mi:not([aria-disabled=true]), button, [tabindex="0"]');
+    (first || c.pop.el).focus({ preventScroll: true });
+  }
+
+  // Positions the open popover; again after its content or the window changes.
+  place() {
+    const c = this.cur;
+    if (!c) return;
+    const elem = c.pop.el;
+    const box = this.box.getBoundingClientRect();
+    const sheet = box.width < SHEET_BELOW;
+    elem.classList.toggle('sheet', sheet);
+    elem.style.maxHeight = '';
+    if (sheet) return;
+    const a = c.anchor.getBoundingClientRect();
+    const room = { above: a.top - box.top - POP_GAP - POP_MARGIN, below: box.bottom - a.bottom - POP_GAP - POP_MARGIN };
+    const want = elem.offsetHeight;
+    // The asked side, unless it is too short and the other side has more room.
+    let side = c.placement;
+    const other = side === 'above' ? 'below' : 'above';
+    if (room[side] < want && room[other] > room[side]) side = other;
+    elem.style.maxHeight = Math.max(80, room[side]) + 'px';
+    const w = elem.offsetWidth;
+    const h = elem.offsetHeight;
+    const left = clamp(a.left + a.width / 2 - w / 2 - box.left, POP_MARGIN, Math.max(POP_MARGIN, box.width - w - POP_MARGIN));
+    const top = side === 'above' ? a.top - box.top - POP_GAP - h : a.bottom - box.top + POP_GAP;
+    elem.style.left = Math.round(left) + 'px';
+    elem.style.top = Math.round(Math.max(POP_MARGIN, top)) + 'px';
+    elem.style.setProperty('--from', side === 'above' ? '4px' : '-4px');
+  }
+
+  onKey(e, pop) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      this.close(true);
+      return;
+    }
+    if (pop.role !== 'menu' || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+    const items = [...pop.el.querySelectorAll('.mi, .mhead .btn')].filter((x) => x.getAttribute('aria-disabled') !== 'true');
+    if (!items.length) return;
+    const i = items.indexOf(e.composedPath()[0]);   // -1 (the popover itself): Down goes to the first
+    const n = items.length;
+    const next = e.key === 'Home' ? 0 : e.key === 'End' || (i < 0 && e.key === 'ArrowUp') ? n - 1 : e.key === 'ArrowDown' ? (i + 1) % n : (i - 1 + n) % n;
+    items[next].focus();
+    e.preventDefault();
+  }
+}
+
+// A menu whose items may open second-level pages (with a back button), like a video
+// player's settings menu. Items are described, not built, so the menu always shows the
+// current state (refresh() redraws the page shown). Item kinds:
+//   { kind: 'page', label, value() (shown on the right), items() }
+//   { kind: 'action', label, key, run(event), reason() ('' or why not now), stay }
+//   { kind: 'toggle', label, desc, on(), set(on, event), reason() }
+//   { kind: 'radio', label, checked(), select() }
+//   { kind: 'text', text(), warn } | { kind: 'group', label } | { kind: 'sep' }
+//   { kind: 'custom', render() -> element } | { kind: 'foot', text }
+// Any item may have hidden() -> true to leave it out.
+class SettingsMenu {
+  constructor(pops, cls, label, root, disposer) {
+    this.pops = pops;
+    this.root = root;
+    this.pop = pops.create(cls, 'menu', label);
+    this.stack = [];
+    this.shown = [];
+    this.anchor = null;
+    disposer.listen(this.pop.el, 'click', (e) => {
+      const b = e.target.closest('[data-i], .mback');
+      if (!b) return;
+      e.stopPropagation();
+      if (b.classList.contains('mback')) { this.back(); return; }
+      this.activate(this.shown[+b.dataset.i], e);
+    });
+    disposer.listen(this.pop.el, 'keydown', (e) => {
+      const t = e.composedPath()[0];
+      if ((e.key === 'ArrowLeft' || e.key === 'Backspace') && this.stack.length) { e.preventDefault(); this.back(); }
+      if (e.key === 'ArrowRight' && t.dataset && t.dataset.i != null && this.shown[+t.dataset.i].kind === 'page') {
+        e.preventDefault();
+        this.activate(this.shown[+t.dataset.i], e);
+      }
+    });
+  }
+
+  get isOpen() { return this.pops.isOpen(this.pop); }
+
+  open(anchor, placement) {
+    this.stack = [];
+    this.anchor = anchor;
+    this.render();
+    this.pops.open(this.pop, anchor, placement, () => { this.stack = []; });
+  }
+
+  toggle(anchor, placement) {
+    if (this.isOpen) this.pops.close(true); else this.open(anchor, placement);
+  }
+
+  close(focusBack) {
+    if (this.isOpen) this.pops.close(focusBack);
+  }
+
+  refresh() {
+    if (!this.isOpen) return;
+    const active = this.pop.el.getRootNode().activeElement;
+    const at = active && active.dataset ? active.dataset.i : null;
+    this.render();
+    if (at != null) {
+      const again = this.pop.el.querySelector('[data-i="' + at + '"]');
+      if (again) again.focus({ preventScroll: true });
+    }
+    this.pops.place();
+  }
+
+  back() {
+    this.stack.pop();
+    this.render();
+    this.pops.place();
+    this.pops.focusFirst();
+  }
+
+  activate(item, e) {
+    if (!item) return;
+    if (item.kind === 'page') {
+      this.stack.push(item);
+      this.render();
+      this.pops.place();
+      this.pops.focusFirst();
+    } else if (item.kind === 'action') {
+      if (item.reason && item.reason()) return;
+      if (!item.stay) this.pops.close(false);
+      item.run(e);
+      if (item.stay) this.refresh();
+    } else if (item.kind === 'toggle') {
+      if (item.reason && item.reason()) return;
+      item.set(!item.on(), e);
+      this.refresh();
+    } else if (item.kind === 'radio') {
+      item.select();
+      this.refresh();
+    }
+  }
+
+  render() {
+    const page = this.stack[this.stack.length - 1];
+    const items = (page ? page.items() : this.root()).filter((it) => it && !(it.hidden && it.hidden()));
+    const body = this.pop.el;
+    body.textContent = '';
+    this.shown = items;
+    if (page) {
+      const back = el('button.btn.mback', { 'aria-label': tr('menuBack') });
+      back.innerHTML = svg('back');
+      body.append(el('div.mhead', null, back, el('span', { text: page.label })));
+    }
+    items.forEach((it, i) => body.append(this.item(it, i)));
+  }
+
+  item(it, i) {
+    const reason = it.reason ? it.reason() : '';
+    const btn = (role, ...kids) => el('button.mi', { role, 'data-i': String(i), 'aria-disabled': reason ? 'true' : null }, ...kids);
+    const label = (desc) => el('span.lbl', { text: it.label }, desc ? el('span.desc', { text: desc }) : null);
+    switch (it.kind) {
+      case 'page': {
+        const b = btn('menuitem', label(), el('span.val', { text: it.value ? it.value() : '' }), iconEl('next'));
+        b.setAttribute('aria-haspopup', 'menu');
+        return b;
+      }
+      case 'action':
+        return btn('menuitem', label(reason), it.key ? el('span.key', { text: it.key }) : null);
+      case 'toggle': {
+        const b = btn('menuitemcheckbox', label(reason || it.desc), el('span.sw'));
+        b.setAttribute('aria-checked', String(!reason && !!it.on()));
+        return b;
+      }
+      case 'radio': {
+        const b = btn('menuitemradio', iconEl('check', 'tick'), label());
+        b.setAttribute('aria-checked', String(!!it.checked()));
+        return b;
+      }
+      case 'text': return el('div.mtext' + (it.warn ? '.warn' : ''), { text: it.text() });
+      case 'group': return el('div.mgroup', { text: it.label });
+      case 'sep': return el('div.msep', { role: 'separator' });
+      case 'foot': return el('div.mfoot', { text: it.text });
+      default: return it.render();
+    }
+  }
+}
+
+class Tooltips {
+  // scope: where the controls are (the shadow root); box: where the tooltip is placed.
+  constructor(scope, box, disposer) {
+    this.box = box;
+    this.tip = el('div.tooltip', { role: 'tooltip', hidden: true });
+    box.append(this.tip);
+    this.target = null;
+    this.timer = 0;
+    disposer.add(() => clearTimeout(this.timer));
+    disposer.listen(scope, 'pointerover', (e) => {
+      if (e.pointerType !== 'mouse') return;
+      const t = e.target.closest && e.target.closest('[data-tip]');
+      if (!t || t === this.target) return;
+      // Moving from one control to the next shows the next label at once.
+      const warm = !this.tip.hidden;
+      this.hide();
+      this.target = t;
+      if (warm) this.show(); else this.timer = setTimeout(guard(() => this.show()), TIP_DELAY_MS);
+    });
+    disposer.listen(scope, 'pointerout', (e) => {
+      if (this.target && !(e.relatedTarget && this.target.contains(e.relatedTarget))) { this.hide(); this.target = null; }
+    });
+    disposer.listen(scope, 'pointerdown', () => { this.hide(); this.target = null; }, true);
+    // Tooltips are a desktop aid: on touch devices (no hover) the focus path stays quiet too.
+    disposer.listen(scope, 'focusin', (e) => {
+      const t = e.target.closest && e.target.closest('[data-tip]');
+      if (t && t.matches(':focus-visible') && windowOf(box).matchMedia('(hover: hover)').matches) { this.hide(); this.target = t; this.show(); }
+    });
+    disposer.listen(scope, 'focusout', () => { this.hide(); this.target = null; });
+  }
+
+  show() {
+    const t = this.target;
+    const text = t && t.isConnected ? t.dataset.tip : '';
+    if (!text || t.closest('.idle .top, .idle .bottom, .pop')) return;
+    const tip = this.tip;
+    tip.textContent = text;
+    tip.hidden = false;
+    const box = this.box.getBoundingClientRect();
+    const a = t.getBoundingClientRect();
+    // Below the controls in the top half of the player, above the others.
+    const below = a.top - box.top < box.height / 2;
+    const left = clamp(a.left + a.width / 2 - tip.offsetWidth / 2 - box.left, POP_MARGIN, box.width - tip.offsetWidth - POP_MARGIN);
+    const top = below ? a.bottom - box.top + 6 : a.top - box.top - 6 - tip.offsetHeight;
+    tip.style.left = Math.round(left) + 'px';
+    tip.style.top = Math.round(top) + 'px';
+  }
+
+  hide() {
+    clearTimeout(this.timer);
+    this.tip.hidden = true;
+  }
 }
 
 // ---- 35-stream.js ----
@@ -2789,6 +3262,8 @@ class FollowerSync {
 // Layouts of the two views, and corners for the picture-in-picture window.
 const LAYOUTS = ['side', 'pip', 'single'];
 const CORNERS = ['br', 'bl', 'tr', 'tl'];
+// Colour themes (the light one applies to the side panel, menus and dialogs only).
+const THEMES = ['system', 'dark', 'light'];
 
 const COPY_SPANS = [30, 60, 120, 300];
 
@@ -2802,6 +3277,7 @@ function prefDefaults() {
     copySpan: 60,
     pdfMain: false, pdfFirst: false,
     quality: { screen: 'auto', camera: 'auto' },
+    theme: 'system',
   };
 }
 
@@ -2847,6 +3323,7 @@ function sanitizePrefs(raw) {
     pdfMain: bool(r.pdfMain, d.pdfMain),
     pdfFirst: bool(r.pdfFirst, d.pdfFirst),
     quality: { screen: height(quality.screen), camera: height(quality.camera) },
+    theme: oneOf(r.theme, THEMES, d.theme),
   };
 }
 
@@ -2880,8 +3357,9 @@ const BACKUP_LOCAL = [
 // The player assembles its parts and keeps what they share: the streams, the layout and
 // the settings. Each part gets only the functions and elements it needs, and is owned
 // through a child of the player's Disposer (released with it, or alone if it fails):
-//   SeekBar (41), KeyboardShortcuts (42), LayoutControls (43), QualityController (44),
-//   MenuBar (45), PopoutController (46), SilenceUi (47); and the features: captions and
+//   Popovers and Tooltips (32), SeekBar (41), KeyboardShortcuts (42), LayoutControls (43),
+//   QualityController (44), MenuBar (45), PopoutController (46), SilenceUi (47),
+//   SpeedControl (48); and the features: captions and
 //   transcript (53), side panel (54), notes (55), discussion (57), slides (64-68),
 //   zoom (50), A-B loop (51), watched parts (52), audio tools (60).
 // ===================================================================================
@@ -2959,11 +3437,14 @@ class LitePlayer {
         $: (sel) => this.$(sel), lesson, video: this.video, sources: this.sources, prefs: this.prefs, savePrefs: () => this.savePrefs(),
         seek: (t) => this.seek(t), duration: () => this.duration(), toast: (...a) => this.toast(...a), ui: this.ui,
         uniform: () => (this.slides ? this.slides.uniform : []),
+        onChange: () => this.menus.refresh(),
         onSkips: (skips, end) => {
           this.seekBar.renderSkips(skips);
           if (this.watched) this.watched.contentEnd = end && end < this.duration() ? end : null;
         },
       }, this.d.feature('silence detection'));
+      this.menuPages.silence = () => this.silence.items();
+      this.menuValues.silence = () => this.silence.value();
     });
     featureGuard('slide chapters', () => this.setupSlides());
     featureGuard('slide reader', () => this.setupDeck());
@@ -3028,7 +3509,8 @@ class LitePlayer {
     document.title = this.lesson.title;
     const back = this.$('.back');
     if (this.lesson.backUrl) back.href = this.lesson.backUrl; else back.style.display = 'none';
-    if (!this.dual) { this.$('.swap').style.display = 'none'; this.$('.layout').style.display = 'none'; }
+    this.app.dataset.theme = this.prefs.theme;
+    this.stage.classList.toggle('hidecc-paused', !!this.prefs.capHidePaused);
     this.stage.style.setProperty('--ratio', String(clamp(this.prefs.ratio, 0.2, 0.8)));
     this.stage.style.setProperty('--pipw', String(clamp(this.prefs.pipw, 0.15, 0.6)));
     this.app.style.setProperty('--panelw', clamp(this.prefs.panelw, 260, 640) + 'px');
@@ -3153,9 +3635,7 @@ class LitePlayer {
       this.fvideo.dataset.slot = clockIsPrimary ? 'secondary' : 'primary';
       pdfView.dataset.slot = 'off';
     }
-    this.$('.layout').style.display = this.dual || pdf ? '' : 'none';
-    this.setButton('.layout', layout === 'side' ? 'layoutSide' : layout === 'pip' ? 'layoutPip' : 'layoutSingle', tr('layout'));
-    for (const b of this.all('.layoutmenu button')) b.setAttribute('aria-checked', String(b.dataset.layout === layout));
+    this.renderLayoutButton();
     if (this.reader) {
       this.reader.setActive('main', pdf);
       if (pdf) this.redrawPdf();
@@ -3209,6 +3689,44 @@ class LitePlayer {
     if (pos >= 0 && pos === this.clockPos) return this.video;
     if (pos >= 0 && pos === this.followerPos) return this.fvideo;
     return this.layout === 'single' || this.clockPos === this.primaryPos ? this.video : this.fvideo;
+  }
+
+  // Layouts offered in the settings menu ([]: one picture only).
+  layoutChoices() {
+    return this.dual || this.pdfMode ? LAYOUTS : [];
+  }
+
+  // The layout button's cycle. With the PDF view open it switches between side by side and
+  // picture in picture: alone, the PDF or the video would be hidden (single view stays in
+  // the settings menu).
+  layoutCycle() {
+    if (this.pdfMode) return ['side', 'pip'];
+    return this.dual ? LAYOUTS : [];
+  }
+
+  nextLayout() {
+    const list = this.layoutCycle();
+    return list[(list.indexOf(this.layout) + 1) % list.length];
+  }
+
+  // The icon shows the layout now; the tooltip says what a press switches to.
+  renderLayoutButton() {
+    const b = this.$('.layout');
+    const hide = !this.layoutCycle().length;
+    if (b.hidden !== hide) { b.hidden = hide; this.menus.fitBar(); }
+    if (hide) return;
+    const now = this.layout;
+    const to = tr({ side: 'layoutToSide', pip: 'layoutToPip', single: 'layoutToSingle' }[this.nextLayout()]);
+    b.innerHTML = svg(now === 'side' ? 'layoutSide' : now === 'pip' ? 'layoutPip' : 'layoutSingle');
+    b.setAttribute('aria-label', tr('layoutNow', { layout: tr(layoutKey(now)) }) + '. ' + to);
+    b.dataset.tip = to;
+    this.menus.refresh();
+  }
+
+  setTheme(theme) {
+    this.prefs.theme = theme;
+    this.app.dataset.theme = theme;
+    this.savePrefs();
   }
 
   setLayout(layout) {
@@ -3280,13 +3798,16 @@ class LitePlayer {
     const savePrefs = () => this.savePrefs();
     const toast = (...a) => this.toast(...a);
     const isDestroyed = () => this.destroyed;
+    const layer = this.$('.layer');
+    this.pops = new Popovers(layer, this.d.child(), (open) => { if (open) this.wake(); else this.armIdle(); });
+    this.tooltips = new Tooltips(this.root, layer, this.d.child());
     this.seekBar = new SeekBar({
       $, video: this.video, clock: this.clock, duration: () => this.duration(), seek: (t) => this.seek(t),
       isIdle: () => this.stage.classList.contains('idle'), armIdle: () => this.armIdle(), markers: this.markers, ui: this.ui,
       previewAt: (t) => this.previewAt(t), skipAt: (t) => (this.silence ? this.silence.skipAt(t) : null),
     }, this.d.child());
     this.quality = new QualityController({
-      $, prefs: this.prefs, savePrefs, sources: this.sources, dual: this.dual,
+      prefs: this.prefs, onChange: () => { if (this.menus) this.menus.refresh(); }, savePrefs, sources: this.sources, dual: this.dual,
       screenIndex: () => (this.slides ? this.slides.screenIndex : null),
       streams: () => [{ stream: this.clock, elem: this.video, pos: this.clockPos }, { stream: this.follower, elem: this.fvideo, pos: this.followerPos }],
       shown: () => (this.layout === 'single' || this.clockPos === this.primaryPos ? this.clock : this.follower),
@@ -3297,18 +3818,30 @@ class LitePlayer {
       // A click swaps the two pictures (with the PDF shown: the PDF and the video).
       onPipClick: () => { if (this.pdfMode) this.swapPdf(); else this.swapViews(); },
     }, this.d.child());
+    const notesReady = () => !!(this.notes && this.notesReady);
     this.menus = new MenuBar({
-      $, root: this.root, stage: this.stage, video: this.video, prefs: this.prefs, savePrefs, cc: this.cc, toast,
-      setRate: (r) => this.setRate(r), setLayout: (l) => this.setLayout(l), cues: () => this.cues || [], screenVideo: () => this.screenVideo(),
-      title: this.lesson.title, duration: () => this.duration(), wake: () => this.wake(), showKeys: () => this.keys.showHelp(true),
+      $, root: this.root, pops: this.pops, stage: this.stage, video: this.video, prefs: this.prefs, savePrefs, cc: this.cc, toast,
+      cues: () => this.cues || [], screenVideo: () => this.screenVideo(), title: this.lesson.title, duration: () => this.duration(),
       diagnostics: () => diagnosticsText(this),
-      onOpen: (menu) => { if (menu.classList.contains('qualitymenu')) this.quality.renderMenu(); },
-      onCloseAll: () => { if (this.loop) this.loop.menu.hidden = true; },
+      layouts: () => this.layoutChoices(), layout: () => this.layout, setLayout: (l) => this.setLayout(l), swap: () => this.swapViews(),
+      pdfMode: () => this.pdfMode, setTheme: (t) => this.setTheme(t),
+      // Optional features add their pages and actions once they have started.
+      pages: this.menuPages = { quality: () => this.quality.items(), audio: null, silence: null },
+      values: this.menuValues = { quality: () => this.quality.value(), audio: () => '', silence: () => '' },
+      actions: this.menuActions = {
+        bookmark: (e) => { if (notesReady()) this.notes.addBookmark(e); },
+        popout: PopoutController.supported() ? () => this.popout.toggle() : null,
+        loopA: () => this.loop.setA(this.video.currentTime), loopB: () => this.loop.setB(this.video.currentTime),
+        loopClear: () => this.loop.clear(), loopLabel: () => (this.loop ? this.loop.label() : tr('loopNone')),
+        exportNotes: null, showKeys: () => this.keys.showHelp(true), original: () => this.opts.onFallback('user'),
+      },
     }, this.d.child());
+    this.menus.captionsAvailable(tr('captionsLoading'));
+    this.speed = new SpeedControl({ $, pops: this.pops, rate: () => this.video.playbackRate || this.prefs.rate, setRate: (r) => this.setRate(r) }, this.d.child());
     this.keys = new KeyboardShortcuts({ $, isDestroyed, wake: () => this.wake(), actions: this.keyActions() }, this.d.child());
     this.popout = new PopoutController({
       $, host: this.host, video: this.video, title: this.lesson.title, onKey: this.keys.onKey, isDestroyed, toast,
-      relayout: () => { this.quality.apply(); this.redrawPdf(); this.render(true); },
+      relayout: () => { this.quality.apply(); this.redrawPdf(); this.render(true); this.menus.fitBar(); this.pops.place(); },
     }, this.d.feature('floating window'));
   }
 
@@ -3324,17 +3857,20 @@ class LitePlayer {
       toggleMute: () => { v.muted = !v.muted; },
       fullscreen: () => this.toggleFullscreen(),
       swap: () => this.swapViews(),
-      captions: () => (this.cues && this.cues.length ? this.menus.setCaptions(!this.cc.on) : false),
+      captions: () => {
+        const why = unavailableReason(this.$('.ccbtn'));
+        if (why) this.toast(why); else this.menus.setCaptions(!this.cc.on);
+      },
       transcript: () => (this.sidebar.has('transcript') ? this.sidebar.toggle('transcript') : false),
       bookmark: (a, e) => (notesReady() ? this.notes.addBookmark(e) : false),
-      flag: (a, e) => (notesReady() && this.notes.canFlag ? this.notes.toggleFlag(e) : false),
+      flag: () => (notesReady() && this.notes.canFlag ? this.notes.flagByKey() : false),
       tag: (a, e) => (notesReady() ? this.notes.tagHere(e) : false),
       copyFrame: () => this.menus.copyFrame(),
       copyCaptions: () => this.menus.copyCaptions(),
       escape: () => {
         if (this.menus.diagnosticsOpen) this.menus.showDiagnostics(false);
         else if (this.keys.helpOpen) this.keys.showHelp(false);
-        else if (this.menus.anyOpen()) this.menus.closeAll();
+        else if (this.pops.isOpen()) this.pops.close(true);
         else return false;
         return true;
       },
@@ -3362,14 +3898,14 @@ class LitePlayer {
       // Play is normally user-initiated; also recovers a context the browser suspended.
       if (this.audio) { this.audio.resume(); this.audio.syncTimer(); }
       stage.classList.remove('paused');
-      this.setButton('.play', 'pause', tr('pause'));
+      this.setButton('.play', 'pause', tr('pause'), tr('pauseKey'));
       if (this.reporter) this.reporter.onPlay();
       this.armIdle();
     });
     on('pause', () => {
       if (this.audio) this.audio.syncTimer();
       stage.classList.add('paused');
-      this.setButton('.play', 'play', tr('play'));
+      this.setButton('.play', 'play', tr('play'), tr('playKey'));
       if (this.reporter) this.reporter.onPause();
       this.savePosition();
       this.wake();
@@ -3396,7 +3932,7 @@ class LitePlayer {
     on('seeked', onTime);
     on('progress', invalidate);
     on('durationchange', () => { this.render(true); if (this.loop) this.loop.render(); this.renderWatched(); this.updateMarkers(); if (this.silence) this.silence.update(); this.renderChapterMarks(); });
-    on('ratechange', () => this.menus.renderSpeed(v.playbackRate));
+    on('ratechange', () => this.speed.render(v.playbackRate));
     on('volumechange', () => {
       this.renderVolume();
       this.prefs.volume = v.volume;
@@ -3426,17 +3962,18 @@ class LitePlayer {
     }, STALL_CHECK_MS);
   }
 
-  setButton(sel, icon, label) {
+  setButton(sel, icon, label, tip) {
     const b = this.$(sel);
     b.innerHTML = svg(icon);
-    b.title = label;
     b.setAttribute('aria-label', label);
+    b.dataset.tip = tip;
   }
 
   renderVolume() {
     const v = this.video;
     const level = v.muted ? 0 : v.volume;
-    this.$('.mute').innerHTML = svg(v.muted || v.volume === 0 ? 'muted' : 'volume');
+    const silent = v.muted || v.volume === 0;
+    this.setButton('.mute', silent ? 'muted' : 'volume', tr(silent ? 'unmute' : 'mute'), tr(silent ? 'unmuteKey' : 'muteKey'));
     const input = this.$('.volume');
     input.value = String(level);
     input.style.setProperty('--v', level * 100 + '%');
@@ -3502,7 +4039,7 @@ class LitePlayer {
   armIdle() {
     clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(guard(() => {
-      if (!this.video.paused && !this.ui.dragging && !this.menus.anyOpen()) this.stage.classList.add('idle');
+      if (!this.video.paused && !this.ui.dragging && !this.pops.isOpen()) this.stage.classList.add('idle');
     }), CONTROLS_HIDE_MS);
   }
 
@@ -3522,10 +4059,11 @@ class LitePlayer {
     });
     d.listen($('.volume'), 'input', (e) => { v.volume = +e.target.value; v.muted = v.volume === 0; });
     d.listen($('.fs'), 'click', () => this.toggleFullscreen());
-    d.listen($('.swap'), 'click', () => this.swapViews());
-    d.listen($('.orig'), 'click', () => this.opts.onFallback('user'));
+    d.listen($('.swapdot'), 'click', (e) => { e.stopPropagation(); this.swapViews(); });
+    d.listen($('.layout'), 'click', () => this.setLayout(this.nextLayout()));
     d.listen(document, 'fullscreenchange', () => {
-      this.setButton('.fs', document.fullscreenElement ? 'exitFullscreen' : 'fullscreen', tr('fullscreen'));
+      const fs = !!document.fullscreenElement;
+      this.setButton('.fs', fs ? 'exitFullscreen' : 'fullscreen', tr(fs ? 'exitFullscreen' : 'fullscreen'), tr(fs ? 'exitFullscreenKey' : 'fullscreenKey'));
     });
     let resizeTimer = 0;
     d.add(() => clearTimeout(resizeTimer));
@@ -3533,11 +4071,10 @@ class LitePlayer {
     for (const chip of this.all('.top [data-open]')) d.listen(chip, 'click', () => this.sidebar.toggle(chip.dataset.open));
     d.listen($('.panelclose'), 'click', () => this.sidebar.close());
     d.listen($('.bmbtn'), 'click', (e) => { if (this.notes) this.notes.addBookmark(e); });
-    d.listen($('.flagbtn'), 'click', (e) => { if (this.notes) this.notes.toggleFlag(e); });
     d.listen($('.pextras button'), 'click', () => this.opts.onFallback('extras'));
     this.bindPanelResize();
     this.loop = new ABLoop({
-      mount: $('.speedmenu').parentElement, rail: $('.seek'), video: v, duration: () => this.duration(), seek: (t) => this.seek(t), toast: (...a) => this.toast(...a),
+      pops: this.pops, rail: $('.seek'), video: v, duration: () => this.duration(), seek: (t) => this.seek(t), toast: (...a) => this.toast(...a),
     }, this.d.feature('A-B loop'));
 
     // Click on a picture: play/pause; double click: fullscreen. While the controls are
@@ -3594,21 +4131,21 @@ class LitePlayer {
 
   loadCues() {
     this.cues = null;
-    if (!this.opts.fetchCues) { if (this.silence) this.silence.start([]); return; }
+    const none = () => { if (!this.destroyed) this.menus.captionsAvailable(tr('captionsNone')); };
+    if (!this.opts.fetchCues) { none(); if (this.silence) this.silence.start([]); return; }
     this.opts.fetchCues(this.lesson).then((cues) => {
       if (this.destroyed) return;
       if (this.silence) this.silence.start(cues);
-      if (!cues.length) return;
+      if (!cues.length) { none(); return; }
       this.cues = cues;
       if (this.slidesPane) this.slidesPane.invalidate();
       if (this.reporter) this.reporter.captionsAvailable = cues.length;
       this.cc.setCues(cues);
       this.transcript.setCues(cues);
-      this.$('.ccbtn').hidden = false;
-      this.menus.renderCaptionMenu();
+      this.menus.captionsAvailable('');
       if (this.prefs.captions) this.menus.setCaptions(true, true);
       this.registerTab('transcript', this.transcript);
-    });
+    }, (e) => { none(); log.warn('captions:', e && e.message ? e.message : e); });
   }
 
   // ---- audio processing ----
@@ -3618,19 +4155,19 @@ class LitePlayer {
     this.audio = a;
     this.d.add(() => a.dispose());
     a.settings = { level: !!this.prefs.audio.level, voice: !!this.prefs.audio.voice, mono: !!this.prefs.audio.mono };
-    for (const b of this.all('.audiomenu [data-audio]')) {
-      this.d.listen(b, 'click', (e) => {
-        e.stopPropagation();
-        if (a.reason) return;
-        const k = b.dataset.audio;
+    const why = () => (a.reason === 'noWebAudio' ? tr('audioNoWebAudio') : a.reason ? tr('audioNativeHls') : '');
+    // The settings page: one switch per tool (shown off, with the reason, when unsupported).
+    this.menuPages.audio = () => [['level', 'audioLevel'], ['voice', 'audioVoice'], ['mono', 'audioMono']].map(([k, label]) => ({
+      kind: 'toggle', label: tr(label), desc: tr(label + 'Desc'), reason: why, on: () => !!a.settings[k],
+      set: (on) => {
         a.build();
         a.resume();
-        a.set({ [k]: !a.settings[k] });
+        a.set({ [k]: !!on });
         this.prefs.audio = Object.assign({}, a.settings, { levelChosen: this.prefs.audio.levelChosen || k === 'level' });
         this.savePrefs();
-        this.renderAudioMenu();
-      });
-    }
+      },
+    }));
+    this.menuValues.audio = () => (!a.reason && a.anyOn() ? tr('on') : tr('off'));
     // Remembered settings: build the graph on the first user gesture, never before.
     if (!a.reason && a.anyOn()) {
       const onGesture = () => {
@@ -3642,21 +4179,6 @@ class LitePlayer {
       this.d.listen(this.host, 'pointerdown', onGesture, true);
       this.d.listen(document, 'keydown', onGesture, true);
     }
-    this.renderAudioMenu();
-  }
-
-  renderAudioMenu() {
-    const a = this.audio;
-    const why = this.$('.audiomenu .why');
-    why.hidden = !a.reason;
-    why.textContent = a.reason === 'noWebAudio' ? tr('audioNoWebAudio') : a.reason ? tr('audioNativeHls') : '';
-    for (const b of this.all('.audiomenu [data-audio]')) {
-      const on = !a.reason && !!a.settings[b.dataset.audio];   // unsupported: shown as off
-      b.setAttribute('aria-checked', String(on));
-      b.setAttribute('aria-disabled', String(!!a.reason));
-      b.querySelector('.state').textContent = on ? tr('on') : tr('off');
-    }
-    this.$('.audiobtn').classList.toggle('active', a.anyOn() && !a.reason);
   }
 
   // ---- slide chapters ----
@@ -3813,7 +4335,8 @@ class LitePlayer {
       if (this.destroyed || !ok) return;
       this.notesReady = true;
       this.$('.bmbtn').hidden = false;
-      this.$('.flagbtn').hidden = !canFlag;
+      this.menus.fitBar();
+      this.menuActions.exportNotes = () => this.notes.openExport();
       this.renderFlagButton();
       this.registerTab('notes', this.notes);
     });
@@ -3835,13 +4358,9 @@ class LitePlayer {
     this.markers.set(items, this.duration());
   }
 
+  // The "Didn't understand" button in the Notes tab follows the part playing.
   renderFlagButton() {
-    if (!this.notes || !this.notesReady) return;
-    const on = !!this.notes.flagAt(this.video.currentTime);
-    const b = this.$('.flagbtn');
-    b.classList.toggle('active', on);
-    b.setAttribute('aria-pressed', String(on));
-    b.innerHTML = svg(on ? 'flagOn' : 'flag');
+    if (this.notes && this.notesReady) this.notes.renderFlagRow();
   }
 
   renderExtras() {
@@ -3900,11 +4419,12 @@ class LitePlayer {
     for (const [label, fn, primary] of actions) {
       const b = document.createElement('button');
       b.textContent = label;
-      if (primary) b.className = 'primary';
+      b.className = primary ? 'pbtn primary' : 'pbtn';
       b.addEventListener('click', fn);
       wrap.appendChild(b);
     }
     box.hidden = false;
+    wrap.firstChild.focus({ preventScroll: true });
     this.wake();
   }
 
@@ -3916,12 +4436,6 @@ class LitePlayer {
     this.destroyed = true;
     this.d.dispose();
   }
-}
-
-function nextSpeed(current, dir) {
-  const i = SPEEDS.findIndex((s) => s >= current - 0.001);
-  const idx = i < 0 ? SPEEDS.length - 1 : i;
-  return SPEEDS[clamp(idx + dir, 0, SPEEDS.length - 1)];
 }
 
 // ---- 41-seekbar.js ----
@@ -4036,6 +4550,7 @@ class SeekBar {
     const seekEl = this.el;
     const tip = x.$('.tip');
     const tipText = tip.querySelector('.tt');
+    const tipLabel = tip.querySelector('.tl');
     const tipImg = tip.querySelector('.pv');
     let rect = null;
     let lastSeekAt = 0;
@@ -4049,9 +4564,9 @@ class SeekBar {
       seekEl.style.setProperty('--h', f.toFixed(4));
       nearMarker = x.markers.nearest(f, rect.width, 6);
       const sil = nearMarker ? null : x.skipAt(f * dur);
-      tipText.textContent = nearMarker
-        ? fmtTime(nearMarker.time, dur >= 3600) + ' · ' + (nearMarker.label.length > 70 ? nearMarker.label.slice(0, 67) + '…' : nearMarker.label)
-        : fmtTime(f * dur, dur >= 3600) + (sil ? ' · ' + tr(sil.kind + 'Tip', { time: fmtTime(sil.end - sil.start) }) : '');
+      tipText.textContent = fmtTime(nearMarker ? nearMarker.time : f * dur, dur >= 3600);
+      tipLabel.textContent = nearMarker ? (nearMarker.label.length > 70 ? nearMarker.label.slice(0, 67) + '…' : nearMarker.label)
+        : sil ? tr(sil.kind + 'Tip', { time: fmtTime(sil.end - sil.start) }) : '';
       const pv = x.previewAt(nearMarker ? nearMarker.time : f * dur);
       if (pv) { if (tipImg.getAttribute('src') !== pv) tipImg.src = pv; tipImg.hidden = false; } else tipImg.hidden = true;
       const half = pv ? 96 : 24;
@@ -4146,7 +4661,6 @@ class KeyboardShortcuts {
     this.onKey = (e) => this.handle(e);
     this.d.listen(document, 'keydown', this.onKey, true);
     const box = deps.$('.keyhelp');
-    this.d.listen(deps.$('.kbtn'), 'click', (e) => { e.stopPropagation(); this.showHelp(true); });
     this.d.listen(deps.$('.khclose'), 'click', (e) => { e.stopPropagation(); this.showHelp(false); });
     this.d.listen(box, 'click', (e) => { if (e.target === box) this.showHelp(false); });
   }
@@ -4155,6 +4669,9 @@ class KeyboardShortcuts {
     if (e.ctrlKey || e.metaKey || e.altKey || this.x.isDestroyed()) return;
     const target = e.composedPath()[0];
     if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) && target.type !== 'range') return;
+    // An open menu or popover handles its own keys (arrows, Enter, [ and ] on the speed
+    // track); only Esc goes on to close it.
+    if (target && target.closest && target.closest('.pop') && e.key !== 'Escape') return;
     let entry = KEY_ACTIONS[e.key] || KEY_ACTIONS[e.key.length === 1 ? e.key.toLowerCase() : ''];
     if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && e.shiftKey) entry = ['stepChapter', e.key === 'ArrowLeft' ? -1 : 1];
     if (e.key === '?') entry = ['help'];
@@ -4178,8 +4695,14 @@ class KeyboardShortcuts {
         list.append(el('div', null, ...keys.map((k) => el('kbd', { text: k }))), el('div', { text: tr(label) }));
       }
     }
+    // Focus goes back to where it was (the ⋮ button when opened from its menu).
+    if (on && box.hidden) {
+      const active = box.getRootNode().activeElement;
+      this.returnTo = active && active.offsetParent ? active : null;
+    }
     box.hidden = !on;
     if (on) box.querySelector('.khclose').focus();
+    else (this.returnTo || this.x.$('.morebtn')).focus({ preventScroll: true });
   }
 }
 
@@ -4309,13 +4832,13 @@ class LayoutControls {
 
 // ---- 44-quality.js ----
 // ===================================================================================
-// Picture quality: per role (screen, camera) "auto" or a fixed rendition height, the
-// menu, the label on its button, and a cap for the camera while it is the small
-// picture-in-picture window (no point fetching 1080p for a thumbnail).
+// Picture quality: per role (screen, camera) "auto" or a fixed rendition height, its page
+// in the settings menu, and a cap for the camera while it is the small picture-in-picture
+// window (no point fetching 1080p for a thumbnail).
 //
-// deps: { $, prefs, savePrefs(), sources, dual, screenIndex() (null until known),
+// deps: { prefs, savePrefs(), sources, dual, screenIndex() (null until known),
 //         streams() -> [{ stream, elem, pos }] (pos -1: not playing), shown() -> the stream
-//         of the big picture, layout() }
+//         of the big picture, layout(), onChange() (the settings menu redraws) }
 // ===================================================================================
 
 class QualityController {
@@ -4323,12 +4846,6 @@ class QualityController {
     this.x = deps;
     this.d = disposer;
     this.levelsByRole = {};
-    const menu = deps.$('.qualitymenu');
-    this.d.listen(menu, 'click', (e) => {
-      e.stopPropagation();
-      const b = e.target.closest('button[data-q]');
-      if (b) this.set(b.dataset.role, b.dataset.q);
-    });
   }
 
   // 'screen' or 'camera'. Until the screen view is known, the first view counts as screen.
@@ -4363,135 +4880,105 @@ class QualityController {
     for (const { stream, pos } of this.x.streams()) {
       if (pos >= 0 && stream.levels.length) this.levelsByRole[this.roleOf(pos)] = stream.levels.map((l) => l.height);
     }
-    const h = this.x.shown().height;
-    this.x.$('.qbtn').textContent = h ? h + 'p' : tr('qualityAuto');
-    if (!this.x.$('.qualitymenu').hidden) this.renderMenu();
+    this.x.onChange();
   }
 
-  renderMenu() {
+  // Shown next to the page in the settings menu: what the big picture plays now.
+  value() {
+    const shown = this.x.shown();
+    const entry = this.x.streams().find((s) => s.stream === shown && s.pos >= 0);
+    const h = shown.height;
+    const want = this.x.prefs.quality[this.roleOf(entry ? entry.pos : 0)];
+    return want === 'auto' ? tr('qualityAuto') + (h ? ' (' + h + 'p)' : '') : want + 'p';
+  }
+
+  // The settings page: for each view, "auto" and the renditions it has.
+  items() {
     const x = this.x;
-    const menu = x.$('.qualitymenu');
-    menu.textContent = '';
-    menu.append(el('div.head', { text: tr('quality') }));
     const roles = x.dual ? ['screen', 'camera'] : [this.roleOf(0)];
     const playingAt = new Map(x.streams().filter((s) => s.pos >= 0).map((s) => [s.pos, s.stream]));
+    const items = [];
     for (const role of roles) {
       const pos = x.sources.findIndex((s, i) => this.roleOf(i) === role);
       if (pos < 0) continue;
       const stream = playingAt.get(pos);
-      const playing = stream && stream.height ? stream.height + 'p' : '';
-      if (x.dual) menu.append(el('div.sub', { text: tr(role === 'screen' ? 'qualityScreen' : 'qualityCamera') + (playing ? ' · ' + tr('qualityNow', { q: playing }) : '') }));
-      else if (playing) menu.append(el('div.sub', { text: tr('qualityNow', { q: playing }) }));
-      const want = x.prefs.quality[role];
+      const playing = stream && stream.height ? tr('qualityNow', { q: stream.height + 'p' }) : '';
+      if (x.dual) items.push({ kind: 'group', label: tr(role === 'screen' ? 'qualityScreen' : 'qualityCamera') + (playing ? ': ' + playing : '') });
+      else if (playing) items.push({ kind: 'group', label: playing });
       const heights = (this.levelsByRole[role] || []).slice().sort((a, b) => b - a);
       const opts = [['auto', tr('qualityAutoBest')]].concat(heights.map((hh) => [hh, hh + 'p']));
       for (const [val, label] of opts) {
-        menu.append(el('button', { role: 'menuitemradio', 'aria-checked': String(want === val), 'data-role': role, 'data-q': String(val), text: label }));
+        items.push({ kind: 'radio', label, checked: () => x.prefs.quality[role] === val, select: () => this.set(role, val) });
       }
     }
+    return items;
   }
 
   set(role, val) {
     this.x.prefs.quality[role] = val === 'auto' ? 'auto' : +val;
     this.x.savePrefs();
     this.apply();
-    this.renderMenu();
   }
 }
 
 // ---- 45-menus.js ----
 // ===================================================================================
-// The control bar's menus: speed, layout, captions, copy, quality and audio buttons open
-// their menu (one at a time, closed by a click elsewhere or Esc); the ⋯ menu (analysis
-// results stored, diagnostics, shortcuts). Also what those menus do that belongs to no
-// other part: captions on/off and size, copying the picture or what was said.
+// The control bar's buttons and the settings menu (⋮ in the title bar), built from the
+// shared components (32-ui-kit.js).
 //
-// deps: { $, root, stage, video, prefs, savePrefs(), setRate(r), setLayout(name), cc
-//         (CaptionsView), cues() ([] until loaded), screenVideo(), title, duration(),
-//         toast(msg), wake(), showKeys(), diagnostics() -> text, onOpen(menu) (quality,
-//         audio: draw before showing), onCloseAll() (other popups to close too) }
+// Control bar: captions (on/off; unavailable with a reason when there are none), copy
+// picture, copy text, and the priority overflow: when the bar is too narrow, the buttons in
+// BAR_OVERFLOW make way in that order and appear at the top of the ⋮ menu instead; if it is
+// still too narrow, the time moves above the progress bar. The bookmark and layout buttons
+// are the player's; the speed button is SpeedControl's (48-speed.js).
+//
+// Settings menu: pages for quality, captions, audio, skipping silence, layout, copy text
+// and theme, then actions (floating window, loop, export, shortcuts, storage and
+// diagnostics, the original player). Parts give their own pages (deps.pages).
+//
+// deps: { $, root, pops (Popovers), stage, video, prefs, savePrefs(), cc (CaptionsView),
+//         cues() ([] until loaded), screenVideo(), title, duration(), toast(msg),
+//         layouts() (offered: [] none), layout(), setLayout(l), swap(), pdfMode(),
+//         pages: { quality(), audio(), silence() } (items, see SettingsMenu),
+//         values: { quality(), audio(), silence() } (shown next to the pages),
+//         actions: { bookmark(e), popout() or null, loopA(), loopB(), loopClear(),
+//         loopLabel(), exportNotes() or null, showKeys(), original() }, setTheme(t) }
 // ===================================================================================
+
+// Control-bar buttons (data-bar) that move into the ⋮ menu when the bar is too narrow,
+// the first to go first. They come back in the opposite order when there is room.
+const BAR_OVERFLOW = ['copyText', 'copyPicture', 'bookmark'];
 
 class MenuBar {
   constructor(deps, disposer) {
     this.x = deps;
     this.d = disposer;
     const $ = deps.$;
-    this.menus = [['.speed', '.speedmenu'], ['.layout', '.layoutmenu'], ['.ccbtn', '.ccmenu'], ['.audiobtn', '.audiomenu'],
-      ['.qbtn', '.qualitymenu'], ['.copybtn', '.copymenu'], ['.morebtn', '.moremenu']].map(([b, m]) => [$(b), $(m)]);
-    this.buildSpeeds();
+    this.out = [];
+    this.settings = new SettingsMenu(deps.pops, 'settings', tr('moreMenu'), () => this.rootItems(), disposer);
     this.bind();
-  }
-
-  buildSpeeds() {
-    const menu = this.x.$('.speedmenu');
-    for (const s of SPEEDS) menu.append(el('button', { role: 'menuitemradio', 'data-rate': String(s), text: s + 'x' }));
-  }
-
-  anyOpen() {
-    return [...this.x.root.querySelectorAll('.menu')].some((m) => !m.hidden);
-  }
-
-  closeAll() {
-    for (const m of this.x.root.querySelectorAll('.menu')) m.hidden = true;
-    this.x.onCloseAll();
+    // The bar is measured again whenever its width changes.
+    const row = $('.row');
+    if (typeof ResizeObserver === 'function') disposer.observe(new ResizeObserver(() => this.fitBar())).observe(row);
+    this.fitBar();
   }
 
   bind() {
     const x = this.x;
     const $ = x.$;
     const d = this.d;
-    for (const [btn, menu] of this.menus) {
-      d.listen(btn, 'click', (e) => {
-        e.stopPropagation();
-        const open = menu.hidden;
-        for (const [, m] of this.menus) m.hidden = true;
-        if (open) {
-          if (menu.classList.contains('copymenu')) this.renderCopyMenu();
-          if (menu.classList.contains('moremenu')) this.renderMoreMenu();
-          x.onOpen(menu);
-        }
-        menu.hidden = !open;
-        x.wake();
-      });
-    }
+    const more = $('.morebtn');
+    d.listen(more, 'click', () => this.settings.toggle(more, 'below'));
+    // A press on a control that is not available says why (touch screens have no tooltips).
     d.listen(x.root, 'click', (e) => {
-      if (e.target.closest('.menu, .speed, .layout, .ccbtn, .audiobtn, .qbtn, .copybtn, .morebtn')) return;
-      for (const [, m] of this.menus) m.hidden = true;
-      x.onCloseAll();
-    });
-    d.listen($('.speedmenu'), 'click', (e) => {
-      const b = e.target.closest('button[data-rate]');
-      if (b) { x.setRate(+b.dataset.rate); $('.speedmenu').hidden = true; }
-    });
-    d.listen($('.layoutmenu'), 'click', (e) => {
-      const b = e.target.closest('button[data-layout]');
-      if (b) { x.setLayout(b.dataset.layout); $('.layoutmenu').hidden = true; }
-    });
-    d.listen($('.copymenu'), 'click', (e) => {
-      e.stopPropagation();
-      const b = e.target.closest('button[data-copy], button[data-span]');
-      if (!b) return;
-      if (b.dataset.span) {
-        x.prefs.copySpan = +b.dataset.span;
-        x.savePrefs();
-        this.renderCopyMenu();
-        return;
-      }
-      $('.copymenu').hidden = true;
-      if (b.dataset.copy === 'frame') this.copyFrame(); else this.copyCaptions();
-    });
-    d.listen($('.cctoggle'), 'click', () => this.setCaptions(!x.cc.on));
-    d.listen($('.cchidepaused'), 'click', () => {
-      x.prefs.capHidePaused = !x.prefs.capHidePaused;
-      x.savePrefs();
-      this.renderCaptionMenu();
-    });
-    d.listen($('.ccmenu .sizes'), 'click', (e) => {
-      const b = e.target.closest('button[data-size]');
-      if (b) this.setCaptionSize(b.dataset.size);
-    });
-    d.listen($('.diagclose'), 'click', (e) => { e.stopPropagation(); $('.diagbox').hidden = true; });
+      const b = e.target.closest && e.target.closest('[aria-disabled=true][data-reason]');
+      if (b && b.dataset.reason) { e.stopImmediatePropagation(); x.toast(b.dataset.reason); }
+    }, true);
+    d.listen($('.ccbtn'), 'click', () => this.setCaptions(!x.cc.on));
+    d.listen($('.framebtn'), 'click', () => this.copyFrame());
+    d.listen($('.textbtn'), 'click', () => this.copyCaptions());
+    d.listen($('.diagclose'), 'click', (e) => { e.stopPropagation(); this.showDiagnostics(false); });
+    d.listen($('.diagbox'), 'click', (e) => { if (e.target === $('.diagbox')) this.showDiagnostics(false); });
     d.listen($('.diagcopy'), 'click', (e) => {
       e.stopPropagation();
       navigator.clipboard.writeText($('.diagtext').textContent)
@@ -4499,22 +4986,167 @@ class MenuBar {
     });
   }
 
-  // ---- speed ----
+  anyOpen() { return this.x.pops.isOpen(); }
 
-  renderSpeed(rate) {
-    this.x.$('.speed').textContent = rate + 'x';
-    for (const b of this.x.root.querySelectorAll('.speedmenu button')) b.setAttribute('aria-checked', String(+b.dataset.rate === rate));
+  closeAll() { this.x.pops.close(true); }
+
+  // Redraws the settings menu if it is open (a part's state changed).
+  refresh() { this.settings.refresh(); }
+
+  // ---- the control bar ----
+
+  // Moves buttons out of the bar (BAR_OVERFLOW order) until it fits, then the time.
+  fitBar() {
+    const $ = this.x.$;
+    const row = $('.row');
+    const bottom = $('.bottom');
+    const btns = BAR_OVERFLOW.map((k) => this.x.root.querySelector('.row [data-bar=' + k + ']'));
+    for (const b of btns) b.classList.remove('out');
+    bottom.classList.remove('compact');
+    const over = () => row.scrollWidth > row.clientWidth + 1;
+    let n = 0;
+    while (n < btns.length && over()) btns[n++].classList.add('out');
+    if (over()) bottom.classList.add('compact');
+    this.out = BAR_OVERFLOW.slice(0, n).filter((k, i) => !btns[i].hidden);
+    this.refresh();
+  }
+
+  // The bar's buttons moved into the menu, as menu actions.
+  overflowItems() {
+    const x = this.x;
+    const btn = (k) => x.root.querySelector('.row [data-bar=' + k + ']');
+    const item = {
+      bookmark: { kind: 'action', label: tr('bookmark'), key: 'B', run: (e) => x.actions.bookmark(e) },
+      copyPicture: { kind: 'action', label: tr('copyFrame'), key: 'P', run: () => this.copyFrame() },
+      copyText: { kind: 'action', label: tr('copyCaptions'), key: 'A', run: () => this.copyCaptions(), reason: () => unavailableReason(btn('copyText')) },
+    };
+    // In the bar's order (bookmark, copy picture, copy text).
+    const list = BAR_OVERFLOW.slice().reverse().filter((k) => this.out.includes(k)).map((k) => item[k]);
+    return list.length ? list.concat({ kind: 'sep' }) : [];
+  }
+
+  // ---- the settings menu ----
+
+  rootItems() {
+    const x = this.x;
+    const a = x.actions;
+    const layouts = x.layouts();
+    return [
+      ...this.overflowItems(),
+      { kind: 'page', label: tr('quality'), value: x.values.quality, items: x.pages.quality },
+      { kind: 'page', label: tr('captionsPage'), value: () => (x.cc.on ? tr('on') : tr('off')), items: () => this.captionItems() },
+      { kind: 'page', label: tr('audio'), value: x.values.audio, items: x.pages.audio, hidden: () => !x.pages.audio },
+      { kind: 'page', label: tr('silencePage'), value: x.values.silence, items: x.pages.silence, hidden: () => !x.pages.silence },
+      { kind: 'page', label: tr('layout'), value: () => tr(layoutKey(x.layout())), items: () => this.layoutItems(), hidden: () => !layouts.length },
+      { kind: 'page', label: tr('copyCaptionsSpan'), value: () => spanLabel(x.prefs.copySpan), items: () => this.copyItems() },
+      { kind: 'page', label: tr('theme'), value: () => tr(themeKey(x.prefs.theme)), items: () => this.themeItems() },
+      { kind: 'sep' },
+      { kind: 'action', label: tr('popout'), key: 'W', run: () => a.popout(), hidden: () => !a.popout },
+      { kind: 'page', label: tr('loopMenu'), value: a.loopLabel, items: () => this.loopItems() },
+      { kind: 'action', label: tr('exportNotes'), key: 'E', run: () => a.exportNotes(), hidden: () => !a.exportNotes },
+      { kind: 'action', label: tr('keysMenu'), key: '?', run: () => a.showKeys() },
+      { kind: 'page', label: tr('storageMenu'), items: () => this.storageItems() },
+      { kind: 'action', label: tr('useOriginal'), run: () => a.original() },
+      { kind: 'foot', text: 'Lite Player for Echo360 ' + VERSION },
+    ];
+  }
+
+  captionItems() {
+    const x = this.x;
+    const none = () => unavailableReason(x.$('.ccbtn'));
+    return [
+      { kind: 'toggle', label: tr('showCaptions'), on: () => x.cc.on, set: (on) => this.setCaptions(on), reason: none },
+      { kind: 'toggle', label: tr('hideCaptionsPaused'), on: () => !!x.prefs.capHidePaused, set: (on) => this.setHidePaused(on) },
+      { kind: 'group', label: tr('captionSize') },
+      ...Object.keys(CAPTION_SIZES).map((s) => ({
+        kind: 'radio', label: tr('size' + s.toUpperCase()), checked: () => x.prefs.capSize === s, select: () => this.setCaptionSize(s),
+      })),
+    ];
+  }
+
+  layoutItems() {
+    const x = this.x;
+    return [
+      ...x.layouts().map((l) => ({ kind: 'radio', label: tr(layoutKey(l)), checked: () => x.layout() === l, select: () => x.setLayout(l) })),
+      { kind: 'text', text: () => tr('layoutPdfNote'), hidden: () => !x.pdfMode() },
+      { kind: 'sep' },
+      { kind: 'action', label: tr('swapViews'), key: 'S', run: () => x.swap() },
+    ];
+  }
+
+  copyItems() {
+    const x = this.x;
+    return [
+      { kind: 'text', text: () => tr('copyCaptionsSpanDesc') },
+      ...COPY_SPANS.map((s) => ({
+        kind: 'radio', label: spanLabel(s), checked: () => x.prefs.copySpan === s,
+        select: () => { x.prefs.copySpan = s; x.savePrefs(); },
+      })),
+    ];
+  }
+
+  themeItems() {
+    const x = this.x;
+    return [
+      ...THEMES.map((t) => ({ kind: 'radio', label: tr(themeKey(t)), checked: () => x.prefs.theme === t, select: () => x.setTheme(t) })),
+      { kind: 'text', text: () => tr('themeNote') },
+    ];
+  }
+
+  loopItems() {
+    const a = this.x.actions;
+    return [
+      { kind: 'action', label: tr('loopFromHere'), key: 'I', run: () => a.loopA() },
+      { kind: 'action', label: tr('loopToHere'), key: 'O', run: () => a.loopB() },
+      { kind: 'action', label: tr('loopClear'), key: 'X', run: () => a.loopClear(), reason: () => (a.loopLabel() === tr('loopNone') ? tr('loopNone') : '') },
+    ];
+  }
+
+  // Analysis results stored on this device (size, clear) and the diagnostics.
+  storageItems() {
+    const size = el('span.grow', { text: tr('cachesMeasuring') });
+    const clear = el('button.pbtn', { text: tr('cachesClear') });
+    clear.addEventListener('click', guard(async (e) => {
+      e.stopPropagation();
+      clear.disabled = true;
+      const n = await analysisCaches.clear();
+      size.textContent = tr('cachesCleared', { n });
+    }));
+    analysisCaches.usage().then((u) => {
+      size.textContent = tr('cachesSize', { mb: (u.bytes / 1e6).toFixed(u.bytes < 1e7 ? 1 : 0), n: u.count });
+    }).catch(() => { size.textContent = tr('cachesUnknown'); });
+    const row = el('div.mrow', null, size, clear);
+    return [
+      { kind: 'custom', render: () => row },
+      { kind: 'text', text: () => tr('cachesInfo') },
+      { kind: 'sep' },
+      { kind: 'action', label: tr('diagMenu'), run: () => this.showDiagnostics(true) },
+    ];
   }
 
   // ---- captions ----
+
+  // Captions can be turned on once they are loaded; until then (or when there are none)
+  // the button says why not.
+  captionsAvailable(reason) {
+    setUnavailable(this.x.$('.ccbtn'), reason, tr('captionsKey'));
+    setUnavailable(this.x.$('.textbtn'), reason ? tr('copyNoCaptions') : '', tr('copyCaptionsKey'));
+    this.refresh();
+  }
 
   setCaptions(on, restoring) {
     const x = this.x;
     x.cc.setOn(on);
     x.cc.update(x.video.currentTime);
     if (!restoring) { x.prefs.captions = on; x.savePrefs(); }
-    x.$('.ccbtn').classList.toggle('active', on);
-    this.renderCaptionMenu();
+    setPressed(x.$('.ccbtn'), on);
+    this.refresh();
+  }
+
+  setHidePaused(on) {
+    this.x.prefs.capHidePaused = !!on;
+    this.x.savePrefs();
+    this.x.stage.classList.toggle('hidecc-paused', !!on);
   }
 
   setCaptionSize(size) {
@@ -4522,28 +5154,9 @@ class MenuBar {
     this.x.prefs.capSize = size;
     this.x.cc.setSize(size);
     this.x.savePrefs();
-    this.renderCaptionMenu();
-  }
-
-  renderCaptionMenu() {
-    const x = this.x;
-    const on = x.cc.on;
-    const toggle = x.$('.cctoggle');
-    toggle.setAttribute('aria-checked', String(on));
-    toggle.querySelector('.state').textContent = on ? tr('on') : tr('off');
-    for (const b of x.root.querySelectorAll('.ccmenu .sizes button')) b.setAttribute('aria-checked', String(b.dataset.size === x.prefs.capSize));
-    const hide = x.$('.cchidepaused');
-    hide.setAttribute('aria-checked', String(!!x.prefs.capHidePaused));
-    hide.querySelector('.state').textContent = x.prefs.capHidePaused ? tr('on') : tr('off');
-    x.stage.classList.toggle('hidecc-paused', !!x.prefs.capHidePaused);
   }
 
   // ---- copying (picture, what was said) ----
-
-  renderCopyMenu() {
-    const span = this.x.prefs.copySpan || 60;
-    for (const b of this.x.root.querySelectorAll('.copymenu [data-span]')) b.setAttribute('aria-checked', String(+b.dataset.span === span));
-  }
 
   // Copies the current picture at the video's own resolution. Must run from a user action.
   copyFrame() {
@@ -4578,38 +5191,29 @@ class MenuBar {
       .catch((e) => x.toast(tr('copyFailed', { msg: (e && e.message) || e })));
   }
 
-  // ---- the ⋯ menu: analysis results stored on this device (size, clear), diagnostics, keys ----
-
-  renderMoreMenu() {
-    const x = this.x;
-    const m = x.$('.moremenu');
-    m.textContent = '';
-    const size = el('span.grow', { text: tr('cachesMeasuring') });
-    const clear = el('button', { text: tr('cachesClear') });
-    clear.addEventListener('click', guard(async (e) => {
-      e.stopPropagation();
-      clear.disabled = true;
-      const n = await analysisCaches.clear();
-      size.textContent = tr('cachesCleared', { n });
-    }));
-    m.append(el('div.head', { text: 'Lite Player for Echo360 ' + VERSION }),
-      el('div.row', { title: tr('cachesInfo') }, size, clear),
-      el('button', { text: tr('diagMenu'), onclick: (e) => { e.stopPropagation(); m.hidden = true; this.showDiagnostics(); } }),
-      el('button', { text: tr('keysTitle') + ' (?)', onclick: (e) => { e.stopPropagation(); m.hidden = true; x.showKeys(); } }));
-    analysisCaches.usage().then((u) => {
-      size.textContent = tr('cachesSize', { mb: (u.bytes / 1e6).toFixed(u.bytes < 1e7 ? 1 : 0), n: u.count });
-    }).catch(() => { size.textContent = tr('cachesUnknown'); });
-  }
+  // ---- diagnostics ----
 
   get diagnosticsOpen() { return !this.x.$('.diagbox').hidden; }
 
   showDiagnostics(on) {
     const x = this.x;
-    if (on === false) { x.$('.diagbox').hidden = true; return; }
+    if (on === false) { x.$('.diagbox').hidden = true; x.$('.morebtn').focus({ preventScroll: true }); return; }
     x.$('.diagtext').textContent = x.diagnostics();
     x.$('.diagbox').hidden = false;
     x.$('.diagcopy').focus();
   }
+}
+
+function layoutKey(l) {
+  return { side: 'layoutSide', pip: 'layoutPip', single: 'layoutSingle' }[l];
+}
+
+function themeKey(t) {
+  return { system: 'themeSystem', dark: 'themeDark', light: 'themeLight' }[t];
+}
+
+function spanLabel(s) {
+  return tr('copySpanValue', { time: s < 60 ? tr('seconds', { n: s }) : s === 60 ? tr('minute') : tr('minutes', { n: s / 60 }) });
 }
 
 // ---- 46-popout.js ----
@@ -4628,9 +5232,6 @@ class PopoutController {
     this.d = disposer;
     this.window = null;
     this.opening = false;
-    const btn = deps.$('.popbtn');
-    btn.hidden = !PopoutController.supported();
-    this.d.listen(btn, 'click', () => this.toggle());
     // On teardown: close the window; its pagehide (sync or later) only removes the
     // placeholder, since the player is destroyed by then.
     this.d.add(() => { if (this.window) { try { this.window.close(); } catch (e) { /* closed */ } } });
@@ -4687,7 +5288,6 @@ class PopoutController {
       host.style.cssText = css;
       if (holder.isConnected) holder.replaceWith(host);
       if (still && x.video.paused) x.video.play().catch(() => {});
-      x.$('.popbtn').setAttribute('aria-pressed', 'false');
       x.relayout();
     };
     pip.addEventListener('pagehide', putBack, { once: true });
@@ -4704,7 +5304,6 @@ class PopoutController {
       pip.addEventListener('resize', resize);
       // Moving can pause the elements in some browsers: carry on as before.
       if (playing && x.video.paused) x.video.play().catch(() => {});
-      x.$('.popbtn').setAttribute('aria-pressed', 'true');
     } catch (e) {
       putBack();
       try { pip.close(); } catch (err) { /* already closed */ }
@@ -4717,12 +5316,13 @@ class PopoutController {
 // ===================================================================================
 // Silences and empty parts during playback: the analysis (62-silence.js), the stretches
 // that can be skipped (with the slide analysis' empty screens), the Skip button and
-// automatic skipping, "the lecture has ended" at an empty ending, and the silence part of
-// the audio menu.
+// automatic skipping, "the lecture has ended" at an empty ending, and the "Skip silence"
+// page of the settings menu.
 //
 // deps: { $, lesson, video, sources, prefs (prefs.silence), savePrefs(), seek(t),
 //         duration(), toast(msg, action, fn), ui { dragging }, uniform() (empty screen
-//         stretches from the slide analysis), onSkips(skips, contentEnd) }
+//         stretches from the slide analysis), onSkips(skips, contentEnd), onChange()
+//         (the settings menu redraws) }
 // ===================================================================================
 
 class SilenceUi {
@@ -4741,18 +5341,16 @@ class SilenceUi {
       video: deps.video,
       masterUrl: av ? av.av : null,
       disposer: disposer.child(),
-      onChange: () => { if (!this.d.disposed) { this.update(); this.renderMenu(); } },
+      onChange: () => { if (!this.d.disposed) { this.update(); this.x.onChange(); } },
     });
     this.analyzer.options = { minSec: p.min, sensitivity: p.sens };
     this.d.add(() => { clearTimeout(this.skipTimer); clearTimeout(this.endTimer); });
     this.bind();
-    this.renderMenu();
   }
 
   bind() {
     const x = this.x;
     const d = this.d;
-    const p = x.prefs.silence;
     d.listen(x.$('.endskip'), 'click', (e) => { e.stopPropagation(); this.hideEnd(); x.seek(x.duration()); });
     d.listen(x.$('.endstop'), 'click', (e) => { e.stopPropagation(); this.hideEnd(); x.video.pause(); });
     d.listen(x.$('.endclose'), 'click', (e) => { e.stopPropagation(); this.hideEnd(); });
@@ -4761,29 +5359,6 @@ class SilenceUi {
       const s = this.skips[this.idx];
       this.hideSkip();
       if (s) x.seek(s.end);
-    });
-    const menu = x.$('.audiomenu');
-    d.listen(menu.querySelector('[data-sil=auto]'), 'click', (e) => {
-      e.stopPropagation();
-      p.auto = !p.auto;
-      x.savePrefs();
-      this.renderMenu();
-    });
-    d.listen(menu.querySelector('.silmin'), 'click', (e) => {
-      e.stopPropagation();
-      const b = e.target.closest('button[data-min]');
-      if (!b) return;
-      p.min = +b.dataset.min;
-      x.savePrefs();
-      this.analyzer.setOptions({ minSec: p.min });
-    });
-    d.listen(menu.querySelector('.silsens'), 'click', (e) => {
-      e.stopPropagation();
-      const b = e.target.closest('button[data-sens]');
-      if (!b) return;
-      p.sens = b.dataset.sens;
-      x.savePrefs();
-      this.analyzer.setOptions({ sensitivity: p.sens });
     });
   }
 
@@ -4805,7 +5380,8 @@ class SilenceUi {
     x.onSkips(this.skips, this.contentEnd);
   }
 
-  renderMenu() {
+  // What the analysis found, as a sentence.
+  status() {
     const a = this.analyzer;
     const p = this.x.prefs.silence;
     const total = a.silences.reduce((n, s) => n + s.end - s.start, 0);
@@ -4817,15 +5393,31 @@ class SilenceUi {
     else if (a.source === 'unavailable') status = tr(a.reason === 'saveData' ? 'silenceSaveData' : 'silenceUnavailable');
     else if (a.source === 'audio' && a.progress < 1) status = tr('silenceAnalysing', { pct: Math.floor(a.progress * 100) }) + (a.silences.length ? ' ' + found : '');
     else status = found;
-    const menu = this.x.$('.audiomenu');
-    menu.querySelector('.silstatus').textContent = status;
-    const auto = menu.querySelector('[data-sil=auto]');
-    auto.setAttribute('aria-checked', String(p.auto));
-    auto.querySelector('.state').textContent = p.auto ? tr('on') : tr('off');
-    for (const b of menu.querySelectorAll('.silmin button')) b.setAttribute('aria-checked', String(+b.dataset.min === p.min));
-    for (const b of menu.querySelectorAll('.silsens button')) b.setAttribute('aria-checked', String(b.dataset.sens === p.sens));
-    // Sensitivity only matters when the audio itself is measured.
-    menu.querySelector('.sens').hidden = a.source !== 'audio';
+    return status;
+  }
+
+  value() { return this.x.prefs.silence.auto ? tr('on') : tr('off'); }
+
+  // The settings page.
+  items() {
+    const x = this.x;
+    const p = x.prefs.silence;
+    const set = (k, v, opt) => { p[k] = v; x.savePrefs(); if (opt) this.analyzer.setOptions(opt); };
+    return [
+      { kind: 'text', text: () => this.status() },
+      { kind: 'toggle', label: tr('silenceAuto'), desc: tr('silenceAutoDesc'), on: () => p.auto, set: (on) => set('auto', !!on) },
+      { kind: 'group', label: tr('silenceMin') },
+      ...SILENCE_MIN_CHOICES.map((s) => ({
+        kind: 'radio', label: s < 60 ? tr('seconds', { n: s }) : s === 60 ? tr('minute') : tr('minutes', { n: s / 60 }),
+        checked: () => p.min === s, select: () => set('min', s, { minSec: s }),
+      })),
+      // Sensitivity only matters when the audio itself is measured.
+      { kind: 'group', label: tr('silenceSensitivity'), hidden: () => this.analyzer.source !== 'audio' },
+      ...Object.keys(SILENCE_SENSITIVITY).map((k) => ({
+        kind: 'radio', label: tr(k), checked: () => p.sens === k, select: () => set('sens', k, { sensitivity: k }),
+        hidden: () => this.analyzer.source !== 'audio',
+      })),
+    ];
   }
 
   // On every time update: entering a silence offers to skip it (or skips it, if the user
@@ -4882,6 +5474,114 @@ class SilenceUi {
   hideEnd() {
     this.x.$('.endnote').hidden = true;
     clearTimeout(this.endTimer);
+  }
+}
+
+// ---- 48-speed.js ----
+// ===================================================================================
+// The speed control: the control bar's speed button ("1.5×") opens a popover with the
+// current value shown large and one track from SPEED_MIN to SPEED_MAX. The thumb moves
+// in 0.05 steps and snaps to the stops (SPEED_STOPS) near it; the labelled stops can be
+// tapped. Keys on the track: arrows 0.05, [ and ] (and Page Up / Down) the next stop,
+// Home / End the ends. [ and ] also work anywhere in the player (42-keys.js).
+//
+// deps: { $, pops (Popovers), rate() (current), setRate(r) }
+// ===================================================================================
+
+const SPEED_STEP = 0.05;
+
+function fmtRate(r) {
+  return String(+r.toFixed(2)) + '×';
+}
+
+// The next stop from `current` in direction dir (-1, 1); current if there is none.
+function nextSpeed(current, dir) {
+  const eps = 0.001;
+  if (dir > 0) return SPEED_STOPS.find((s) => s > current + eps) || current;
+  for (let i = SPEED_STOPS.length - 1; i >= 0; i--) if (SPEED_STOPS[i] < current - eps) return SPEED_STOPS[i];
+  return current;
+}
+
+function snapSpeed(v) {
+  const stop = SPEED_STOPS.find((s) => Math.abs(s - v) <= SPEED_SNAP);
+  if (stop != null) return stop;
+  return clamp(Math.round(v / SPEED_STEP) * SPEED_STEP, SPEED_MIN, SPEED_MAX);
+}
+
+class SpeedControl {
+  constructor(deps, disposer) {
+    this.x = deps;
+    this.d = disposer;
+    this.button = deps.$('.speed');
+    this.pop = deps.pops.create('spdpop', 'dialog', tr('speed'));
+    this.build();
+    disposer.listen(this.button, 'click', () => deps.pops.toggle(this.pop, this.button, 'above'));
+    this.render(deps.rate());
+  }
+
+  frac(r) { return (r - SPEED_MIN) / (SPEED_MAX - SPEED_MIN); }
+
+  build() {
+    const x = this.x;
+    this.value = el('b.spd-val', { 'aria-hidden': 'true' });
+    this.thumb = el('div.spd-thumb');
+    this.stops = SPEED_STOPS.map((s) => el('i.spd-stop', { style: 'left:' + (this.frac(s) * 100).toFixed(2) + '%' }));
+    this.track = el('div.spd-track', {
+      role: 'slider', tabindex: '0', 'data-autofocus': true, 'aria-label': tr('speed'),
+      'aria-valuemin': String(SPEED_MIN), 'aria-valuemax': String(SPEED_MAX),
+    }, el('div.spd-rail'), el('div.spd-fill'), ...this.stops, this.thumb);
+    this.labels = SPEED_LABELS.map((s) => el('button', {
+      'data-rate': String(s), text: fmtRate(s), style: 'left:' + (this.frac(s) * 100).toFixed(2) + '%',
+    }));
+    this.pop.el.append(el('div.spd', null,
+      el('div.spd-head', null, el('span', { text: tr('speed') }), this.value),
+      this.track, el('div.spd-labels', null, ...this.labels)));
+    const d = this.d;
+    const track = this.track;
+    const at = (e) => {
+      const r = track.getBoundingClientRect();
+      return snapSpeed(SPEED_MIN + clamp((e.clientX - r.left) / r.width, 0, 1) * (SPEED_MAX - SPEED_MIN));
+    };
+    onDrag(d, track, {
+      start: (e) => {
+        if (e.button !== 0) return null;
+        track.setPointerCapture(e.pointerId);
+        track.classList.add('dragging');
+        const from = x.rate();
+        x.setRate(at(e));
+        return { from };
+      },
+      move: (e) => x.setRate(at(e)),
+      done: () => track.classList.remove('dragging'),
+      cancel: (st) => { track.classList.remove('dragging'); x.setRate(st.from); },
+    });
+    d.listen(track, 'keydown', (e) => {
+      const r = x.rate();
+      const to = {
+        ArrowLeft: r - SPEED_STEP, ArrowDown: r - SPEED_STEP, ArrowRight: r + SPEED_STEP, ArrowUp: r + SPEED_STEP,
+        '[': nextSpeed(r, -1), PageDown: nextSpeed(r, -1), ']': nextSpeed(r, 1), PageUp: nextSpeed(r, 1),
+        Home: SPEED_MIN, End: SPEED_MAX,
+      }[e.key];
+      if (to == null) return;
+      e.preventDefault();
+      x.setRate(clamp(Math.round(to * 100) / 100, SPEED_MIN, SPEED_MAX));
+    });
+    d.listen(this.pop.el, 'click', (e) => {
+      const b = e.target.closest('button[data-rate]');
+      if (b) x.setRate(+b.dataset.rate);
+    });
+  }
+
+  render(rate) {
+    const text = fmtRate(rate);
+    this.button.textContent = text;
+    this.button.setAttribute('aria-label', tr('speedNow', { rate: text }));
+    this.value.textContent = text;
+    this.track.style.setProperty('--f', clamp(this.frac(rate), 0, 1).toFixed(4));
+    this.track.setAttribute('aria-valuenow', String(rate));
+    this.track.setAttribute('aria-valuetext', text);
+    SPEED_STOPS.forEach((s, i) => this.stops[i].classList.toggle('on', Math.abs(s - rate) < 0.001));
+    for (const b of this.labels) b.classList.toggle('on', Math.abs(+b.dataset.rate - rate) < 0.001);
   }
 }
 
@@ -5073,8 +5773,8 @@ class Zoomer {
 // ===================================================================================
 // A-B loop: play a stretch of the lecture again and again (a derivation, a sentence).
 //
-// Set the ends with I and O (or right-click the progress bar: "Loop from here" / "Loop to
-// here"); X or the band's ✕ ends it. The band on the progress bar shows the stretch and
+// Set the ends with I and O, from the settings menu ("Loop a section"), or by right-clicking
+// the progress bar ("Start loop here" / "End loop here"); X or the band's ✕ ends it. The band on the progress bar shows the stretch and
 // its ends can be dragged. Playback jumps back to A when it reaches B from inside the
 // stretch; after a jump outside, a notice offers to end the loop (otherwise it loops again
 // once playback is back inside).
@@ -5083,8 +5783,8 @@ class Zoomer {
 const LOOP_MIN_SEC = 1;
 
 class ABLoop {
-  // deps: { mount (where the menus live), rail (the progress bar), video, duration(),
-  //         seek(t), toast(msg, action, fn) }
+  // deps: { pops (Popovers), rail (the progress bar), video, duration(), seek(t),
+  //         toast(msg, action, fn) }
   constructor(deps, disposer) {
     this.p = deps;
     this.a = null;
@@ -5104,36 +5804,30 @@ class ABLoop {
       el('i.lh.la', { title: tr('loopStart') }), el('i.lh.lb', { title: tr('loopEnd') }),
       el('button.lx', { title: tr('loopClear') + ' (X)', 'aria-label': tr('loopClear'), text: '✕' }));
     seek.append(this.band);
-    this.menu = el('div.menu.loopmenu', { hidden: true, role: 'menu' },
-      el('button', { 'data-loop': 'a', text: tr('loopFromHere') }),
-      el('button', { 'data-loop': 'b', text: tr('loopToHere') }),
-      el('button', { 'data-loop': 'x', text: tr('loopClear') }));
-    const host = this.p.mount;  // where the other menus live
-    host.append(this.menu);
     const d = this.d;
+    let at = 0;
+    this.menu = new SettingsMenu(this.p.pops, 'loopmenu', tr('loopMenu'), () => [
+      { kind: 'action', label: tr('loopFromHere'), key: 'I', run: () => this.setA(at) },
+      { kind: 'action', label: tr('loopToHere'), key: 'O', run: () => this.setB(at) },
+      { kind: 'action', label: tr('loopClear'), key: 'X', run: () => this.clear(), hidden: () => this.a == null },
+    ], d);
     d.listen(this.band.querySelector('.lx'), 'pointerdown', (e) => e.stopPropagation());
     d.listen(this.band.querySelector('.lx'), 'click', (e) => { e.stopPropagation(); this.clear(); });
     for (const hd of this.band.querySelectorAll('.lh')) this.bindHandle(hd);
-    let at = 0;
     d.listen(seek, 'contextmenu', (e) => {
       e.preventDefault();
       const r = seek.getBoundingClientRect();
       at = clamp((e.clientX - r.left) / r.width, 0, 1) * this.p.duration();
-      const cr = host.getBoundingClientRect();
-      this.menu.style.left = clamp(e.clientX - cr.left - 60, 8, cr.width - 200) + 'px';
-      this.menu.style.right = 'auto';
-      this.menu.querySelector('[data-loop=x]').hidden = !this.active && this.a == null;
-      this.menu.hidden = false;
+      const x = e.clientX;
+      const y = r.top;
+      this.menu.open({ getBoundingClientRect: () => ({ left: x, right: x, top: y, bottom: y, width: 0, height: 0 }) }, 'above');
     });
-    d.listen(this.menu, 'click', (e) => {
-      const b = e.target.closest('[data-loop]');
-      if (!b) return;
-      e.stopPropagation();
-      this.menu.hidden = true;
-      if (b.dataset.loop === 'a') this.setA(at);
-      else if (b.dataset.loop === 'b') this.setB(at);
-      else this.clear();
-    });
+  }
+
+  // For the settings menu: the loop now, or "No loop".
+  label() {
+    if (this.a == null) return tr('loopNone');
+    return fmtTime(this.a) + '–' + (this.b == null ? '' : fmtTime(this.b));
   }
 
   // Dragging an end of the band.
@@ -5781,8 +6475,16 @@ class NotesPane {
     this.manageBox = el('div');
     this.errorEl = el('div.perror', { hidden: true });
     this.list = el('div.plist');
+    // "Didn't understand" is seen by the instructor: it lives here, says so, and asks first.
+    this.flagRow = null;
+    if (this.canFlag) {
+      this.flagBtn = el('button.pbtn', { onclick: (e) => this.onFlagClick(e) });
+      this.flagRow = el('div.flagrow', null, this.flagBtn, el('span.who', { text: tr('flagVisible') }));
+      this.d.add(() => clearTimeout(this.flagArmed));
+    }
     this.pane.append(
       el('div.pinfo', { text: tr('notesPrivate') }),
+      this.flagRow,
       el('div.composer', null, this.textarea, el('div.crow', null, timeLabel, el('span.grow'), this.addBtn)),
       el('div.ptools', null, this.select, this.tagSelect, el('span.grow'), this.manageBtn, this.exportBtn),
       this.manageBox,
@@ -5958,13 +6660,50 @@ class NotesPane {
     return this.items.find((x) => x.type === 'flag' && x.time === scene) || null;
   }
 
-  toggleFlag(e) {
-    return this.once(() => this.toggleFlagNow(e));
+  // The flag button for the part playing now: "Didn't understand", or remove the mark.
+  renderFlagRow() {
+    if (!this.flagBtn || this.flagArmed) return;
+    const ex = this.flagAt(this.p.video.currentTime);
+    const b = this.flagBtn;
+    b.innerHTML = svg(ex ? 'flagOn' : 'flag');
+    b.append(ex ? tr('flagRemoveLabel', { time: fmtTime(ex.time) }) : tr('flag'));
+    b.classList.remove('armed');
   }
 
-  async toggleFlagNow(e) {
+  // A first press asks (the button says what will happen); a second within FLAG_CONFIRM_MS
+  // marks. Removing a mark needs no confirmation.
+  onFlagClick(e) {
+    const now = this.p.video.currentTime;
+    if (this.flagAt(now)) { this.toggleFlag(e); return; }
+    if (!this.flagArmed) {
+      this.flagAt0 = now;
+      this.flagArmed = setTimeout(guard(() => { this.flagArmed = 0; this.renderFlagRow(); }), FLAG_CONFIRM_MS);
+      const b = this.flagBtn;
+      b.innerHTML = svg('flag');
+      b.append(tr('flagConfirmButton', { time: fmtTime(now) }));
+      b.classList.add('armed');
+      return;
+    }
+    clearTimeout(this.flagArmed);
+    this.flagArmed = 0;
+    this.toggleFlag(e, this.flagAt0);
+  }
+
+  // The U key: removes the mark here, or asks in a notice before marking.
+  flagByKey(e) {
+    const now = this.p.video.currentTime;
+    if (this.flagAt(now)) { this.toggleFlag(e); return true; }
+    this.p.toast(tr('flagConfirm', { time: fmtTime(now) }), tr('flagConfirmAction'), (ev) => this.toggleFlag(ev, now));
+    return true;
+  }
+
+  toggleFlag(e, at) {
+    return this.once(() => this.toggleFlagNow(e, at));
+  }
+
+  async toggleFlagNow(e, at) {
     if (!this.canFlag) return;
-    const time = this.p.video.currentTime;
+    const time = at == null ? this.p.video.currentTime : at;
     const existing = this.flagAt(time);
     try {
       if (existing) {
@@ -6483,7 +7222,7 @@ class DiscussionPane {
     const actions = el('div.cactions',
       null,
       el('button.link' + (c.liked ? '.on' : ''), {
-        text: (c.liked ? tr('unlike') : tr('like')) + (c.likes ? ' · ' + c.likes : ''),
+        text: (c.liked ? tr('unlike') : tr('like')) + (c.likes ? ' (' + c.likes + ')' : ''),
         onclick: (e) => this.write(e, () => this.api.like(e, c, !c.liked)),
       }),
       c.questionId ? null : el('button.link' + (c.saved ? '.on' : ''), {
@@ -6491,7 +7230,7 @@ class DiscussionPane {
         onclick: (e) => this.write(e, () => this.api.save(e, c, !c.saved)),
       }),
       c.mine ? this.deleteButton(c) : null,
-      c.hasAttachment ? el('button.link', { text: tr('attachment') + ' → ' + tr('openInOriginal'), onclick: () => this.p.opts.onFallback('attachment') }) : null,
+      c.hasAttachment ? el('button.link', { text: tr('attachmentOpen'), onclick: () => this.p.opts.onFallback('attachment') }) : null,
     );
     return el('div.comment' + (c.questionId ? '.reply' : ''), null,
       el('div.ihead', null, el('span.author', { text: who }), ...badges, time, el('span.grow'), date),
@@ -8696,13 +9435,13 @@ class SlideReader {
     }).catch((e) => log.warn('render page:', e && e.message ? e.message : e));
   }
 
-  // "Page 5 of 21 · file" for the page shown.
+  // "Page 5 of 21 (file)" for the page shown.
   label() {
     const deck = this.deck;
     const p = deck.pages[this.currentView()];
     if (!p) return '';
     return tr('pageOfN', { n: p.num, total: deck.pages.filter((x) => x.file === p.file).length })
-      + (deck.files.length > 1 ? ' · ' + p.file.replace(/\.pdf$/i, '') : '');
+      + (deck.files.length > 1 ? ' (' + p.file.replace(/\.pdf$/i, '') + ')' : '');
   }
 
   // The following line: following (sure / unsure / stale), or a button back to it.

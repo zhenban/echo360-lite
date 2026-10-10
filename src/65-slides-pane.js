@@ -144,13 +144,13 @@ class SlideReader {
     }).catch((e) => log.warn('render page:', e && e.message ? e.message : e));
   }
 
-  // "Page 5 of 21 · file" for the page shown.
+  // "Page 5 of 21 (file)" for the page shown.
   label() {
     const deck = this.deck;
     const p = deck.pages[this.currentView()];
     if (!p) return '';
     return tr('pageOfN', { n: p.num, total: deck.pages.filter((x) => x.file === p.file).length })
-      + (deck.files.length > 1 ? ' · ' + p.file.replace(/\.pdf$/i, '') : '');
+      + (deck.files.length > 1 ? ' (' + p.file.replace(/\.pdf$/i, '') + ')' : '');
   }
 
   // The following line: following (sure / unsure / stale), or a button back to it.

@@ -71,8 +71,16 @@ class NotesPane {
     this.manageBox = el('div');
     this.errorEl = el('div.perror', { hidden: true });
     this.list = el('div.plist');
+    // "Didn't understand" is seen by the instructor: it lives here, says so, and asks first.
+    this.flagRow = null;
+    if (this.canFlag) {
+      this.flagBtn = el('button.pbtn', { onclick: (e) => this.onFlagClick(e) });
+      this.flagRow = el('div.flagrow', null, this.flagBtn, el('span.who', { text: tr('flagVisible') }));
+      this.d.add(() => clearTimeout(this.flagArmed));
+    }
     this.pane.append(
       el('div.pinfo', { text: tr('notesPrivate') }),
+      this.flagRow,
       el('div.composer', null, this.textarea, el('div.crow', null, timeLabel, el('span.grow'), this.addBtn)),
       el('div.ptools', null, this.select, this.tagSelect, el('span.grow'), this.manageBtn, this.exportBtn),
       this.manageBox,
@@ -248,13 +256,50 @@ class NotesPane {
     return this.items.find((x) => x.type === 'flag' && x.time === scene) || null;
   }
 
-  toggleFlag(e) {
-    return this.once(() => this.toggleFlagNow(e));
+  // The flag button for the part playing now: "Didn't understand", or remove the mark.
+  renderFlagRow() {
+    if (!this.flagBtn || this.flagArmed) return;
+    const ex = this.flagAt(this.p.video.currentTime);
+    const b = this.flagBtn;
+    b.innerHTML = svg(ex ? 'flagOn' : 'flag');
+    b.append(ex ? tr('flagRemoveLabel', { time: fmtTime(ex.time) }) : tr('flag'));
+    b.classList.remove('armed');
   }
 
-  async toggleFlagNow(e) {
+  // A first press asks (the button says what will happen); a second within FLAG_CONFIRM_MS
+  // marks. Removing a mark needs no confirmation.
+  onFlagClick(e) {
+    const now = this.p.video.currentTime;
+    if (this.flagAt(now)) { this.toggleFlag(e); return; }
+    if (!this.flagArmed) {
+      this.flagAt0 = now;
+      this.flagArmed = setTimeout(guard(() => { this.flagArmed = 0; this.renderFlagRow(); }), FLAG_CONFIRM_MS);
+      const b = this.flagBtn;
+      b.innerHTML = svg('flag');
+      b.append(tr('flagConfirmButton', { time: fmtTime(now) }));
+      b.classList.add('armed');
+      return;
+    }
+    clearTimeout(this.flagArmed);
+    this.flagArmed = 0;
+    this.toggleFlag(e, this.flagAt0);
+  }
+
+  // The U key: removes the mark here, or asks in a notice before marking.
+  flagByKey(e) {
+    const now = this.p.video.currentTime;
+    if (this.flagAt(now)) { this.toggleFlag(e); return true; }
+    this.p.toast(tr('flagConfirm', { time: fmtTime(now) }), tr('flagConfirmAction'), (ev) => this.toggleFlag(ev, now));
+    return true;
+  }
+
+  toggleFlag(e, at) {
+    return this.once(() => this.toggleFlagNow(e, at));
+  }
+
+  async toggleFlagNow(e, at) {
     if (!this.canFlag) return;
-    const time = this.p.video.currentTime;
+    const time = at == null ? this.p.video.currentTime : at;
     const existing = this.flagAt(time);
     try {
       if (existing) {

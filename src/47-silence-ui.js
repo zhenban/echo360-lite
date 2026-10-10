@@ -1,12 +1,13 @@
 // ===================================================================================
 // Silences and empty parts during playback: the analysis (62-silence.js), the stretches
 // that can be skipped (with the slide analysis' empty screens), the Skip button and
-// automatic skipping, "the lecture has ended" at an empty ending, and the silence part of
-// the audio menu.
+// automatic skipping, "the lecture has ended" at an empty ending, and the "Skip silence"
+// page of the settings menu.
 //
 // deps: { $, lesson, video, sources, prefs (prefs.silence), savePrefs(), seek(t),
 //         duration(), toast(msg, action, fn), ui { dragging }, uniform() (empty screen
-//         stretches from the slide analysis), onSkips(skips, contentEnd) }
+//         stretches from the slide analysis), onSkips(skips, contentEnd), onChange()
+//         (the settings menu redraws) }
 // ===================================================================================
 
 class SilenceUi {
@@ -25,18 +26,16 @@ class SilenceUi {
       video: deps.video,
       masterUrl: av ? av.av : null,
       disposer: disposer.child(),
-      onChange: () => { if (!this.d.disposed) { this.update(); this.renderMenu(); } },
+      onChange: () => { if (!this.d.disposed) { this.update(); this.x.onChange(); } },
     });
     this.analyzer.options = { minSec: p.min, sensitivity: p.sens };
     this.d.add(() => { clearTimeout(this.skipTimer); clearTimeout(this.endTimer); });
     this.bind();
-    this.renderMenu();
   }
 
   bind() {
     const x = this.x;
     const d = this.d;
-    const p = x.prefs.silence;
     d.listen(x.$('.endskip'), 'click', (e) => { e.stopPropagation(); this.hideEnd(); x.seek(x.duration()); });
     d.listen(x.$('.endstop'), 'click', (e) => { e.stopPropagation(); this.hideEnd(); x.video.pause(); });
     d.listen(x.$('.endclose'), 'click', (e) => { e.stopPropagation(); this.hideEnd(); });
@@ -45,29 +44,6 @@ class SilenceUi {
       const s = this.skips[this.idx];
       this.hideSkip();
       if (s) x.seek(s.end);
-    });
-    const menu = x.$('.audiomenu');
-    d.listen(menu.querySelector('[data-sil=auto]'), 'click', (e) => {
-      e.stopPropagation();
-      p.auto = !p.auto;
-      x.savePrefs();
-      this.renderMenu();
-    });
-    d.listen(menu.querySelector('.silmin'), 'click', (e) => {
-      e.stopPropagation();
-      const b = e.target.closest('button[data-min]');
-      if (!b) return;
-      p.min = +b.dataset.min;
-      x.savePrefs();
-      this.analyzer.setOptions({ minSec: p.min });
-    });
-    d.listen(menu.querySelector('.silsens'), 'click', (e) => {
-      e.stopPropagation();
-      const b = e.target.closest('button[data-sens]');
-      if (!b) return;
-      p.sens = b.dataset.sens;
-      x.savePrefs();
-      this.analyzer.setOptions({ sensitivity: p.sens });
     });
   }
 
@@ -89,7 +65,8 @@ class SilenceUi {
     x.onSkips(this.skips, this.contentEnd);
   }
 
-  renderMenu() {
+  // What the analysis found, as a sentence.
+  status() {
     const a = this.analyzer;
     const p = this.x.prefs.silence;
     const total = a.silences.reduce((n, s) => n + s.end - s.start, 0);
@@ -101,15 +78,31 @@ class SilenceUi {
     else if (a.source === 'unavailable') status = tr(a.reason === 'saveData' ? 'silenceSaveData' : 'silenceUnavailable');
     else if (a.source === 'audio' && a.progress < 1) status = tr('silenceAnalysing', { pct: Math.floor(a.progress * 100) }) + (a.silences.length ? ' ' + found : '');
     else status = found;
-    const menu = this.x.$('.audiomenu');
-    menu.querySelector('.silstatus').textContent = status;
-    const auto = menu.querySelector('[data-sil=auto]');
-    auto.setAttribute('aria-checked', String(p.auto));
-    auto.querySelector('.state').textContent = p.auto ? tr('on') : tr('off');
-    for (const b of menu.querySelectorAll('.silmin button')) b.setAttribute('aria-checked', String(+b.dataset.min === p.min));
-    for (const b of menu.querySelectorAll('.silsens button')) b.setAttribute('aria-checked', String(b.dataset.sens === p.sens));
-    // Sensitivity only matters when the audio itself is measured.
-    menu.querySelector('.sens').hidden = a.source !== 'audio';
+    return status;
+  }
+
+  value() { return this.x.prefs.silence.auto ? tr('on') : tr('off'); }
+
+  // The settings page.
+  items() {
+    const x = this.x;
+    const p = x.prefs.silence;
+    const set = (k, v, opt) => { p[k] = v; x.savePrefs(); if (opt) this.analyzer.setOptions(opt); };
+    return [
+      { kind: 'text', text: () => this.status() },
+      { kind: 'toggle', label: tr('silenceAuto'), desc: tr('silenceAutoDesc'), on: () => p.auto, set: (on) => set('auto', !!on) },
+      { kind: 'group', label: tr('silenceMin') },
+      ...SILENCE_MIN_CHOICES.map((s) => ({
+        kind: 'radio', label: s < 60 ? tr('seconds', { n: s }) : s === 60 ? tr('minute') : tr('minutes', { n: s / 60 }),
+        checked: () => p.min === s, select: () => set('min', s, { minSec: s }),
+      })),
+      // Sensitivity only matters when the audio itself is measured.
+      { kind: 'group', label: tr('silenceSensitivity'), hidden: () => this.analyzer.source !== 'audio' },
+      ...Object.keys(SILENCE_SENSITIVITY).map((k) => ({
+        kind: 'radio', label: tr(k), checked: () => p.sens === k, select: () => set('sens', k, { sensitivity: k }),
+        hidden: () => this.analyzer.source !== 'audio',
+      })),
+    ];
   }
 
   // On every time update: entering a silence offers to skip it (or skips it, if the user

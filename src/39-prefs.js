@@ -8,6 +8,8 @@
 // Layouts of the two views, and corners for the picture-in-picture window.
 const LAYOUTS = ['side', 'pip', 'single'];
 const CORNERS = ['br', 'bl', 'tr', 'tl'];
+// Colour themes (the light one applies to the side panel, menus and dialogs only).
+const THEMES = ['system', 'dark', 'light'];
 
 const COPY_SPANS = [30, 60, 120, 300];
 
@@ -21,6 +23,7 @@ function prefDefaults() {
     copySpan: 60,
     pdfMain: false, pdfFirst: false,
     quality: { screen: 'auto', camera: 'auto' },
+    theme: 'system',
   };
 }
 
@@ -66,6 +69,7 @@ function sanitizePrefs(raw) {
     pdfMain: bool(r.pdfMain, d.pdfMain),
     pdfFirst: bool(r.pdfFirst, d.pdfFirst),
     quality: { screen: height(quality.screen), camera: height(quality.camera) },
+    theme: oneOf(r.theme, THEMES, d.theme),
   };
 }
 

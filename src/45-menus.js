@@ -1,95 +1,60 @@
 // ===================================================================================
-// The control bar's menus: speed, layout, captions, copy, quality and audio buttons open
-// their menu (one at a time, closed by a click elsewhere or Esc); the ⋯ menu (analysis
-// results stored, diagnostics, shortcuts). Also what those menus do that belongs to no
-// other part: captions on/off and size, copying the picture or what was said.
+// The control bar's buttons and the settings menu (⋮ in the title bar), built from the
+// shared components (32-ui-kit.js).
 //
-// deps: { $, root, stage, video, prefs, savePrefs(), setRate(r), setLayout(name), cc
-//         (CaptionsView), cues() ([] until loaded), screenVideo(), title, duration(),
-//         toast(msg), wake(), showKeys(), diagnostics() -> text, onOpen(menu) (quality,
-//         audio: draw before showing), onCloseAll() (other popups to close too) }
+// Control bar: captions (on/off; unavailable with a reason when there are none), copy
+// picture, copy text, and the priority overflow: when the bar is too narrow, the buttons in
+// BAR_OVERFLOW make way in that order and appear at the top of the ⋮ menu instead; if it is
+// still too narrow, the time moves above the progress bar. The bookmark and layout buttons
+// are the player's; the speed button is SpeedControl's (48-speed.js).
+//
+// Settings menu: pages for quality, captions, audio, skipping silence, layout, copy text
+// and theme, then actions (floating window, loop, export, shortcuts, storage and
+// diagnostics, the original player). Parts give their own pages (deps.pages).
+//
+// deps: { $, root, pops (Popovers), stage, video, prefs, savePrefs(), cc (CaptionsView),
+//         cues() ([] until loaded), screenVideo(), title, duration(), toast(msg),
+//         layouts() (offered: [] none), layout(), setLayout(l), swap(), pdfMode(),
+//         pages: { quality(), audio(), silence() } (items, see SettingsMenu),
+//         values: { quality(), audio(), silence() } (shown next to the pages),
+//         actions: { bookmark(e), popout() or null, loopA(), loopB(), loopClear(),
+//         loopLabel(), exportNotes() or null, showKeys(), original() }, setTheme(t) }
 // ===================================================================================
+
+// Control-bar buttons (data-bar) that move into the ⋮ menu when the bar is too narrow,
+// the first to go first. They come back in the opposite order when there is room.
+const BAR_OVERFLOW = ['copyText', 'copyPicture', 'bookmark'];
 
 class MenuBar {
   constructor(deps, disposer) {
     this.x = deps;
     this.d = disposer;
     const $ = deps.$;
-    this.menus = [['.speed', '.speedmenu'], ['.layout', '.layoutmenu'], ['.ccbtn', '.ccmenu'], ['.audiobtn', '.audiomenu'],
-      ['.qbtn', '.qualitymenu'], ['.copybtn', '.copymenu'], ['.morebtn', '.moremenu']].map(([b, m]) => [$(b), $(m)]);
-    this.buildSpeeds();
+    this.out = [];
+    this.settings = new SettingsMenu(deps.pops, 'settings', tr('moreMenu'), () => this.rootItems(), disposer);
     this.bind();
-  }
-
-  buildSpeeds() {
-    const menu = this.x.$('.speedmenu');
-    for (const s of SPEEDS) menu.append(el('button', { role: 'menuitemradio', 'data-rate': String(s), text: s + 'x' }));
-  }
-
-  anyOpen() {
-    return [...this.x.root.querySelectorAll('.menu')].some((m) => !m.hidden);
-  }
-
-  closeAll() {
-    for (const m of this.x.root.querySelectorAll('.menu')) m.hidden = true;
-    this.x.onCloseAll();
+    // The bar is measured again whenever its width changes.
+    const row = $('.row');
+    if (typeof ResizeObserver === 'function') disposer.observe(new ResizeObserver(() => this.fitBar())).observe(row);
+    this.fitBar();
   }
 
   bind() {
     const x = this.x;
     const $ = x.$;
     const d = this.d;
-    for (const [btn, menu] of this.menus) {
-      d.listen(btn, 'click', (e) => {
-        e.stopPropagation();
-        const open = menu.hidden;
-        for (const [, m] of this.menus) m.hidden = true;
-        if (open) {
-          if (menu.classList.contains('copymenu')) this.renderCopyMenu();
-          if (menu.classList.contains('moremenu')) this.renderMoreMenu();
-          x.onOpen(menu);
-        }
-        menu.hidden = !open;
-        x.wake();
-      });
-    }
+    const more = $('.morebtn');
+    d.listen(more, 'click', () => this.settings.toggle(more, 'below'));
+    // A press on a control that is not available says why (touch screens have no tooltips).
     d.listen(x.root, 'click', (e) => {
-      if (e.target.closest('.menu, .speed, .layout, .ccbtn, .audiobtn, .qbtn, .copybtn, .morebtn')) return;
-      for (const [, m] of this.menus) m.hidden = true;
-      x.onCloseAll();
-    });
-    d.listen($('.speedmenu'), 'click', (e) => {
-      const b = e.target.closest('button[data-rate]');
-      if (b) { x.setRate(+b.dataset.rate); $('.speedmenu').hidden = true; }
-    });
-    d.listen($('.layoutmenu'), 'click', (e) => {
-      const b = e.target.closest('button[data-layout]');
-      if (b) { x.setLayout(b.dataset.layout); $('.layoutmenu').hidden = true; }
-    });
-    d.listen($('.copymenu'), 'click', (e) => {
-      e.stopPropagation();
-      const b = e.target.closest('button[data-copy], button[data-span]');
-      if (!b) return;
-      if (b.dataset.span) {
-        x.prefs.copySpan = +b.dataset.span;
-        x.savePrefs();
-        this.renderCopyMenu();
-        return;
-      }
-      $('.copymenu').hidden = true;
-      if (b.dataset.copy === 'frame') this.copyFrame(); else this.copyCaptions();
-    });
-    d.listen($('.cctoggle'), 'click', () => this.setCaptions(!x.cc.on));
-    d.listen($('.cchidepaused'), 'click', () => {
-      x.prefs.capHidePaused = !x.prefs.capHidePaused;
-      x.savePrefs();
-      this.renderCaptionMenu();
-    });
-    d.listen($('.ccmenu .sizes'), 'click', (e) => {
-      const b = e.target.closest('button[data-size]');
-      if (b) this.setCaptionSize(b.dataset.size);
-    });
-    d.listen($('.diagclose'), 'click', (e) => { e.stopPropagation(); $('.diagbox').hidden = true; });
+      const b = e.target.closest && e.target.closest('[aria-disabled=true][data-reason]');
+      if (b && b.dataset.reason) { e.stopImmediatePropagation(); x.toast(b.dataset.reason); }
+    }, true);
+    d.listen($('.ccbtn'), 'click', () => this.setCaptions(!x.cc.on));
+    d.listen($('.framebtn'), 'click', () => this.copyFrame());
+    d.listen($('.textbtn'), 'click', () => this.copyCaptions());
+    d.listen($('.diagclose'), 'click', (e) => { e.stopPropagation(); this.showDiagnostics(false); });
+    d.listen($('.diagbox'), 'click', (e) => { if (e.target === $('.diagbox')) this.showDiagnostics(false); });
     d.listen($('.diagcopy'), 'click', (e) => {
       e.stopPropagation();
       navigator.clipboard.writeText($('.diagtext').textContent)
@@ -97,22 +62,167 @@ class MenuBar {
     });
   }
 
-  // ---- speed ----
+  anyOpen() { return this.x.pops.isOpen(); }
 
-  renderSpeed(rate) {
-    this.x.$('.speed').textContent = rate + 'x';
-    for (const b of this.x.root.querySelectorAll('.speedmenu button')) b.setAttribute('aria-checked', String(+b.dataset.rate === rate));
+  closeAll() { this.x.pops.close(true); }
+
+  // Redraws the settings menu if it is open (a part's state changed).
+  refresh() { this.settings.refresh(); }
+
+  // ---- the control bar ----
+
+  // Moves buttons out of the bar (BAR_OVERFLOW order) until it fits, then the time.
+  fitBar() {
+    const $ = this.x.$;
+    const row = $('.row');
+    const bottom = $('.bottom');
+    const btns = BAR_OVERFLOW.map((k) => this.x.root.querySelector('.row [data-bar=' + k + ']'));
+    for (const b of btns) b.classList.remove('out');
+    bottom.classList.remove('compact');
+    const over = () => row.scrollWidth > row.clientWidth + 1;
+    let n = 0;
+    while (n < btns.length && over()) btns[n++].classList.add('out');
+    if (over()) bottom.classList.add('compact');
+    this.out = BAR_OVERFLOW.slice(0, n).filter((k, i) => !btns[i].hidden);
+    this.refresh();
+  }
+
+  // The bar's buttons moved into the menu, as menu actions.
+  overflowItems() {
+    const x = this.x;
+    const btn = (k) => x.root.querySelector('.row [data-bar=' + k + ']');
+    const item = {
+      bookmark: { kind: 'action', label: tr('bookmark'), key: 'B', run: (e) => x.actions.bookmark(e) },
+      copyPicture: { kind: 'action', label: tr('copyFrame'), key: 'P', run: () => this.copyFrame() },
+      copyText: { kind: 'action', label: tr('copyCaptions'), key: 'A', run: () => this.copyCaptions(), reason: () => unavailableReason(btn('copyText')) },
+    };
+    // In the bar's order (bookmark, copy picture, copy text).
+    const list = BAR_OVERFLOW.slice().reverse().filter((k) => this.out.includes(k)).map((k) => item[k]);
+    return list.length ? list.concat({ kind: 'sep' }) : [];
+  }
+
+  // ---- the settings menu ----
+
+  rootItems() {
+    const x = this.x;
+    const a = x.actions;
+    const layouts = x.layouts();
+    return [
+      ...this.overflowItems(),
+      { kind: 'page', label: tr('quality'), value: x.values.quality, items: x.pages.quality },
+      { kind: 'page', label: tr('captionsPage'), value: () => (x.cc.on ? tr('on') : tr('off')), items: () => this.captionItems() },
+      { kind: 'page', label: tr('audio'), value: x.values.audio, items: x.pages.audio, hidden: () => !x.pages.audio },
+      { kind: 'page', label: tr('silencePage'), value: x.values.silence, items: x.pages.silence, hidden: () => !x.pages.silence },
+      { kind: 'page', label: tr('layout'), value: () => tr(layoutKey(x.layout())), items: () => this.layoutItems(), hidden: () => !layouts.length },
+      { kind: 'page', label: tr('copyCaptionsSpan'), value: () => spanLabel(x.prefs.copySpan), items: () => this.copyItems() },
+      { kind: 'page', label: tr('theme'), value: () => tr(themeKey(x.prefs.theme)), items: () => this.themeItems() },
+      { kind: 'sep' },
+      { kind: 'action', label: tr('popout'), key: 'W', run: () => a.popout(), hidden: () => !a.popout },
+      { kind: 'page', label: tr('loopMenu'), value: a.loopLabel, items: () => this.loopItems() },
+      { kind: 'action', label: tr('exportNotes'), key: 'E', run: () => a.exportNotes(), hidden: () => !a.exportNotes },
+      { kind: 'action', label: tr('keysMenu'), key: '?', run: () => a.showKeys() },
+      { kind: 'page', label: tr('storageMenu'), items: () => this.storageItems() },
+      { kind: 'action', label: tr('useOriginal'), run: () => a.original() },
+      { kind: 'foot', text: 'Lite Player for Echo360 ' + VERSION },
+    ];
+  }
+
+  captionItems() {
+    const x = this.x;
+    const none = () => unavailableReason(x.$('.ccbtn'));
+    return [
+      { kind: 'toggle', label: tr('showCaptions'), on: () => x.cc.on, set: (on) => this.setCaptions(on), reason: none },
+      { kind: 'toggle', label: tr('hideCaptionsPaused'), on: () => !!x.prefs.capHidePaused, set: (on) => this.setHidePaused(on) },
+      { kind: 'group', label: tr('captionSize') },
+      ...Object.keys(CAPTION_SIZES).map((s) => ({
+        kind: 'radio', label: tr('size' + s.toUpperCase()), checked: () => x.prefs.capSize === s, select: () => this.setCaptionSize(s),
+      })),
+    ];
+  }
+
+  layoutItems() {
+    const x = this.x;
+    return [
+      ...x.layouts().map((l) => ({ kind: 'radio', label: tr(layoutKey(l)), checked: () => x.layout() === l, select: () => x.setLayout(l) })),
+      { kind: 'text', text: () => tr('layoutPdfNote'), hidden: () => !x.pdfMode() },
+      { kind: 'sep' },
+      { kind: 'action', label: tr('swapViews'), key: 'S', run: () => x.swap() },
+    ];
+  }
+
+  copyItems() {
+    const x = this.x;
+    return [
+      { kind: 'text', text: () => tr('copyCaptionsSpanDesc') },
+      ...COPY_SPANS.map((s) => ({
+        kind: 'radio', label: spanLabel(s), checked: () => x.prefs.copySpan === s,
+        select: () => { x.prefs.copySpan = s; x.savePrefs(); },
+      })),
+    ];
+  }
+
+  themeItems() {
+    const x = this.x;
+    return [
+      ...THEMES.map((t) => ({ kind: 'radio', label: tr(themeKey(t)), checked: () => x.prefs.theme === t, select: () => x.setTheme(t) })),
+      { kind: 'text', text: () => tr('themeNote') },
+    ];
+  }
+
+  loopItems() {
+    const a = this.x.actions;
+    return [
+      { kind: 'action', label: tr('loopFromHere'), key: 'I', run: () => a.loopA() },
+      { kind: 'action', label: tr('loopToHere'), key: 'O', run: () => a.loopB() },
+      { kind: 'action', label: tr('loopClear'), key: 'X', run: () => a.loopClear(), reason: () => (a.loopLabel() === tr('loopNone') ? tr('loopNone') : '') },
+    ];
+  }
+
+  // Analysis results stored on this device (size, clear) and the diagnostics.
+  storageItems() {
+    const size = el('span.grow', { text: tr('cachesMeasuring') });
+    const clear = el('button.pbtn', { text: tr('cachesClear') });
+    clear.addEventListener('click', guard(async (e) => {
+      e.stopPropagation();
+      clear.disabled = true;
+      const n = await analysisCaches.clear();
+      size.textContent = tr('cachesCleared', { n });
+    }));
+    analysisCaches.usage().then((u) => {
+      size.textContent = tr('cachesSize', { mb: (u.bytes / 1e6).toFixed(u.bytes < 1e7 ? 1 : 0), n: u.count });
+    }).catch(() => { size.textContent = tr('cachesUnknown'); });
+    const row = el('div.mrow', null, size, clear);
+    return [
+      { kind: 'custom', render: () => row },
+      { kind: 'text', text: () => tr('cachesInfo') },
+      { kind: 'sep' },
+      { kind: 'action', label: tr('diagMenu'), run: () => this.showDiagnostics(true) },
+    ];
   }
 
   // ---- captions ----
+
+  // Captions can be turned on once they are loaded; until then (or when there are none)
+  // the button says why not.
+  captionsAvailable(reason) {
+    setUnavailable(this.x.$('.ccbtn'), reason, tr('captionsKey'));
+    setUnavailable(this.x.$('.textbtn'), reason ? tr('copyNoCaptions') : '', tr('copyCaptionsKey'));
+    this.refresh();
+  }
 
   setCaptions(on, restoring) {
     const x = this.x;
     x.cc.setOn(on);
     x.cc.update(x.video.currentTime);
     if (!restoring) { x.prefs.captions = on; x.savePrefs(); }
-    x.$('.ccbtn').classList.toggle('active', on);
-    this.renderCaptionMenu();
+    setPressed(x.$('.ccbtn'), on);
+    this.refresh();
+  }
+
+  setHidePaused(on) {
+    this.x.prefs.capHidePaused = !!on;
+    this.x.savePrefs();
+    this.x.stage.classList.toggle('hidecc-paused', !!on);
   }
 
   setCaptionSize(size) {
@@ -120,28 +230,9 @@ class MenuBar {
     this.x.prefs.capSize = size;
     this.x.cc.setSize(size);
     this.x.savePrefs();
-    this.renderCaptionMenu();
-  }
-
-  renderCaptionMenu() {
-    const x = this.x;
-    const on = x.cc.on;
-    const toggle = x.$('.cctoggle');
-    toggle.setAttribute('aria-checked', String(on));
-    toggle.querySelector('.state').textContent = on ? tr('on') : tr('off');
-    for (const b of x.root.querySelectorAll('.ccmenu .sizes button')) b.setAttribute('aria-checked', String(b.dataset.size === x.prefs.capSize));
-    const hide = x.$('.cchidepaused');
-    hide.setAttribute('aria-checked', String(!!x.prefs.capHidePaused));
-    hide.querySelector('.state').textContent = x.prefs.capHidePaused ? tr('on') : tr('off');
-    x.stage.classList.toggle('hidecc-paused', !!x.prefs.capHidePaused);
   }
 
   // ---- copying (picture, what was said) ----
-
-  renderCopyMenu() {
-    const span = this.x.prefs.copySpan || 60;
-    for (const b of this.x.root.querySelectorAll('.copymenu [data-span]')) b.setAttribute('aria-checked', String(+b.dataset.span === span));
-  }
 
   // Copies the current picture at the video's own resolution. Must run from a user action.
   copyFrame() {
@@ -176,36 +267,27 @@ class MenuBar {
       .catch((e) => x.toast(tr('copyFailed', { msg: (e && e.message) || e })));
   }
 
-  // ---- the ⋯ menu: analysis results stored on this device (size, clear), diagnostics, keys ----
-
-  renderMoreMenu() {
-    const x = this.x;
-    const m = x.$('.moremenu');
-    m.textContent = '';
-    const size = el('span.grow', { text: tr('cachesMeasuring') });
-    const clear = el('button', { text: tr('cachesClear') });
-    clear.addEventListener('click', guard(async (e) => {
-      e.stopPropagation();
-      clear.disabled = true;
-      const n = await analysisCaches.clear();
-      size.textContent = tr('cachesCleared', { n });
-    }));
-    m.append(el('div.head', { text: 'Lite Player for Echo360 ' + VERSION }),
-      el('div.row', { title: tr('cachesInfo') }, size, clear),
-      el('button', { text: tr('diagMenu'), onclick: (e) => { e.stopPropagation(); m.hidden = true; this.showDiagnostics(); } }),
-      el('button', { text: tr('keysTitle') + ' (?)', onclick: (e) => { e.stopPropagation(); m.hidden = true; x.showKeys(); } }));
-    analysisCaches.usage().then((u) => {
-      size.textContent = tr('cachesSize', { mb: (u.bytes / 1e6).toFixed(u.bytes < 1e7 ? 1 : 0), n: u.count });
-    }).catch(() => { size.textContent = tr('cachesUnknown'); });
-  }
+  // ---- diagnostics ----
 
   get diagnosticsOpen() { return !this.x.$('.diagbox').hidden; }
 
   showDiagnostics(on) {
     const x = this.x;
-    if (on === false) { x.$('.diagbox').hidden = true; return; }
+    if (on === false) { x.$('.diagbox').hidden = true; x.$('.morebtn').focus({ preventScroll: true }); return; }
     x.$('.diagtext').textContent = x.diagnostics();
     x.$('.diagbox').hidden = false;
     x.$('.diagcopy').focus();
   }
+}
+
+function layoutKey(l) {
+  return { side: 'layoutSide', pip: 'layoutPip', single: 'layoutSingle' }[l];
+}
+
+function themeKey(t) {
+  return { system: 'themeSystem', dark: 'themeDark', light: 'themeLight' }[t];
+}
+
+function spanLabel(s) {
+  return tr('copySpanValue', { time: s < 60 ? tr('seconds', { n: s }) : s === 60 ? tr('minute') : tr('minutes', { n: s / 60 }) });
 }

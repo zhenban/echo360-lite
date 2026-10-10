@@ -168,7 +168,7 @@ class DiscussionPane {
     const actions = el('div.cactions',
       null,
       el('button.link' + (c.liked ? '.on' : ''), {
-        text: (c.liked ? tr('unlike') : tr('like')) + (c.likes ? ' · ' + c.likes : ''),
+        text: (c.liked ? tr('unlike') : tr('like')) + (c.likes ? ' (' + c.likes + ')' : ''),
         onclick: (e) => this.write(e, () => this.api.like(e, c, !c.liked)),
       }),
       c.questionId ? null : el('button.link' + (c.saved ? '.on' : ''), {
@@ -176,7 +176,7 @@ class DiscussionPane {
         onclick: (e) => this.write(e, () => this.api.save(e, c, !c.saved)),
       }),
       c.mine ? this.deleteButton(c) : null,
-      c.hasAttachment ? el('button.link', { text: tr('attachment') + ' → ' + tr('openInOriginal'), onclick: () => this.p.opts.onFallback('attachment') }) : null,
+      c.hasAttachment ? el('button.link', { text: tr('attachmentOpen'), onclick: () => this.p.opts.onFallback('attachment') }) : null,
     );
     return el('div.comment' + (c.questionId ? '.reply' : ''), null,
       el('div.ihead', null, el('span.author', { text: who }), ...badges, time, el('span.grow'), date),

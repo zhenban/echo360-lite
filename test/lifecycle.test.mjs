@@ -9,7 +9,7 @@ import { Window } from 'happy-dom';
 
 const src = new URL('../src/', import.meta.url);
 const code = readdirSync(src).filter((f) => f.endsWith('.js') && f !== '90-main.js').sort().map((f) => readFileSync(new URL(f, src), 'utf8')).join('\n');
-const names = 'Disposer,TranscriptPanel,Stream,TagStore,idbCache,SlideReader,DiscussionPane,NotesPane,LayoutControls,CaptionsView,FrameTask,SlideAnalyzer,HlsVideoReader,SeekBar,SlideDeckController,ABLoop,Zoomer,playerTemplate,PLAYER_CSS,'
+const names = 'Disposer,Popovers,BAR_OVERFLOW,SPEED_STOPS,SettingsMenu,Tooltips,SpeedControl,MenuBar,setUnavailable,nextSpeed,snapSpeed,TranscriptPanel,Stream,TagStore,idbCache,SlideReader,DiscussionPane,NotesPane,LayoutControls,CaptionsView,FrameTask,SlideAnalyzer,HlsVideoReader,SeekBar,SlideDeckController,ABLoop,Zoomer,playerTemplate,PLAYER_CSS,'
   + 'setPdfLib: (lib) => { pdfjsPromise = Promise.resolve(lib); }';
 
 // The sources in a page of their own; nothing reaches the network.
@@ -36,9 +36,9 @@ test('audit 1: controls hidden with the title bar and bottom bar take no taps', 
   };
   const shown = player(false);
   const hidden = player(true);
-  assert.equal(shown('.orig'), 'auto', 'clickable while shown');
+  assert.equal(shown('.morebtn'), 'auto', 'clickable while shown');
   assert.equal(shown('.loopband .lh'), 'auto', 'loop handles draggable while shown');
-  assert.equal(hidden('.orig'), 'none', 'the Original player button while hidden');
+  assert.equal(hidden('.morebtn'), 'none', 'the settings button while hidden');
   assert.equal(hidden('.loopband .lh'), 'none', 'the loop handles while hidden');
 }));
 
@@ -267,7 +267,8 @@ test('audit 6b: other drags (zoom pan, loop handle) ignore a second finger and u
   const rail = root.querySelector('.seek');
   rail.getBoundingClientRect = () => ({ left: 0, width: 100 });
   const d = new m.Disposer();
-  const loop = new m.ABLoop({ mount: root.querySelector('.m'), rail, video: { currentTime: 0 }, duration: () => 100, seek() {}, toast() {} }, d);
+  w.document.body.append(root);
+  const loop = new m.ABLoop({ pops: new m.Popovers(root.querySelector('.m'), d), rail, video: { currentTime: 0 }, duration: () => 100, seek() {}, toast() {} }, d);
   loop.a = 10;
   loop.b = 40;
   loop.render();
@@ -309,4 +310,145 @@ test('transcript search marks exactly the matched characters, in every line of a
   assert.equal(pane.querySelectorAll('mark').length, 0);
   assert.equal(t.rows[1].querySelector('.tx').textContent, cues[1].text);
   d.dispose();
+}));
+
+// ---- shared UI components (src/32-ui-kit.js, 48-speed.js, 45-menus.js) ----
+
+const rect = (left, top, width, height) => ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top });
+
+function popoverStage(w, m, width, height) {
+  const box = w.document.createElement('div');
+  box.getBoundingClientRect = () => rect(0, 0, width, height);
+  const btn = w.document.createElement('button');
+  w.document.body.append(box, btn);
+  const d = new m.Disposer();
+  const pops = new m.Popovers(box, d);
+  const pop = pops.create('t', 'dialog', 'Test');
+  pop.el.append(w.document.createElement('button'));
+  Object.defineProperty(pop.el, 'offsetWidth', { get: () => 200 });
+  Object.defineProperty(pop.el, 'offsetHeight', { get: () => 100 });
+  return { box, btn, d, pops, pop };
+}
+
+test('popover: anchored above its button, moved inward at the edge, below when there is no room above', async () => withPage(async (w, m) => {
+  const { btn, d, pops, pop } = popoverStage(w, m, 1000, 600);
+  btn.getBoundingClientRect = () => rect(970, 550, 40, 40);   // bottom-right corner
+  pops.open(pop, btn, 'above');
+  assert.equal(pop.el.style.left, (1000 - 200 - 8) + 'px', 'kept inside the right edge');
+  assert.equal(pop.el.style.top, (550 - 8 - 100) + 'px', 'just above the button');
+  assert.equal(btn.getAttribute('aria-expanded'), 'true');
+  pops.close(false);
+  btn.getBoundingClientRect = () => rect(10, 20, 40, 40);   // top-left, a bottom-bar placement
+  pops.open(pop, btn, 'above');
+  assert.equal(pop.el.style.top, (60 + 8) + 'px', 'flipped below: no room above');
+  assert.equal(pop.el.style.left, '8px', 'kept inside the left edge');
+  d.dispose();
+}));
+
+test('popover: a bottom sheet when narrow; Esc and an outside press close it, Esc gives the focus back', async () => withPage(async (w, m) => {
+  const { btn, d, pops, pop } = popoverStage(w, m, 390, 800);
+  btn.getBoundingClientRect = () => rect(300, 700, 44, 44);
+  pops.open(pop, btn, 'above');
+  assert.ok(pop.el.classList.contains('sheet'));
+  pop.el.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  assert.equal(pops.isOpen(), false);
+  assert.equal(pop.el.hidden, true);
+  assert.equal(btn.getAttribute('aria-expanded'), 'false');
+  assert.equal(w.document.activeElement, btn, 'focus back on the button');
+  pops.open(pop, btn, 'above');
+  w.document.body.dispatchEvent(pointer(w, 'pointerdown', { pointerId: 1 }));
+  assert.equal(pops.isOpen(), false, 'outside press closes');
+  pops.open(pop, btn, 'above');
+  pop.el.firstChild.dispatchEvent(pointer(w, 'pointerdown', { pointerId: 1 }));
+  assert.equal(pops.isOpen(), true, 'a press inside keeps it open');
+  d.dispose();
+  assert.equal(pops.isOpen(), false, 'disposed: closed');
+}));
+
+test('settings menu: pages open with a back button, values show, toggles and radios redraw', async () => withPage(async (w, m) => {
+  const { btn, d, pops } = popoverStage(w, m, 1000, 600);
+  btn.getBoundingClientRect = () => rect(900, 10, 40, 40);
+  let q = 'auto';
+  let on = false;
+  let ran = 0;
+  const menu = new m.SettingsMenu(pops, 'sm', 'Settings', () => [
+    { kind: 'action', label: 'Go', run: () => ran++ },
+    { kind: 'action', label: 'Not now', reason: () => 'No captions', run: () => ran++ },
+    { kind: 'page', label: 'Quality', value: () => q, items: () => [
+      { kind: 'radio', label: 'auto', checked: () => q === 'auto', select: () => { q = 'auto'; } },
+      { kind: 'radio', label: '720p', checked: () => q === '720p', select: () => { q = '720p'; } },
+    ] },
+    { kind: 'toggle', label: 'Loud', on: () => on, set: (v) => { on = v; } },
+    { kind: 'action', label: 'Gone', hidden: () => true, run() {} },
+  ], d);
+  const el = menu.pop.el;
+  const item = (label) => [...el.querySelectorAll('.mi')].find((x) => x.querySelector('.lbl').firstChild.textContent === label);
+  menu.open(btn, 'below');
+  assert.equal(el.querySelectorAll('.mi').length, 4, 'hidden items left out');
+  assert.equal(item('Quality').querySelector('.val').textContent, 'auto');
+  assert.equal(item('Not now').getAttribute('aria-disabled'), 'true');
+  item('Not now').click();
+  assert.equal(ran, 0, 'an unavailable action does nothing');
+  item('Loud').click();
+  assert.equal(on, true);
+  assert.equal(item('Loud').getAttribute('aria-checked'), 'true', 'redrawn');
+  item('Quality').click();
+  assert.ok(el.querySelector('.mback'), 'second-level page has a back button');
+  assert.equal(el.querySelector('.mhead span').textContent, 'Quality');
+  item('720p').click();
+  assert.equal(item('720p').getAttribute('aria-checked'), 'true');
+  el.querySelector('.mback').click();
+  assert.equal(item('Quality').querySelector('.val').textContent, '720p', 'back on the first page, with the new value');
+  item('Go').click();
+  assert.equal(ran, 1);
+  assert.equal(menu.isOpen, false, 'an action closes the menu');
+  menu.open(btn, 'below');
+  assert.ok(!el.querySelector('.mback'), 'opens on the first page again');
+  d.dispose();
+}));
+
+test('speed: stops snap, [ and ] step between stops, values stay in range', async () => withPage(async (w, m) => {
+  assert.equal(m.snapSpeed(1.47), 1.5, 'near a stop: the stop');
+  assert.equal(+m.snapSpeed(1.38).toFixed(2), 1.4, 'between stops: 0.05 steps');
+  assert.equal(m.snapSpeed(9), 3);
+  assert.equal(m.snapSpeed(0.1), 0.5);
+  assert.equal(m.nextSpeed(1, 1), 1.25);
+  assert.equal(m.nextSpeed(1.3, -1), 1.25, 'off a stop: the stop below');
+  assert.equal(m.nextSpeed(1.3, 1), 1.5);
+  assert.equal(m.nextSpeed(3, 1), 3, 'no stop above the last');
+  assert.equal(m.nextSpeed(m.SPEED_STOPS[0], -1), m.SPEED_STOPS[0]);
+}));
+
+test('control bar: buttons move into the menu in BAR_OVERFLOW order, then the time moves up', async () => withPage(async (w, m) => {
+  const root = w.document.createElement('div');
+  root.innerHTML = '<div class="bottom"><div class="row"><button class="a"></button>'
+    + m.BAR_OVERFLOW.slice().reverse().map((k) => '<button data-bar="' + k + '"></button>').join('') + '</div></div>';
+  const row = root.querySelector('.row');
+  const bottom = root.querySelector('.bottom');
+  // Each button is 40 px wide; a compact bar (time above the seek bar) saves 100 px.
+  Object.defineProperty(row, 'scrollWidth', { get: () => 40 * row.querySelectorAll('button:not(.out)').length + 200 - (bottom.classList.contains('compact') ? 100 : 0) });
+  let width = 0;
+  Object.defineProperty(row, 'clientWidth', { get: () => width });
+  const bar = { x: { $: (s) => root.querySelector(s), root }, refresh() {} };
+  const fit = (wd) => { width = wd; m.MenuBar.prototype.fitBar.call(bar); return bar.out.join(','); };
+  assert.equal(fit(400), '');
+  assert.equal(fit(320), m.BAR_OVERFLOW.slice(0, 1).join(','), 'first in the list goes first');
+  assert.equal(fit(280), m.BAR_OVERFLOW.slice(0, 2).join(','));
+  assert.equal(fit(240), m.BAR_OVERFLOW.join(','));
+  assert.equal(bottom.classList.contains('compact'), false);
+  assert.equal(fit(200), m.BAR_OVERFLOW.join(','));
+  assert.equal(bottom.classList.contains('compact'), true, 'still too wide: time moves up');
+  assert.equal(fit(400), '', 'all come back when there is room');
+  assert.equal(bottom.classList.contains('compact'), false);
+}));
+
+test('unavailable control: dimmed with a reason, which is also its tooltip; usable again with its own tip', async () => withPage(async (w, m) => {
+  const b = w.document.createElement('button');
+  m.setUnavailable(b, 'This recording has no captions', 'Captions (C)');
+  assert.equal(b.getAttribute('aria-disabled'), 'true');
+  assert.equal(b.dataset.tip, 'This recording has no captions');
+  m.setUnavailable(b, '', 'Captions (C)');
+  assert.equal(b.getAttribute('aria-disabled'), 'false');
+  assert.equal(b.dataset.tip, 'Captions (C)');
+  assert.equal(b.dataset.reason, '');
 }));

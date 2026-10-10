@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.17.0
+A redesign of the controls (the language setting comes in a later version).
+- **Control bar**: play, back and forward 10 seconds, volume and time on the left; speed, captions, bookmark, copy picture, copy text, layout and full screen on the right. In a narrow window, copy text, then copy picture, then bookmark move into the ⋮ menu; on a phone the time moves above the progress bar.
+- **Speed**: the button shows the speed (for example 1.5×). It opens one slider from 0.5× to 3× that snaps to the common speeds and moves in 0.05 steps; tap a label to jump. `[` and `]` still step between the common speeds.
+- **Captions**: the CC button turns them on or off in one press. When a recording has no captions, the button is dimmed and says why. Caption size and "hide while paused" are in the menu.
+- **Layout**: the button shows the current layout and its label says what comes next; you can also pick one directly in the menu. With a slide PDF open, the button switches between side by side and picture in picture.
+- **One ⋮ menu** in the title bar replaces the separate menus: quality, captions, audio, skip silence, layout, copy text length and theme, each on its own page with a back button; then the floating window, loop a section, export notes and backup, keyboard shortcuts, storage and diagnostics, and switch to the original player. Menus open next to their button; on a phone they open as a sheet from the bottom. Esc or a press outside closes them.
+- **Theme**: dark, light or match system (the default). The light theme applies to the side panel, menus and dialogs; the video area stays dark.
+- **Didn't understand** is no longer in the control bar. It is in the Notes tab, marked as visible to your instructor, and asks you to confirm before marking (U asks too).
+- New colours and icons throughout. Progress-bar markers differ by shape as well as colour (notes are dots, bookmarks are bookmark shapes, "didn't understand" marks are flags, discussion posts are diamonds), and the A-B loop is a white outline.
+- Touch: all controls are at least 44 px; nothing needs hovering. Tooltips are for mouse and keyboard only.
+- Keyboard: every control has a visible focus ring and a name for screen readers; menus work with the arrow keys and give the focus back to their button when closed.
+
 ## 0.16.1
 - Fix: transcript search marked the wrong place: a cue spread over several lines got the mark under its last lines, whatever line the match was on. Now exactly the matched characters are marked (for "exam", the "exam" in "example").
 - Volume levelling is now on by default (when the browser supports it; otherwise it stays off quietly). Turning it off is remembered. An "off" saved by an earlier version cannot be told apart from the old default, so it is turned on once; turn it off again if you prefer it off.

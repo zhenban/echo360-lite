@@ -109,6 +109,7 @@ class SeekBar {
     const seekEl = this.el;
     const tip = x.$('.tip');
     const tipText = tip.querySelector('.tt');
+    const tipLabel = tip.querySelector('.tl');
     const tipImg = tip.querySelector('.pv');
     let rect = null;
     let lastSeekAt = 0;
@@ -122,9 +123,9 @@ class SeekBar {
       seekEl.style.setProperty('--h', f.toFixed(4));
       nearMarker = x.markers.nearest(f, rect.width, 6);
       const sil = nearMarker ? null : x.skipAt(f * dur);
-      tipText.textContent = nearMarker
-        ? fmtTime(nearMarker.time, dur >= 3600) + ' · ' + (nearMarker.label.length > 70 ? nearMarker.label.slice(0, 67) + '…' : nearMarker.label)
-        : fmtTime(f * dur, dur >= 3600) + (sil ? ' · ' + tr(sil.kind + 'Tip', { time: fmtTime(sil.end - sil.start) }) : '');
+      tipText.textContent = fmtTime(nearMarker ? nearMarker.time : f * dur, dur >= 3600);
+      tipLabel.textContent = nearMarker ? (nearMarker.label.length > 70 ? nearMarker.label.slice(0, 67) + '…' : nearMarker.label)
+        : sil ? tr(sil.kind + 'Tip', { time: fmtTime(sil.end - sil.start) }) : '';
       const pv = x.previewAt(nearMarker ? nearMarker.time : f * dur);
       if (pv) { if (tipImg.getAttribute('src') !== pv) tipImg.src = pv; tipImg.hidden = false; } else tipImg.hidden = true;
       const half = pv ? 96 : 24;

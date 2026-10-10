@@ -13,9 +13,6 @@ class PopoutController {
     this.d = disposer;
     this.window = null;
     this.opening = false;
-    const btn = deps.$('.popbtn');
-    btn.hidden = !PopoutController.supported();
-    this.d.listen(btn, 'click', () => this.toggle());
     // On teardown: close the window; its pagehide (sync or later) only removes the
     // placeholder, since the player is destroyed by then.
     this.d.add(() => { if (this.window) { try { this.window.close(); } catch (e) { /* closed */ } } });
@@ -72,7 +69,6 @@ class PopoutController {
       host.style.cssText = css;
       if (holder.isConnected) holder.replaceWith(host);
       if (still && x.video.paused) x.video.play().catch(() => {});
-      x.$('.popbtn').setAttribute('aria-pressed', 'false');
       x.relayout();
     };
     pip.addEventListener('pagehide', putBack, { once: true });
@@ -89,7 +85,6 @@ class PopoutController {
       pip.addEventListener('resize', resize);
       // Moving can pause the elements in some browsers: carry on as before.
       if (playing && x.video.paused) x.video.play().catch(() => {});
-      x.$('.popbtn').setAttribute('aria-pressed', 'true');
     } catch (e) {
       putBack();
       try { pip.close(); } catch (err) { /* already closed */ }

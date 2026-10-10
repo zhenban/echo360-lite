@@ -1,8 +1,8 @@
 // ===================================================================================
 // A-B loop: play a stretch of the lecture again and again (a derivation, a sentence).
 //
-// Set the ends with I and O (or right-click the progress bar: "Loop from here" / "Loop to
-// here"); X or the band's ✕ ends it. The band on the progress bar shows the stretch and
+// Set the ends with I and O, from the settings menu ("Loop a section"), or by right-clicking
+// the progress bar ("Start loop here" / "End loop here"); X or the band's ✕ ends it. The band on the progress bar shows the stretch and
 // its ends can be dragged. Playback jumps back to A when it reaches B from inside the
 // stretch; after a jump outside, a notice offers to end the loop (otherwise it loops again
 // once playback is back inside).
@@ -11,8 +11,8 @@
 const LOOP_MIN_SEC = 1;
 
 class ABLoop {
-  // deps: { mount (where the menus live), rail (the progress bar), video, duration(),
-  //         seek(t), toast(msg, action, fn) }
+  // deps: { pops (Popovers), rail (the progress bar), video, duration(), seek(t),
+  //         toast(msg, action, fn) }
   constructor(deps, disposer) {
     this.p = deps;
     this.a = null;
@@ -32,36 +32,30 @@ class ABLoop {
       el('i.lh.la', { title: tr('loopStart') }), el('i.lh.lb', { title: tr('loopEnd') }),
       el('button.lx', { title: tr('loopClear') + ' (X)', 'aria-label': tr('loopClear'), text: '✕' }));
     seek.append(this.band);
-    this.menu = el('div.menu.loopmenu', { hidden: true, role: 'menu' },
-      el('button', { 'data-loop': 'a', text: tr('loopFromHere') }),
-      el('button', { 'data-loop': 'b', text: tr('loopToHere') }),
-      el('button', { 'data-loop': 'x', text: tr('loopClear') }));
-    const host = this.p.mount;  // where the other menus live
-    host.append(this.menu);
     const d = this.d;
+    let at = 0;
+    this.menu = new SettingsMenu(this.p.pops, 'loopmenu', tr('loopMenu'), () => [
+      { kind: 'action', label: tr('loopFromHere'), key: 'I', run: () => this.setA(at) },
+      { kind: 'action', label: tr('loopToHere'), key: 'O', run: () => this.setB(at) },
+      { kind: 'action', label: tr('loopClear'), key: 'X', run: () => this.clear(), hidden: () => this.a == null },
+    ], d);
     d.listen(this.band.querySelector('.lx'), 'pointerdown', (e) => e.stopPropagation());
     d.listen(this.band.querySelector('.lx'), 'click', (e) => { e.stopPropagation(); this.clear(); });
     for (const hd of this.band.querySelectorAll('.lh')) this.bindHandle(hd);
-    let at = 0;
     d.listen(seek, 'contextmenu', (e) => {
       e.preventDefault();
       const r = seek.getBoundingClientRect();
       at = clamp((e.clientX - r.left) / r.width, 0, 1) * this.p.duration();
-      const cr = host.getBoundingClientRect();
-      this.menu.style.left = clamp(e.clientX - cr.left - 60, 8, cr.width - 200) + 'px';
-      this.menu.style.right = 'auto';
-      this.menu.querySelector('[data-loop=x]').hidden = !this.active && this.a == null;
-      this.menu.hidden = false;
+      const x = e.clientX;
+      const y = r.top;
+      this.menu.open({ getBoundingClientRect: () => ({ left: x, right: x, top: y, bottom: y, width: 0, height: 0 }) }, 'above');
     });
-    d.listen(this.menu, 'click', (e) => {
-      const b = e.target.closest('[data-loop]');
-      if (!b) return;
-      e.stopPropagation();
-      this.menu.hidden = true;
-      if (b.dataset.loop === 'a') this.setA(at);
-      else if (b.dataset.loop === 'b') this.setB(at);
-      else this.clear();
-    });
+  }
+
+  // For the settings menu: the loop now, or "No loop".
+  label() {
+    if (this.a == null) return tr('loopNone');
+    return fmtTime(this.a) + '–' + (this.b == null ? '' : fmtTime(this.b));
   }
 
   // Dragging an end of the band.

@@ -40,7 +40,6 @@ class KeyboardShortcuts {
     this.onKey = (e) => this.handle(e);
     this.d.listen(document, 'keydown', this.onKey, true);
     const box = deps.$('.keyhelp');
-    this.d.listen(deps.$('.kbtn'), 'click', (e) => { e.stopPropagation(); this.showHelp(true); });
     this.d.listen(deps.$('.khclose'), 'click', (e) => { e.stopPropagation(); this.showHelp(false); });
     this.d.listen(box, 'click', (e) => { if (e.target === box) this.showHelp(false); });
   }
@@ -49,6 +48,9 @@ class KeyboardShortcuts {
     if (e.ctrlKey || e.metaKey || e.altKey || this.x.isDestroyed()) return;
     const target = e.composedPath()[0];
     if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) && target.type !== 'range') return;
+    // An open menu or popover handles its own keys (arrows, Enter, [ and ] on the speed
+    // track); only Esc goes on to close it.
+    if (target && target.closest && target.closest('.pop') && e.key !== 'Escape') return;
     let entry = KEY_ACTIONS[e.key] || KEY_ACTIONS[e.key.length === 1 ? e.key.toLowerCase() : ''];
     if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && e.shiftKey) entry = ['stepChapter', e.key === 'ArrowLeft' ? -1 : 1];
     if (e.key === '?') entry = ['help'];
@@ -72,7 +74,13 @@ class KeyboardShortcuts {
         list.append(el('div', null, ...keys.map((k) => el('kbd', { text: k }))), el('div', { text: tr(label) }));
       }
     }
+    // Focus goes back to where it was (the ⋮ button when opened from its menu).
+    if (on && box.hidden) {
+      const active = box.getRootNode().activeElement;
+      this.returnTo = active && active.offsetParent ? active : null;
+    }
     box.hidden = !on;
     if (on) box.querySelector('.khclose').focus();
+    else (this.returnTo || this.x.$('.morebtn')).focus({ preventScroll: true });
   }
 }
