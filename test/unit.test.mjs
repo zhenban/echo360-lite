@@ -31,11 +31,11 @@ function loadSources(names, overrides) {
   // As in a page: window is the global object (page scripts set window.Echo, read Echo).
   if (ctx.window === 'global') ctx.window = ctx;
   vm.createContext(ctx);
-  const files = readdirSync(join(root, 'src')).filter((f) => f.startsWith('02-tuning') || f.startsWith('03-common') || names.some((n) => f === n + '.js' || f.startsWith(n + '-'))).sort();
+  const files = readdirSync(join(root, 'src')).filter((f) => f.startsWith('02-tuning') || f.startsWith('03-common') || f.startsWith('05-platform') || names.some((n) => f === n + '.js' || f.startsWith(n + '-'))).sort();
   const code = files.map((f) => readFileSync(join(root, 'src', f), 'utf8')).join('\n')
     + '\n;globalThis.__exports = {};'
     + ['clamp', 'fmtTime', 'parseIsoDuration', 'Disposer', 'PlayedRanges', 'Reporter', 'FollowerSync', 'CueIndex', 'parseVtt', 'echo360ClassroomAdapter', 'AudioChain', 'seg', 'Echo360Api', 'thumbnailFor', 'pickAudioRendition', 'parseMediaPlaylist', 'Envelope', 'findSilences', 'silencesFromCues', 'speechSpans', 'silenceIndexAt', 'mp4Boxes', 'parseFragment', 'videoVariants', 'Stream', 'pickScreen', 'slightChange', 'thumbChange', 'learnThreshold', 'sampleChanges', 'groupSegments', 'sampleIndexAt', 'HlsVideoReader', 'buildScenes', 'chapterIndexAt', 'SessionKeeper', 'mediaSession', 'TagStore', 'watchedShare', 'makeZip', 'crc32', 'lectureMarkdown', 'mdTag', 'followSamples', 'followLecture', 'textScores', 'slideWords', 'ocrLanguage', 'TESS_LANGS', 'slideTextWorkerSource', 'FORCE_OFF', 'captionExcerpt',
-      'sanitizePrefs', 'sanitizePos', 'prefDefaults', 'guard', 'guardCore', 'featureGuard', 'unexpected', 'featureErrors', 'eventLog', 'SilenceAnalyzer', 'skipStretches', 'contentEndAt', 'frameUniform', 'uniformStretches', 'maskUrls', 'diagnosticsText', 'cacheTouched', 'cacheLastUse', 'cacheValid', 'restoreBackup', 'makeBackup', 'idbCache', 'LitePlayer', 'NotesPane', 'DiscussionPane', 'SlideTextReader', 'SlideTextWorker', 'SlideDeckController', 'playerTemplate', 'NS']
+      'sanitizePrefs', 'sanitizePos', 'prefDefaults', 'guard', 'guardCore', 'featureGuard', 'unexpected', 'featureErrors', 'eventLog', 'SilenceAnalyzer', 'skipStretches', 'contentEndAt', 'frameUniform', 'uniformStretches', 'maskUrls', 'diagnosticsText', 'cacheTouched', 'cacheLastUse', 'cacheValid', 'restoreBackup', 'makeBackup', 'idbCache', 'LitePlayer', 'NotesPane', 'DiscussionPane', 'SlideTextReader', 'SlideTextWorker', 'SlideDeckController', 'playerTemplate', 'NS', 'platform', 'store', 'loadPdfJs', 'loadTesseract']
       .map((n) => `if (typeof ${n} !== 'undefined') globalThis.__exports.${n} = ${n};`).join('\n');
   vm.runInContext(code, ctx);
   return { ...ctx.__exports, timers, window: ctx.window, setFetch: (fn) => { ctx.__fetch = fn; } };
@@ -1454,4 +1454,24 @@ test('caption excerpt: last span in whole sentences', () => {
   assert.equal(x.text, 'This one starts here and ends here. Now we talk about Fourier series.');
   assert.equal(m.captionExcerpt(cues, 3, 60).start, 0);
   assert.equal(m.captionExcerpt([], 3, 60), null);
+});
+
+test('platform: settings, backups and libraries go through whatever platform is in place', async () => {
+  // Another way of running the player (an extension) provides its own platform object.
+  const m = loadSources(['00-util', '39-prefs', '61-media-io', '66-slide-ocr', '68-slide-deck', '85-export'], { localStorage: { getItem() { throw new Error('used localStorage'); }, setItem() { throw new Error('used localStorage'); } } });
+  const kept = new Map();
+  m.platform.kv = { get: (k) => (kept.has(k) ? kept.get(k) : null), set: (k, v) => { kept.set(k, v); }, names: () => [...kept.keys()] };
+  m.platform.openDb = () => null;
+  const asked = [];
+  m.platform.importLib = (path) => { asked.push(path); return Promise.resolve({ default: { lib: path } }); };
+  m.platform.libUrl = (path) => 'ext://lib/' + path;
+  m.store.set('prefs', { speed: 1.5 });
+  assert.equal(JSON.stringify(m.store.get('prefs')), '{"speed":1.5}');
+  assert.ok(kept.has(m.NS + 'prefs'));
+  const backup = await m.makeBackup(false);
+  assert.equal(backup.local.prefs, JSON.stringify({ speed: 1.5 }));
+  await m.loadPdfJs();
+  await m.loadTesseract();
+  assert.equal(asked.length, 2);
+  assert.ok(asked.every((p) => /^[@a-z][\w.@/-]+\.m?js$/.test(p) && !p.includes('//')), asked.join(' '));
 });

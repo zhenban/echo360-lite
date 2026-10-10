@@ -32,8 +32,21 @@ export function assemble() {
       if (!files.includes(m[1])) { console.error(`${f}: names ${m[1]}, which does not exist`); failed = true; }
     }
   }
+  // What depends on how the player is run goes through `platform` (05-platform.js), so that
+  // an extension can provide its own. Echo360's own sign-in token lives in the page's
+  // storage whatever runs the player, so the reporter reads it there.
+  const PLATFORM_ONLY = [[/\blocalStorage\b/, 'localStorage'], [/\bindexedDB\b/, 'indexedDB'], [/\bimport\(/, 'import()'], [/\bGM_\w+/, 'GM_ functions'], [/(?<![.\w])Hls\b/, 'Hls']];
+  const PLATFORM_ALLOWED = { '05-platform.js': /./, '20-reporter.js': /^localStorage$/ };
+  for (const f of files) {
+    readFileSync(join(srcDir, f), 'utf8').split('\n').forEach((line, i) => {
+      if (/^\s*(\/\/|\*)/.test(line)) return;
+      for (const [re, what] of PLATFORM_ONLY) {
+        if (re.test(line) && !(PLATFORM_ALLOWED[f] && PLATFORM_ALLOWED[f].test(what))) { console.error(`${f}:${i + 1}: uses ${what} directly; go through platform (05-platform.js)`); failed = true; }
+      }
+    });
+  }
   if (failed) return null;
-  const meta = readFileSync(join(srcDir, 'meta.txt'), 'utf8').replace('{{VERSION}}', version).trimEnd();
+  const meta =readFileSync(join(srcDir, 'meta.txt'), 'utf8').replace('{{VERSION}}', version).trimEnd();
   // The pages the script is loaded on (@match) and those it acts on (SITE_HOSTS) must agree.
   const matched = [...new Set([...meta.matchAll(/^\/\/ @match\s+https:\/\/([^/]+)\//gm)].map((m) => m[1]))].sort();
   const sites = JSON.parse(/const SITE_HOSTS = (\[[^\]]*\]);/.exec(readFileSync(join(srcDir, '03-common.js'), 'utf8'))[1].replace(/'/g, '"')).sort();

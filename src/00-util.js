@@ -4,7 +4,6 @@
 
 const TAG = '[Lite Player for Echo360]';
 const NS = 'lite-player-for-echo360:';
-const HlsLib = typeof Hls !== 'undefined' ? Hls : window.Hls;
 
 // After a backup has been restored, this page must not write its older data back over
 // it (it reloads right away; until then writes are dropped).
@@ -13,7 +12,7 @@ const storageLock = { frozen: false };
 const store = {
   get(key, fallback) {
     try {
-      const v = localStorage.getItem(NS + key);
+      const v = platform.kv.get(NS + key);
       return v === null ? fallback : JSON.parse(v);
     } catch (e) {
       return fallback;
@@ -21,7 +20,7 @@ const store = {
   },
   set(key, value) {
     if (storageLock.frozen) return;
-    try { localStorage.setItem(NS + key, JSON.stringify(value)); } catch (e) { /* ignore */ }
+    try { platform.kv.set(NS + key, JSON.stringify(value)); } catch (e) { /* ignore */ }
   },
 };
 

@@ -22,21 +22,21 @@
 // controller.pages[i] = { key, file, num, title, text }.
 // ===================================================================================
 
-const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.4.299/build/';
+const PDFJS_DIR = 'pdfjs-dist@6.4.299/build/';
 
 let pdfjsPromise = null;
 function loadPdfJs() {
   if (!pdfjsPromise) {
-    pdfjsPromise = import(PDFJS_BASE + 'pdf.min.mjs');
+    pdfjsPromise = platform.importLib(PDFJS_DIR + 'pdf.min.mjs');
     pdfjsPromise.catch(() => { pdfjsPromise = null; });
   }
   return pdfjsPromise;
 }
 
 // pdf.js's worker for one controller: a module worker from a blob that imports the pinned
-// worker script (a cross-origin worker URL cannot be used directly). Ended by its owner.
+// worker script (a worker URL from another origin cannot be used directly). Ended by its owner.
 function makePdfWorker(lib) {
-  const url = URL.createObjectURL(new Blob(['import "' + PDFJS_BASE + 'pdf.worker.min.mjs";'], { type: 'text/javascript' }));
+  const url = URL.createObjectURL(new Blob(['import "' + platform.libUrl(PDFJS_DIR + 'pdf.worker.min.mjs') + '";'], { type: 'text/javascript' }));
   const port = new Worker(url, { type: 'module' });
   URL.revokeObjectURL(url);
   return { port, pdf: new lib.PDFWorker({ port }) };

@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.16.0
+Under the hood (first part of the 1.0 release work): everything that depends on how the player is run — where settings and files are kept, where pdf.js and Tesseract are loaded from, hls.js, saving files — now goes through one small layer, so a browser extension can later be built from the same code. Nothing should look or work differently; please report anything that does.
+
 ## 0.15.3
 Fixes from a review of touch input, several open tabs, and files changed while work is still running.
 - While the controls are hidden, their buttons (including the A-B loop handles) no longer take clicks or taps.

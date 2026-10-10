@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lite Player for Echo360
 // @namespace    lite-player-for-echo360
-// @version      0.15.3
+// @version      0.16.0
 // @updateURL    https://github.com/zhenban/lite-player-for-echo360/releases/latest/download/lite-player-for-echo360.user.js
 // @downloadURL  https://github.com/zhenban/lite-player-for-echo360/releases/latest/download/lite-player-for-echo360.user.js
 // @description  Unofficial, lightweight player for Echo360 lecture recordings: far lower CPU use, both views side by side, slide chapters, a PDF that follows the lecture. Falls back to the original player automatically if anything is not recognised.
@@ -19,7 +19,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.15.3';
+  const VERSION = '0.16.0';
 
 // ---- 00-util.js ----
 // ===================================================================================
@@ -28,7 +28,6 @@
 
 const TAG = '[Lite Player for Echo360]';
 const NS = 'lite-player-for-echo360:';
-const HlsLib = typeof Hls !== 'undefined' ? Hls : window.Hls;
 
 // After a backup has been restored, this page must not write its older data back over
 // it (it reloads right away; until then writes are dropped).
@@ -37,7 +36,7 @@ const storageLock = { frozen: false };
 const store = {
   get(key, fallback) {
     try {
-      const v = localStorage.getItem(NS + key);
+      const v = platform.kv.get(NS + key);
       return v === null ? fallback : JSON.parse(v);
     } catch (e) {
       return fallback;
@@ -45,7 +44,7 @@ const store = {
   },
   set(key, value) {
     if (storageLock.frozen) return;
-    try { localStorage.setItem(NS + key, JSON.stringify(value)); } catch (e) { /* ignore */ }
+    try { platform.kv.set(NS + key, JSON.stringify(value)); } catch (e) { /* ignore */ }
   },
 };
 
@@ -1065,6 +1064,60 @@ function hiddenFor(node) {
 //   screenpick:<mediaId> { index }   the screen view chosen by hand
 // localStorage (prefix lite-player-for-echo360:): prefs (39-prefs.js), pos:<lesson id> { t, at },
 // debug, dryRun, forceOriginal, silenceFromAudio (development switches).
+
+// ---- 05-platform.js ----
+// ===================================================================================
+// Platform: everything that depends on how the player is run. Today that is a userscript
+// (Tampermonkey, Violentmonkey) running in the page; a browser extension built from the
+// same sources will provide its own version of this object. The rest of the code uses
+// only `platform` for these things (the build checks it):
+//   - kv: small settings kept on this device (synchronous: settings are needed at start-up;
+//     an extension reads a snapshot before it starts the player)
+//   - openDb: the IndexedDB database for larger data (slide files, analyses, tags)
+//   - libUrl / importLib: the libraries loaded when first needed (pdf.js, Tesseract and
+//     its language data), named by their npm path ('pdfjs-dist@6.4.299/build/...'). A
+//     userscript fetches them from a CDN; an extension ships them (Manifest V3 does not
+//     allow code from elsewhere).
+//   - Hls: hls.js (the userscript manager loads it through @require)
+//   - save: offer a file to the user
+//   - manager: what runs the player, for diagnostics
+// ===================================================================================
+
+const platform = {
+  name: 'userscript',
+  kv: {
+    get(name) { try { return localStorage.getItem(name); } catch (e) { return null; } },
+    // Throws when storage is full or blocked; callers decide whether that matters.
+    set(name, text) { localStorage.setItem(name, text); },
+    names() {
+      const out = [];
+      try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k != null) out.push(k); } } catch (e) { /* blocked */ }
+      return out;
+    },
+  },
+  openDb(name, version) {
+    if (typeof indexedDB === 'undefined') return null;
+    return indexedDB.open(name, version);
+  },
+  libUrl(path) { return 'https://cdn.jsdelivr.net/npm/' + path; },
+  importLib(path) { return import(this.libUrl(path)); },
+  Hls: typeof Hls !== 'undefined' ? Hls : window.Hls,
+  save(blob, fileName) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = fileName;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+  },
+  manager() {
+    try {
+      if (typeof GM_info !== 'undefined' && GM_info) return (GM_info.scriptHandler || 'userscript manager') + ' ' + (GM_info.version || '');
+    } catch (e) { /* not available */ }
+    return 'unknown (or development)';
+  },
+};
 
 // ---- 10-adapter-echo360.js ----
 // ===================================================================================
@@ -2288,7 +2341,7 @@ function playerTemplate() {
 
 // Whether streams can be played at all: hls.js with Media Source Extensions, or native HLS.
 function canPlayHls() {
-  if (typeof HlsLib !== 'undefined' && HlsLib && HlsLib.isSupported()) return true;
+  if (platform.Hls && platform.Hls.isSupported()) return true;
   try { return !!document.createElement('video').canPlayType('application/vnd.apple.mpegurl'); } catch (e) { return false; }
 }
 
@@ -2402,8 +2455,8 @@ class Stream {
     this.netRetries = 0;
     this.mediaRecoveries = 0;
     const v = this.video;
-    if (HlsLib && HlsLib.isSupported()) {
-      const hls = new HlsLib({
+    if (platform.Hls && platform.Hls.isSupported()) {
+      const hls = new platform.Hls({
         startPosition: startAt,
         capLevelToPlayerSize: false,
         // Start from the connection the browser reports (hls.js assumes 500 kbps), and step
@@ -2416,18 +2469,18 @@ class Stream {
         xhrSetup: (xhr) => { xhr.withCredentials = true; },
       });
       this.hls = hls;
-      hls.on(HlsLib.Events.ERROR, guardCore((e, data) => this.onError(data)));
-      hls.once(HlsLib.Events.MANIFEST_PARSED, guardCore(() => {
+      hls.on(platform.Hls.Events.ERROR, guardCore((e, data) => this.onError(data)));
+      hls.once(platform.Hls.Events.MANIFEST_PARSED, guardCore(() => {
         this.applyQuality(true);
         if (onReady) onReady();
       }));
-      hls.on(HlsLib.Events.LEVEL_SWITCHED, guardCore(() => { if (this.onLevel) this.onLevel(); }));
+      hls.on(platform.Hls.Events.LEVEL_SWITCHED, guardCore(() => { if (this.onLevel) this.onLevel(); }));
       // hls.js resets the MediaSource after some failed appends (refused segments can cause
       // them) and then starts over at startPosition: keep the position and play state.
-      hls.on(HlsLib.Events.MEDIA_DETACHING, guardCore(() => {
+      hls.on(platform.Hls.Events.MEDIA_DETACHING, guardCore(() => {
         if (this.hls === hls && v.readyState > 0) this.restore = { t: v.currentTime, play: !v.paused };
       }));
-      hls.on(HlsLib.Events.MEDIA_ATTACHED, guardCore(() => {
+      hls.on(platform.Hls.Events.MEDIA_ATTACHED, guardCore(() => {
         const r = this.restore;
         this.restore = null;
         if (!r || this.hls !== hls) return;
@@ -2472,13 +2525,13 @@ class Stream {
     if ((code === 401 || code === 403) && !data.fatal && this.onAuth) { this.onAuth(); return; }
     if (!data.fatal) return;
     if (code !== 401 && code !== 403) {
-      if (data.type === HlsLib.ErrorTypes.NETWORK_ERROR && this.netRetries < STREAM_NET_RETRIES) {
+      if (data.type === platform.Hls.ErrorTypes.NETWORK_ERROR && this.netRetries < STREAM_NET_RETRIES) {
         this.netRetries++;
         clearTimeout(this.retryTimer);
         this.retryTimer = setTimeout(guardCore(() => this.hls && this.hls.startLoad()), 1000 * this.netRetries);
         return;
       }
-      if (data.type === HlsLib.ErrorTypes.MEDIA_ERROR && this.mediaRecoveries < STREAM_MEDIA_RECOVERIES) {
+      if (data.type === platform.Hls.ErrorTypes.MEDIA_ERROR && this.mediaRecoveries < STREAM_MEDIA_RECOVERIES) {
         this.mediaRecoveries++;
         this.hls.recoverMediaError();
         return;
@@ -5950,7 +6003,7 @@ class NotesPane {
     backup.addEventListener('click', guard(() => busy(backup, async () => {
       const data = await makeBackup(pdfs.checked);
       const name = 'lite-player-for-echo360-backup-' + new Date().toISOString().slice(0, 10) + '.json';
-      downloadBlob(new Blob([JSON.stringify(data)], { type: 'application/json' }), name);
+      platform.save(new Blob([JSON.stringify(data)], { type: 'application/json' }), name);
       this.p.toast(tr('backupMade', { n: Object.keys(data.db).length }));
     })));
     const file = el('input', { type: 'file', accept: '.json,application/json', hidden: true });
@@ -6615,7 +6668,7 @@ class AudioChain {
   // make the graph output silence, so the features stay off there.
   static unsupportedReason() {
     if (typeof AudioContext === 'undefined' && typeof webkitAudioContext === 'undefined') return 'noWebAudio';
-    if (!(HlsLib && HlsLib.isSupported())) return 'nativeHls';
+    if (!(platform.Hls && platform.Hls.isSupported())) return 'nativeHls';
     return null;
   }
 
@@ -6817,8 +6870,8 @@ const idbCache = {
   open() {
     if (this.db) return this.db;
     const p = new Promise((resolve, reject) => {
-      if (typeof indexedDB === 'undefined') { reject(new Error('no IndexedDB')); return; }
-      const req = indexedDB.open('lite-player-for-echo360', 1);
+      const req = platform.openDb('lite-player-for-echo360', 1);
+      if (!req) { reject(new Error('no IndexedDB')); return; }
       req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains('cache')) req.result.createObjectStore('cache'); };
       req.onsuccess = () => {
         const db = req.result;
@@ -8860,13 +8913,12 @@ class SlidesPane {
 // it loads.
 // ===================================================================================
 
-const TESS_BASE = 'https://cdn.jsdelivr.net/npm/';
 const TESS_FILES = {
   lib: 'tesseract.js@7.0.0/dist/tesseract.esm.min.js',
   worker: 'tesseract.js@7.0.0/dist/worker.min.js',
   core: 'tesseract.js-core@7.0.0',
 };
-// Language data (pinned, from jsDelivr, 4.0.0_best_int): the scripts each one reads (the
+// Language data (pinned npm packages, 4.0.0_best_int): the scripts each one reads (the
 // non-Latin ones read Latin letters too, for the English terms on such slides), the size
 // of its download, and the language tag for its name. One language per engine: Tesseract.js
 // loads every language of an engine from one place, and each is its own package.
@@ -8883,7 +8935,7 @@ const TESS_LANGS = {
   tha: { scripts: ['Thai', 'Latin'], bytes: 896631, tag: 'th' },
   hin: { scripts: ['Devanagari', 'Latin'], bytes: 1389692, tag: 'hi' },
 };
-const TESS_LANG_PATH = (lang) => TESS_BASE + '@tesseract.js-data/' + lang + '@1.0.0/4.0.0_best_int';
+const TESS_LANG_PATH = (lang) => platform.libUrl('@tesseract.js-data/' + lang + '@1.0.0/4.0.0_best_int');
 
 // Characters written differently in simplified and traditional Chinese (common ones, in
 // matching order), to tell the two apart.
@@ -8932,7 +8984,7 @@ const OCR_FAILED = -3;         // a sample whose keyframe could not be read
 let tesseractPromise = null;
 function loadTesseract() {
   if (!tesseractPromise) {
-    tesseractPromise = import(TESS_BASE + TESS_FILES.lib).then((m) => m.default || m);
+    tesseractPromise = platform.importLib(TESS_FILES.lib).then((m) => m.default || m);
     tesseractPromise.catch(() => { tesseractPromise = null; });
   }
   return tesseractPromise;
@@ -9120,8 +9172,8 @@ class SlideTextReader {
     if (!this.engine) {
       const signal = this.ac.signal;
       this.engine = loadTesseract().then((T) => T.createWorker(this.lang, 1, {
-        workerPath: TESS_BASE + TESS_FILES.worker,
-        corePath: TESS_BASE + TESS_FILES.core,
+        workerPath: platform.libUrl(TESS_FILES.worker),
+        corePath: platform.libUrl(TESS_FILES.core),
         langPath: TESS_LANG_PATH(this.lang),
       })).then((w) => {
         if (signal.aborted) { w.terminate(); throw new Error('aborted'); }
@@ -9601,21 +9653,21 @@ class SlideTextWorker {
 // controller.pages[i] = { key, file, num, title, text }.
 // ===================================================================================
 
-const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.4.299/build/';
+const PDFJS_DIR = 'pdfjs-dist@6.4.299/build/';
 
 let pdfjsPromise = null;
 function loadPdfJs() {
   if (!pdfjsPromise) {
-    pdfjsPromise = import(PDFJS_BASE + 'pdf.min.mjs');
+    pdfjsPromise = platform.importLib(PDFJS_DIR + 'pdf.min.mjs');
     pdfjsPromise.catch(() => { pdfjsPromise = null; });
   }
   return pdfjsPromise;
 }
 
 // pdf.js's worker for one controller: a module worker from a blob that imports the pinned
-// worker script (a cross-origin worker URL cannot be used directly). Ended by its owner.
+// worker script (a worker URL from another origin cannot be used directly). Ended by its owner.
 function makePdfWorker(lib) {
-  const url = URL.createObjectURL(new Blob(['import "' + PDFJS_BASE + 'pdf.worker.min.mjs";'], { type: 'text/javascript' }));
+  const url = URL.createObjectURL(new Blob(['import "' + platform.libUrl(PDFJS_DIR + 'pdf.worker.min.mjs') + '";'], { type: 'text/javascript' }));
   const port = new Worker(url, { type: 'module' });
   URL.revokeObjectURL(url);
   return { port, pdf: new lib.PDFWorker({ port }) };
@@ -10567,16 +10619,6 @@ function lectureMarkdown(lec) {
   return lines.join('\n');
 }
 
-function downloadBlob(blob, name) {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  document.body.append(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 30000);
-}
-
 // Date of a lesson from its id (G_..._2026-09-15T16:05:00.000_...), '' if none.
 function lessonDate(lessonId) {
   const m = /_(\d{4}-\d{2}-\d{2})T/.exec(String(lessonId || ''));
@@ -10621,9 +10663,9 @@ class Exporter {
       tagsOf: (id) => (p.tags ? p.tags.of(id) : []), picture,
     });
     const mdBytes = new TextEncoder().encode(md);
-    if (!files.length) { downloadBlob(new Blob([mdBytes], { type: 'text/markdown' }), base + '.md'); return { notes: items.length, pictures: 0 }; }
+    if (!files.length) { platform.save(new Blob([mdBytes], { type: 'text/markdown' }), base + '.md'); return { notes: items.length, pictures: 0 }; }
     files.unshift({ name: base + '.md', data: mdBytes });
-    downloadBlob(makeZip(files), base + '.zip');
+    platform.save(makeZip(files), base + '.zip');
     return { notes: items.length, pictures: files.length - 1 };
   }
 
@@ -10655,7 +10697,7 @@ class Exporter {
     // Same names (two recordings on one day with one title): number them.
     const seen = new Map();
     for (const f of files) { const n = seen.get(f.name) || 0; seen.set(f.name, n + 1); if (n) f.name = f.name.replace(/\.md$/, ' (' + (n + 1) + ').md'); }
-    downloadBlob(makeZip(files), safeName(p.lesson.courseName || 'course') + ' notes.zip');
+    platform.save(makeZip(files), safeName(p.lesson.courseName || 'course') + ' notes.zip');
     return files.length;
   }
 }
@@ -10688,10 +10730,9 @@ async function blobToBase64(blob) {
 
 async function makeBackup(withPdfs) {
   const out = { app: 'lite-player-for-echo360', v: 1, created: new Date().toISOString(), local: {}, db: {} };
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
-    const key = k && k.startsWith(NS) ? k.slice(NS.length) : null;
-    if (key && BACKUP_LOCAL.some((x) => x.match(key))) out.local[key] = localStorage.getItem(k);
+  for (const k of platform.kv.names()) {
+    const key = k.startsWith(NS) ? k.slice(NS.length) : null;
+    if (key && BACKUP_LOCAL.some((x) => x.match(key))) out.local[key] = platform.kv.get(k);
   }
   for (const k of await idbCache.keys()) {
     const key = String(k);
@@ -10735,7 +10776,7 @@ async function restoreBackup(data, db = idbCache) {
   await db.putMany(entries);
   let n = entries.length;
   for (const [k, clean] of local) {
-    try { localStorage.setItem(NS + k, JSON.stringify(clean)); n++; } catch (e) { /* storage full */ }
+    try { platform.kv.set(NS + k, JSON.stringify(clean)); n++; } catch (e) { /* storage full */ }
   }
   return n;
 }
@@ -10755,13 +10796,6 @@ function browserName() {
   return name + (m ? ' ' + m[2] : '') + ' on ' + (/(Windows|Mac OS X|Linux|Android|iPhone|iPad|CrOS)/.exec(ua) || ['', 'unknown'])[1];
 }
 
-function scriptManager() {
-  try {
-    if (typeof GM_info !== 'undefined' && GM_info) return (GM_info.scriptHandler || 'userscript manager') + ' ' + (GM_info.version || '');
-  } catch (e) { /* not available */ }
-  return 'unknown (or development)';
-}
-
 function maskUrls(s) {
   return String(s).replace(/(https?:)?\/\/[^\s'")]+/g, '<address>').replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, (id) => id.slice(0, 8) + '…');
 }
@@ -10773,7 +10807,7 @@ function diagnosticsText(p) {
   const add = (k, val) => lines.push(k + ': ' + val);
   add('Lite Player for Echo360', VERSION);
   add('Browser', browserName());
-  add('Script manager', scriptManager());
+  add('Script manager', platform.manager());
   add('Page', location.hostname + ' (lesson page)');
   add('Recording', (p.lesson.mediaId ? String(p.lesson.mediaId).slice(0, 8) + '…' : '-') + ', ' + p.sources.length + ' view(s), ' + fmtTime(p.duration(), true));
   add('Playback', (v.paused ? 'paused' : 'playing') + ' at ' + fmtTime(v.currentTime, true) + ', speed ' + v.playbackRate + ', layout ' + p.layout

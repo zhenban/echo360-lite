@@ -11,7 +11,7 @@
 
 // Whether streams can be played at all: hls.js with Media Source Extensions, or native HLS.
 function canPlayHls() {
-  if (typeof HlsLib !== 'undefined' && HlsLib && HlsLib.isSupported()) return true;
+  if (platform.Hls && platform.Hls.isSupported()) return true;
   try { return !!document.createElement('video').canPlayType('application/vnd.apple.mpegurl'); } catch (e) { return false; }
 }
 
@@ -125,8 +125,8 @@ class Stream {
     this.netRetries = 0;
     this.mediaRecoveries = 0;
     const v = this.video;
-    if (HlsLib && HlsLib.isSupported()) {
-      const hls = new HlsLib({
+    if (platform.Hls && platform.Hls.isSupported()) {
+      const hls = new platform.Hls({
         startPosition: startAt,
         capLevelToPlayerSize: false,
         // Start from the connection the browser reports (hls.js assumes 500 kbps), and step
@@ -139,18 +139,18 @@ class Stream {
         xhrSetup: (xhr) => { xhr.withCredentials = true; },
       });
       this.hls = hls;
-      hls.on(HlsLib.Events.ERROR, guardCore((e, data) => this.onError(data)));
-      hls.once(HlsLib.Events.MANIFEST_PARSED, guardCore(() => {
+      hls.on(platform.Hls.Events.ERROR, guardCore((e, data) => this.onError(data)));
+      hls.once(platform.Hls.Events.MANIFEST_PARSED, guardCore(() => {
         this.applyQuality(true);
         if (onReady) onReady();
       }));
-      hls.on(HlsLib.Events.LEVEL_SWITCHED, guardCore(() => { if (this.onLevel) this.onLevel(); }));
+      hls.on(platform.Hls.Events.LEVEL_SWITCHED, guardCore(() => { if (this.onLevel) this.onLevel(); }));
       // hls.js resets the MediaSource after some failed appends (refused segments can cause
       // them) and then starts over at startPosition: keep the position and play state.
-      hls.on(HlsLib.Events.MEDIA_DETACHING, guardCore(() => {
+      hls.on(platform.Hls.Events.MEDIA_DETACHING, guardCore(() => {
         if (this.hls === hls && v.readyState > 0) this.restore = { t: v.currentTime, play: !v.paused };
       }));
-      hls.on(HlsLib.Events.MEDIA_ATTACHED, guardCore(() => {
+      hls.on(platform.Hls.Events.MEDIA_ATTACHED, guardCore(() => {
         const r = this.restore;
         this.restore = null;
         if (!r || this.hls !== hls) return;
@@ -195,13 +195,13 @@ class Stream {
     if ((code === 401 || code === 403) && !data.fatal && this.onAuth) { this.onAuth(); return; }
     if (!data.fatal) return;
     if (code !== 401 && code !== 403) {
-      if (data.type === HlsLib.ErrorTypes.NETWORK_ERROR && this.netRetries < STREAM_NET_RETRIES) {
+      if (data.type === platform.Hls.ErrorTypes.NETWORK_ERROR && this.netRetries < STREAM_NET_RETRIES) {
         this.netRetries++;
         clearTimeout(this.retryTimer);
         this.retryTimer = setTimeout(guardCore(() => this.hls && this.hls.startLoad()), 1000 * this.netRetries);
         return;
       }
-      if (data.type === HlsLib.ErrorTypes.MEDIA_ERROR && this.mediaRecoveries < STREAM_MEDIA_RECOVERIES) {
+      if (data.type === platform.Hls.ErrorTypes.MEDIA_ERROR && this.mediaRecoveries < STREAM_MEDIA_RECOVERIES) {
         this.mediaRecoveries++;
         this.hls.recoverMediaError();
         return;

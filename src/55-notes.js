@@ -334,7 +334,7 @@ class NotesPane {
     backup.addEventListener('click', guard(() => busy(backup, async () => {
       const data = await makeBackup(pdfs.checked);
       const name = 'lite-player-for-echo360-backup-' + new Date().toISOString().slice(0, 10) + '.json';
-      downloadBlob(new Blob([JSON.stringify(data)], { type: 'application/json' }), name);
+      platform.save(new Blob([JSON.stringify(data)], { type: 'application/json' }), name);
       this.p.toast(tr('backupMade', { n: Object.keys(data.db).length }));
     })));
     const file = el('input', { type: 'file', accept: '.json,application/json', hidden: true });

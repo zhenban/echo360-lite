@@ -36,6 +36,7 @@ runs immediately must come after what it uses.
 | `02-tuning.js` | Every tuning number (thresholds, sizes, timings) with its unit and why it holds |
 | `03-common.js` | Small shared helpers: `el()` (make an element), `confirmButton`, `makeCanvas`, Echo360 URLs, `mediaDuration`, `fetchSyllabus`, `SITE_HOSTS` |
 | `04-types.js` | Descriptions of the data passed around (JSDoc typedefs; no code) |
+| `05-platform.js` | Everything that depends on how the player is run (userscript now, an extension later): settings storage, the IndexedDB database, where libraries come from and loading them, hls.js, saving a file, the manager's name. Other files use only `platform` for these; the build refuses direct `localStorage`, `indexedDB`, `import()`, `GM_` or `Hls` elsewhere |
 | `10-adapter-echo360.js` | Everything that knows Echo360's lesson page: catching its start-up call, reading it into a `Lesson` |
 | `11-echo360-api.js` | Echo360's data API: notes, bookmarks, flags, discussion; refuses writes without a user action |
 | `20-reporter.js` | Watch reporting (what the original player sends Echo360 about viewing) |

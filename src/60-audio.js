@@ -34,7 +34,7 @@ class AudioChain {
   // make the graph output silence, so the features stay off there.
   static unsupportedReason() {
     if (typeof AudioContext === 'undefined' && typeof webkitAudioContext === 'undefined') return 'noWebAudio';
-    if (!(HlsLib && HlsLib.isSupported())) return 'nativeHls';
+    if (!(platform.Hls && platform.Hls.isSupported())) return 'nativeHls';
     return null;
   }
 

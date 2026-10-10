@@ -28,13 +28,12 @@
 // it loads.
 // ===================================================================================
 
-const TESS_BASE = 'https://cdn.jsdelivr.net/npm/';
 const TESS_FILES = {
   lib: 'tesseract.js@7.0.0/dist/tesseract.esm.min.js',
   worker: 'tesseract.js@7.0.0/dist/worker.min.js',
   core: 'tesseract.js-core@7.0.0',
 };
-// Language data (pinned, from jsDelivr, 4.0.0_best_int): the scripts each one reads (the
+// Language data (pinned npm packages, 4.0.0_best_int): the scripts each one reads (the
 // non-Latin ones read Latin letters too, for the English terms on such slides), the size
 // of its download, and the language tag for its name. One language per engine: Tesseract.js
 // loads every language of an engine from one place, and each is its own package.
@@ -51,7 +50,7 @@ const TESS_LANGS = {
   tha: { scripts: ['Thai', 'Latin'], bytes: 896631, tag: 'th' },
   hin: { scripts: ['Devanagari', 'Latin'], bytes: 1389692, tag: 'hi' },
 };
-const TESS_LANG_PATH = (lang) => TESS_BASE + '@tesseract.js-data/' + lang + '@1.0.0/4.0.0_best_int';
+const TESS_LANG_PATH = (lang) => platform.libUrl('@tesseract.js-data/' + lang + '@1.0.0/4.0.0_best_int');
 
 // Characters written differently in simplified and traditional Chinese (common ones, in
 // matching order), to tell the two apart.
@@ -100,7 +99,7 @@ const OCR_FAILED = -3;         // a sample whose keyframe could not be read
 let tesseractPromise = null;
 function loadTesseract() {
   if (!tesseractPromise) {
-    tesseractPromise = import(TESS_BASE + TESS_FILES.lib).then((m) => m.default || m);
+    tesseractPromise = platform.importLib(TESS_FILES.lib).then((m) => m.default || m);
     tesseractPromise.catch(() => { tesseractPromise = null; });
   }
   return tesseractPromise;
@@ -288,8 +287,8 @@ class SlideTextReader {
     if (!this.engine) {
       const signal = this.ac.signal;
       this.engine = loadTesseract().then((T) => T.createWorker(this.lang, 1, {
-        workerPath: TESS_BASE + TESS_FILES.worker,
-        corePath: TESS_BASE + TESS_FILES.core,
+        workerPath: platform.libUrl(TESS_FILES.worker),
+        corePath: platform.libUrl(TESS_FILES.core),
         langPath: TESS_LANG_PATH(this.lang),
       })).then((w) => {
         if (signal.aborted) { w.terminate(); throw new Error('aborted'); }

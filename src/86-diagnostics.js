@@ -12,13 +12,6 @@ function browserName() {
   return name + (m ? ' ' + m[2] : '') + ' on ' + (/(Windows|Mac OS X|Linux|Android|iPhone|iPad|CrOS)/.exec(ua) || ['', 'unknown'])[1];
 }
 
-function scriptManager() {
-  try {
-    if (typeof GM_info !== 'undefined' && GM_info) return (GM_info.scriptHandler || 'userscript manager') + ' ' + (GM_info.version || '');
-  } catch (e) { /* not available */ }
-  return 'unknown (or development)';
-}
-
 function maskUrls(s) {
   return String(s).replace(/(https?:)?\/\/[^\s'")]+/g, '<address>').replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, (id) => id.slice(0, 8) + '…');
 }
@@ -30,7 +23,7 @@ function diagnosticsText(p) {
   const add = (k, val) => lines.push(k + ': ' + val);
   add('Lite Player for Echo360', VERSION);
   add('Browser', browserName());
-  add('Script manager', scriptManager());
+  add('Script manager', platform.manager());
   add('Page', location.hostname + ' (lesson page)');
   add('Recording', (p.lesson.mediaId ? String(p.lesson.mediaId).slice(0, 8) + '…' : '-') + ', ' + p.sources.length + ' view(s), ' + fmtTime(p.duration(), true));
   add('Playback', (v.paused ? 'paused' : 'playing') + ' at ' + fmtTime(v.currentTime, true) + ', speed ' + v.playbackRate + ', layout ' + p.layout

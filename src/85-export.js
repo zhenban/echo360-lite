@@ -117,16 +117,6 @@ function lectureMarkdown(lec) {
   return lines.join('\n');
 }
 
-function downloadBlob(blob, name) {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  document.body.append(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 30000);
-}
-
 // Date of a lesson from its id (G_..._2026-09-15T16:05:00.000_...), '' if none.
 function lessonDate(lessonId) {
   const m = /_(\d{4}-\d{2}-\d{2})T/.exec(String(lessonId || ''));
@@ -171,9 +161,9 @@ class Exporter {
       tagsOf: (id) => (p.tags ? p.tags.of(id) : []), picture,
     });
     const mdBytes = new TextEncoder().encode(md);
-    if (!files.length) { downloadBlob(new Blob([mdBytes], { type: 'text/markdown' }), base + '.md'); return { notes: items.length, pictures: 0 }; }
+    if (!files.length) { platform.save(new Blob([mdBytes], { type: 'text/markdown' }), base + '.md'); return { notes: items.length, pictures: 0 }; }
     files.unshift({ name: base + '.md', data: mdBytes });
-    downloadBlob(makeZip(files), base + '.zip');
+    platform.save(makeZip(files), base + '.zip');
     return { notes: items.length, pictures: files.length - 1 };
   }
 
@@ -205,7 +195,7 @@ class Exporter {
     // Same names (two recordings on one day with one title): number them.
     const seen = new Map();
     for (const f of files) { const n = seen.get(f.name) || 0; seen.set(f.name, n + 1); if (n) f.name = f.name.replace(/\.md$/, ' (' + (n + 1) + ').md'); }
-    downloadBlob(makeZip(files), safeName(p.lesson.courseName || 'course') + ' notes.zip');
+    platform.save(makeZip(files), safeName(p.lesson.courseName || 'course') + ' notes.zip');
     return files.length;
   }
 }
@@ -238,10 +228,9 @@ async function blobToBase64(blob) {
 
 async function makeBackup(withPdfs) {
   const out = { app: 'lite-player-for-echo360', v: 1, created: new Date().toISOString(), local: {}, db: {} };
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
-    const key = k && k.startsWith(NS) ? k.slice(NS.length) : null;
-    if (key && BACKUP_LOCAL.some((x) => x.match(key))) out.local[key] = localStorage.getItem(k);
+  for (const k of platform.kv.names()) {
+    const key = k.startsWith(NS) ? k.slice(NS.length) : null;
+    if (key && BACKUP_LOCAL.some((x) => x.match(key))) out.local[key] = platform.kv.get(k);
   }
   for (const k of await idbCache.keys()) {
     const key = String(k);
@@ -285,7 +274,7 @@ async function restoreBackup(data, db = idbCache) {
   await db.putMany(entries);
   let n = entries.length;
   for (const [k, clean] of local) {
-    try { localStorage.setItem(NS + k, JSON.stringify(clean)); n++; } catch (e) { /* storage full */ }
+    try { platform.kv.set(NS + k, JSON.stringify(clean)); n++; } catch (e) { /* storage full */ }
   }
   return n;
 }
