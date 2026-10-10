@@ -12,3 +12,4 @@ node_modules/
 lecture-slides/
 # Smoke test lecture lists (lesson ids show which courses an account takes)
 test/smoke/*.local.json
+CLAUDE.md
