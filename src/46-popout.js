@@ -52,6 +52,8 @@ class PopoutController {
     const css = host.style.cssText;
     const keys = (e) => x.onKey(e);
     const resize = () => { if (!x.isDestroyed()) x.relayout(); };
+    // The window's own visibility now decides drawing (the page behind may be hidden).
+    const visible = () => { if (!x.isDestroyed() && !doc.hidden) x.relayout(); };
     // Putting the player back. Registered before anything moves, so a failure half-way
     // (or the window closing at any point) always brings the player back to the page.
     let back = false;
@@ -59,6 +61,7 @@ class PopoutController {
       if (back) return;
       back = true;
       doc.removeEventListener('keydown', keys, true);
+      doc.removeEventListener('visibilitychange', visible);
       pip.removeEventListener('resize', resize);
       this.window = null;
       // The player was destroyed meanwhile (handed over to the original player): only the
@@ -82,6 +85,7 @@ class PopoutController {
       doc.body.append(host);
       host.classList.add('in-popout');
       doc.addEventListener('keydown', keys, true);
+      doc.addEventListener('visibilitychange', visible);
       pip.addEventListener('resize', resize);
       // Moving can pause the elements in some browsers: carry on as before.
       if (playing && x.video.paused) x.video.play().catch(() => {});

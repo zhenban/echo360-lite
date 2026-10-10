@@ -33,7 +33,8 @@ class Stream {
     // The element says 0 and paused until it gets there, so it cannot be asked (a second
     // reload in that window would start at 0).
     this.starting = null;     // { at, play } or null
-    this.renewedAt = 0;       // when access was last renewed for this stream (see the player's recoverAccess)
+    this.renewedAt = 0;
+    this.nativeMeta = null;   // native HLS: the loadedmetadata handler of the current load       // when access was last renewed for this stream (see the player's recoverAccess)
     this.arrived = null;      // listener clearing `starting`
   }
 
@@ -171,7 +172,16 @@ class Stream {
       // stay readable for later Web Audio / canvas features.
       v.crossOrigin = 'use-credentials';
       v.src = uri;
-      v.addEventListener('loadedmetadata', () => { if (startAt) v.currentTime = startAt; if (onReady) onReady(); }, { once: true });
+      // Owned like an hls.js instance: removed when this load is replaced or the stream
+      // ends; it goes to where the stream is meant to be now (a seek while loading).
+      const onMeta = () => {
+        this.nativeMeta = null;
+        const at = this.starting ? this.starting.at : startAt;
+        if (at) v.currentTime = at;
+        if (onReady) onReady();
+      };
+      this.nativeMeta = onMeta;
+      v.addEventListener('loadedmetadata', onMeta, { once: true });
     } else {
       throw new Error('neither MSE (hls.js) nor native HLS is available');
     }
@@ -229,6 +239,7 @@ class Stream {
     clearTimeout(this.retryTimer);
     this.clearStarting();
     if (this.pendingRestore) { this.video.removeEventListener('loadedmetadata', this.pendingRestore); this.pendingRestore = null; }
+    if (this.nativeMeta) { this.video.removeEventListener('loadedmetadata', this.nativeMeta); this.nativeMeta = null; }
     if (this.hls) { this.hls.destroy(); this.hls = null; }
   }
 

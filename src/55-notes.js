@@ -133,6 +133,14 @@ class NotesPane {
     for (const item of shown) frag.append(this.renderItem(item, long));
     this.list.textContent = '';
     this.list.append(frag);
+    // A note being edited stays open with what was typed (the list is redrawn on any
+    // change: a tag, a bookmark, a reload).
+    const ed = this.editing;
+    if (ed) {
+      const item = this.items.find((x) => x.id === ed.id);
+      const card = item && this.list.querySelector('.card[data-id="' + CSS.escape(String(item.id)) + '"]');
+      if (card) this.startEdit(item, card, ed.text); else this.editing = null;
+    }
   }
 
   renderItem(item, long) {
@@ -161,11 +169,14 @@ class NotesPane {
     return confirmButton(item.type === 'flag' ? tr('remove') : tr('delete'), (e) => this.remove(e, item));
   }
 
-  startEdit(item, card) {
+  startEdit(item, card, draft) {
     const area = el('textarea.input', { rows: 3, maxLength: 5000 });
-    area.value = item.text;
+    area.value = draft == null ? item.text : draft;
+    const focused = draft == null;
+    this.editing = { id: item.id, text: area.value };
+    area.addEventListener('input', () => { if (this.editing && this.editing.id === item.id) this.editing.text = area.value; });
     const save = el('button.pbtn.primary', { text: tr('save') });
-    const cancel = el('button.pbtn', { text: tr('cancel'), onclick: () => this.render() });
+    const cancel = el('button.pbtn', { text: tr('cancel'), onclick: () => { this.editing = null; this.render(); } });
     save.addEventListener('click', guard((e) => this.once(async () => {
       const text = area.value.trim();
       if (!text) return;
@@ -173,13 +184,15 @@ class NotesPane {
       try {
         await this.api.updateNote(e, item, text);
         item.text = text;
+        this.editing = null;
         this.showError('');
         this.changed();
       } catch (err) { save.disabled = false; this.fail(err); }
     })));
     card.querySelector('.ibody').replaceWith(el('div.composer', null, area, el('div.crow', null, el('span.grow'), cancel, save)));
     card.querySelector('.iactions').hidden = true;
-    area.focus();
+    // Focus only when the user opened it (not on a redraw while they work elsewhere).
+    if (focused) area.focus();
   }
 
   // One write at a time for the whole tab (see DiscussionPane.write): a second Ctrl+Enter

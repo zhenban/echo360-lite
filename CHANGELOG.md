@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.15.3
+Fixes from a review of touch input, several open tabs, and files changed while work is still running.
+- While the controls are hidden, their buttons (including the A-B loop handles) no longer take clicks or taps.
+- Tags made, renamed or deleted in two tabs of the same course no longer overwrite each other.
+- Replacing a slide PDF with a shorter one while reading a later page no longer breaks the PDF view; a page that was removed or slow to draw is not kept for the new file.
+- A reply that fails to send keeps its text and shows the error; a note being edited keeps its text when the list is redrawn.
+- Touch: a cancelled touch (for example the browser taking over a gesture) no longer swaps the pictures, and a cancelled seek returns to where playback was; a second finger can no longer finish another finger's drag (progress bar, divider, small picture, loop handles, zoomed picture).
+- Safari: a recording that is switched or closed while loading no longer jumps the next one to an old position.
+- With the browser's Data Saver on, looking for slide chapters downloads nothing and says why.
+- Closing the player while a slide file is being read no longer starts a PDF worker.
+- In the pop-out window, captions, the transcript and slides keep updating when the original tab is in the background.
+
 ## 0.15.2
 - Fix: audio tools request a media playback audio context instead of the default low-latency interactive context. On some Android devices, the interactive output route changed the speaker sound even with all audio tools off; playback mode avoids that route change on the tested Samsung tablet.
 - Updates: the script explicitly checks and downloads the latest published release, including when it was originally installed from a version-specific release link.

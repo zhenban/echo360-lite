@@ -199,20 +199,26 @@ class Disposer {
 
 // Coalesces repeated render requests into at most one call per animation frame.
 // Nothing is scheduled while the page is hidden; callers re-render on visibility change.
+// nodeOf (optional): a node of what is drawn; its document and window are used (they
+// change when the player moves into the floating window).
 class FrameTask {
-  constructor(fn) {
+  constructor(fn, nodeOf) {
     this.fn = fn;
+    this.nodeOf = nodeOf || (() => null);
     this.id = 0;
+    this.win = null;
     this.run = () => { this.id = 0; this.fn(); };
   }
 
   request() {
-    if (this.id || document.hidden) return;
-    this.id = requestAnimationFrame(this.run);
+    const node = this.nodeOf();
+    if (this.id || hiddenFor(node)) return;
+    this.win = windowOf(node);
+    this.id = this.win.requestAnimationFrame(this.run);
   }
 
   cancel() {
-    if (this.id) cancelAnimationFrame(this.id);
+    if (this.id && this.win) this.win.cancelAnimationFrame(this.id);
     this.id = 0;
   }
 }

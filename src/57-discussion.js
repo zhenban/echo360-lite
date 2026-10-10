@@ -19,6 +19,7 @@ class DiscussionPane {
     this.dirty = true;
     this.openReplies = new Set();
     this.replyOpen = null;
+    this.replyDrafts = new Map();   // question id -> { text, anon }: unsent replies survive redraws and failures
     this.loadedAt = 0;
     this.d = disposer || new Disposer();   // owned by whoever created this (parent.child())
     this.build();
@@ -189,17 +190,24 @@ class DiscussionPane {
   }
 
   renderReplyComposer(q) {
+    // The list is redrawn after every load (refresh, sorting, a write elsewhere): the reply
+    // being written is kept per question, not in the element.
+    const draft = this.replyDrafts.get(q.id) || { text: '', anon: false };
+    this.replyDrafts.set(q.id, draft);
     const area = el('textarea.input', { rows: 2, placeholder: tr('replyPlaceholder'), 'aria-label': tr('replyPlaceholder') });
+    area.value = draft.text;
     const counter = el('span.counter');
     const anon = el('input', { type: 'checkbox' });
+    anon.checked = draft.anon;
+    anon.addEventListener('change', () => { draft.anon = anon.checked; });
     const send = el('button.pbtn.primary', { text: tr('replyPublic') });
     const submit = (e) => {
       const body = area.value.trim();
       if (this.busy || !body || body.length > MAX_POST_LENGTH) return;
       send.disabled = true;
-      this.write(e, () => this.api.reply(e, q.id, { body, anonymous: anon.checked }), () => { this.replyOpen = null; });
+      this.write(e, () => this.api.reply(e, q.id, { body, anonymous: anon.checked }), () => { this.replyOpen = null; this.replyDrafts.delete(q.id); });
     };
-    area.addEventListener('input', guard(() => this.updateCounter(area, counter, send)));
+    area.addEventListener('input', guard(() => { draft.text = area.value; this.updateCounter(area, counter, send); }));
     area.addEventListener('keydown', guard((e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submit(e); } }));
     send.addEventListener('click', guard(submit));
     this.updateCounter(area, counter, send);
@@ -208,7 +216,7 @@ class DiscussionPane {
       el('div.pwarn', { role: 'note', text: tr('publicWarning') }),
       area,
       el('div.crow', null, el('label.check', null, anon, el('span', { text: tr('hideName') })), el('span.grow'), counter,
-        el('button.pbtn', { text: tr('cancel'), onclick: () => { this.replyOpen = null; this.render(); } }), send));
+        el('button.pbtn', { text: tr('cancel'), onclick: () => { this.replyOpen = null; this.replyDrafts.delete(q.id); this.render(); } }), send));
   }
 
   async post(e) {
@@ -241,7 +249,11 @@ class DiscussionPane {
     } finally {
       this.busy = false;
     }
+    // The list is loaded again either way (what was saved, or what is there now); a write
+    // that failed keeps saying so afterwards (a successful load clears load errors).
+    const failed = ok ? '' : this.errorEl.textContent;
     await this.load();
+    if (failed) this.showError(failed);
     return ok;
   }
 

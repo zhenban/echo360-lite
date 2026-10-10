@@ -143,7 +143,7 @@ class Zoomer {
     }, { passive: false });
     d.listen(this.host, 'pointerdown', (e) => {
       const elem = this.targetOf(e.target);
-      if (!elem || e.button !== 0 || !this.zoomed(elem)) return;
+      if (!elem || e.button !== 0 || !this.zoomed(elem) || this.drag) return;
       this.drag = { el: elem, x: e.clientX, y: e.clientY, z: this.get(elem), id: e.pointerId };
       this.dragged = false;
     });
@@ -164,14 +164,19 @@ class Zoomer {
       const H = g.el.offsetHeight;
       this.set(g.el, g.z.s, g.z.cx - dx / (W * g.z.s), g.z.cy - dy / (H * g.z.s));
     });
-    const end = () => {
-      if (!this.drag) return;
-      this.drag.el.classList.remove('panning');
+    // Only the pointer that started the pan ends it (a second finger does not). A cancelled
+    // pan goes back to where it started.
+    const end = (e, cancelled) => {
+      const g = this.drag;
+      if (!g || e.pointerId !== g.id) return;
+      g.el.classList.remove('panning');
       this.drag = null;
+      if (cancelled && this.dragged) this.set(g.el, g.z.s, g.z.cx, g.z.cy);
       // The click event comes right after; it reads `dragged` and then it is cleared.
       setTimeout(() => { this.dragged = false; }, 0);
     };
-    d.listen(this.host, 'pointerup', end);
-    d.listen(this.host, 'pointercancel', end);
+    d.listen(this.host, 'pointerup', (e) => end(e, false));
+    d.listen(this.host, 'pointercancel', (e) => end(e, true));
+    d.listen(this.host, 'lostpointercapture', (e) => end(e, true));
   }
 }

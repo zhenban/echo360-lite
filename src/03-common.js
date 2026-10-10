@@ -85,3 +85,43 @@ async function fetchSyllabus(section) {
   const j = await r.json();
   return j && Array.isArray(j.data) ? j.data : [];
 }
+
+// A drag by one pointer on `target`, owned by the Disposer d. h.start(e) begins it and
+// returns its state (or null: not a drag); h.move(e, state) follows it; h.done(e, state)
+// when that pointer is lifted normally; h.cancel(state) when the browser cancels it (a
+// touch turned into scrolling, the capture lost), which must undo, not complete it.
+// Other pointers (a second finger) are ignored until the first one is done.
+// Pointer events: https://www.w3.org/TR/pointerevents/
+function onDrag(d, target, h) {
+  let cur = null;   // { id, state }
+  d.listen(target, 'pointerdown', (e) => {
+    if (cur) return;
+    const state = h.start(e);
+    if (state != null) cur = { id: e.pointerId, state };
+  });
+  d.listen(target, 'pointermove', (e) => { if (cur && e.pointerId === cur.id && h.move) h.move(e, cur.state); });
+  d.listen(target, 'pointerup', (e) => {
+    if (!cur || e.pointerId !== cur.id) return;
+    const c = cur;
+    cur = null;
+    h.done(e, c.state);
+  });
+  const cancel = (e) => {
+    if (!cur || e.pointerId !== cur.id) return;
+    const c = cur;
+    cur = null;
+    h.cancel(c.state);
+  };
+  d.listen(target, 'pointercancel', cancel);
+  d.listen(target, 'lostpointercapture', cancel);
+}
+
+// The window and visibility of the document a node is in now. The player can move into the
+// floating window (46-popout.js): from then on its parts are drawn by that window, and the
+// page it came from may be hidden (another tab) while the player is in plain view.
+function windowOf(node) {
+  return (node && node.ownerDocument && node.ownerDocument.defaultView) || window;
+}
+function hiddenFor(node) {
+  return !!(node && node.ownerDocument ? node.ownerDocument : document).hidden;
+}

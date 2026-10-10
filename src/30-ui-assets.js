@@ -318,6 +318,9 @@ video, .pdfview { position: absolute; left: 0; top: 0; width: 100%; height: 100%
 .top > * { pointer-events: auto; }
 .bottom { bottom: 0; z-index: 4; padding: 28px 14px 8px; background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.78)); }
 .idle .top, .idle .bottom { opacity: 0; pointer-events: none; }
+/* Hidden controls take no clicks or taps at all: children that re-enable pointer events
+   for themselves (the title bar's buttons, the loop band's handles) must not stay
+   clickable while invisible. (Repeated after every other rule, so it always wins.) */
 .idle { cursor: none; }
 .back { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; color: inherit; text-decoration: none; flex: none; }
 .back:hover { background: rgba(255,255,255,.12); }
@@ -444,6 +447,7 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border: 0; bord
   .time { margin: 0 6px; font-size: 12px; }
   .btn { width: 36px; height: 36px; }
 }
+.stage.idle .top *, .stage.idle .bottom * { pointer-events: none; }
 `;
 
 function playerTemplate() {

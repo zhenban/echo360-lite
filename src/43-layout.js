@@ -24,33 +24,29 @@ class LayoutControls {
 
   bindDivider() {
     const x = this.x;
-    const d = this.d;
     const divider = x.$('.divider');
     let stageRect = null;
-    d.listen(divider, 'pointerdown', (e) => {
-      if (e.button !== 0) return;
-      e.stopPropagation();
-      stageRect = x.stage.getBoundingClientRect();
-      divider.setPointerCapture(e.pointerId);
-      divider.classList.add('dragging');
-      x.ui.dragging = true;
-    });
-    d.listen(divider, 'pointermove', (e) => {
-      if (!divider.classList.contains('dragging')) return;
-      this.setRatio((e.clientX - stageRect.left) / stageRect.width);
-    });
-    const end = () => {
-      if (!divider.classList.contains('dragging')) return;
+    const finish = () => {
       divider.classList.remove('dragging');
       x.ui.dragging = false;
-      x.savePrefs();
-      x.redrawPdf();
       x.armIdle();
     };
-    d.listen(divider, 'pointerup', end);
-    d.listen(divider, 'pointercancel', end);
-    d.listen(divider, 'dblclick', () => { this.setRatio(0.5); x.savePrefs(); });
-    d.listen(divider, 'keydown', (e) => {
+    onDrag(this.d, divider, {
+      start: (e) => {
+        if (e.button !== 0) return null;
+        e.stopPropagation();
+        stageRect = x.stage.getBoundingClientRect();
+        divider.setPointerCapture(e.pointerId);
+        divider.classList.add('dragging');
+        x.ui.dragging = true;
+        return { from: x.prefs.ratio };
+      },
+      move: (e) => this.setRatio((e.clientX - stageRect.left) / stageRect.width),
+      done: () => { finish(); x.savePrefs(); x.redrawPdf(); },
+      cancel: (st) => { this.setRatio(st.from); finish(); },
+    });
+    this.d.listen(divider, 'dblclick', () => { this.setRatio(0.5); x.savePrefs(); });
+    this.d.listen(divider, 'keydown', (e) => {
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         this.setRatio(x.prefs.ratio + (e.key === 'ArrowLeft' ? -0.05 : 0.05));
         x.savePrefs();
@@ -63,57 +59,64 @@ class LayoutControls {
   // While dragging, both the frame and the picture in it are moved.
   bindPip() {
     const x = this.x;
-    const d = this.d;
     const st = x.stage;
     const frame = x.$('.pipframe');
     const grip = x.$('.grip');
     const pipEls = () => [frame, x.stage.querySelector('.views [data-slot=secondary]')].filter(Boolean);
-    let drag = null;
-    d.listen(frame, 'pointerdown', (e) => {
-      if (e.button !== 0) return;
-      e.stopPropagation();
-      frame.setPointerCapture(e.pointerId);
-      drag = { x: e.clientX, y: e.clientY, moved: false, resize: e.target === grip, rect: frame.getBoundingClientRect(), stage: st.getBoundingClientRect() };
-      x.ui.dragging = true;
-    });
-    d.listen(frame, 'pointermove', (e) => {
-      if (!drag) return;
-      const dx = e.clientX - drag.x;
-      const dy = e.clientY - drag.y;
-      if (!drag.moved && Math.hypot(dx, dy) < 4) return;
-      drag.moved = true;
-      frame.classList.add('dragging');
-      if (drag.resize) {
-        const c = x.prefs.corner;
-        const r = drag.rect;
-        const w = c === 'br' || c === 'tr' ? r.right - e.clientX : e.clientX - r.left;
-        x.prefs.pipw = clamp(w / drag.stage.width, 0.15, 0.6);
-        st.style.setProperty('--pipw', x.prefs.pipw.toFixed(4));
-      } else {
-        for (const elem of pipEls()) elem.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
-      }
-    });
-    const end = (e) => {
-      if (!drag) return;
-      const was = drag;
-      drag = null;
+    const setWidth = (w) => {
+      x.prefs.pipw = w;
+      st.style.setProperty('--pipw', w.toFixed(4));
+    };
+    const finish = () => {
       x.ui.dragging = false;
       frame.classList.remove('dragging');
-      if (!was.moved) { x.onPipClick(); return; }
-      if (was.resize) x.redrawPdf();
-      else {
-        const cx = was.rect.left + was.rect.width / 2 + (e.clientX - was.x);
-        const cy = was.rect.top + was.rect.height / 2 + (e.clientY - was.y);
-        const right = cx > was.stage.left + was.stage.width / 2;
-        const bottom = cy > was.stage.top + was.stage.height / 2;
-        x.prefs.corner = (bottom ? 'b' : 't') + (right ? 'r' : 'l');
-        for (const elem of pipEls()) elem.style.transform = '';
-        for (const c of CORNERS) st.classList.toggle('c-' + c, c === x.prefs.corner);
-      }
-      x.savePrefs();
-      x.armIdle();
+      for (const elem of pipEls()) elem.style.transform = '';
     };
-    d.listen(frame, 'pointerup', end);
-    d.listen(frame, 'pointercancel', end);
+    onDrag(this.d, frame, {
+      start: (e) => {
+        if (e.button !== 0) return null;
+        e.stopPropagation();
+        frame.setPointerCapture(e.pointerId);
+        x.ui.dragging = true;
+        return { x: e.clientX, y: e.clientY, moved: false, resize: e.target === grip, rect: frame.getBoundingClientRect(), stage: st.getBoundingClientRect(), pipw: x.prefs.pipw };
+      },
+      move: (e, drag) => {
+        const dx = e.clientX - drag.x;
+        const dy = e.clientY - drag.y;
+        if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+        drag.moved = true;
+        frame.classList.add('dragging');
+        if (drag.resize) {
+          const c = x.prefs.corner;
+          const r = drag.rect;
+          const w = c === 'br' || c === 'tr' ? r.right - e.clientX : e.clientX - r.left;
+          setWidth(clamp(w / drag.stage.width, 0.15, 0.6));
+        } else {
+          for (const elem of pipEls()) elem.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+        }
+      },
+      done: (e, was) => {
+        finish();
+        // A tap swaps the two pictures (with the PDF shown: the PDF and the video).
+        if (!was.moved) { x.onPipClick(); return; }
+        if (was.resize) x.redrawPdf();
+        else {
+          const cx = was.rect.left + was.rect.width / 2 + (e.clientX - was.x);
+          const cy = was.rect.top + was.rect.height / 2 + (e.clientY - was.y);
+          const right = cx > was.stage.left + was.stage.width / 2;
+          const bottom = cy > was.stage.top + was.stage.height / 2;
+          x.prefs.corner = (bottom ? 'b' : 't') + (right ? 'r' : 'l');
+          for (const c of CORNERS) st.classList.toggle('c-' + c, c === x.prefs.corner);
+        }
+        x.savePrefs();
+        x.armIdle();
+      },
+      // Cancelled (a touch the browser took over): nothing happened, not a tap.
+      cancel: (was) => {
+        if (was.resize) setWidth(was.pipw);
+        finish();
+        x.armIdle();
+      },
+    });
   }
 }

@@ -134,6 +134,7 @@ const STRINGS = {
     slidesRough: 'Approximate times from preview pictures. Finding exact changes: {pct}%',
     slidesFound: '{n} slides, found automatically from the screen recording.',
     slidesNone: 'No slide changes were found automatically in this recording.',
+    slidesSaveData: 'Slide chapters are not looked for while the browser\'s Data Saver is on.',
     screenView: 'Screen:',
     viewN: 'View {n}',
     screenUse: 'Find the slides in view {n}',

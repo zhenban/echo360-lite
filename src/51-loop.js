@@ -68,28 +68,23 @@ class ABLoop {
   bindHandle(hd) {
     const seek = this.p.rail;
     const isA = hd.classList.contains('la');
-    let drag = false;
-    this.d.listen(hd, 'pointerdown', (e) => {
-      if (e.button !== 0) return;
-      e.stopPropagation();
-      hd.setPointerCapture(e.pointerId);
-      drag = true;
+    onDrag(this.d, hd, {
+      start: (e) => {
+        if (e.button !== 0) return null;
+        e.stopPropagation();
+        hd.setPointerCapture(e.pointerId);
+        return { a: this.a, b: this.b };
+      },
+      move: (e) => {
+        const r = seek.getBoundingClientRect();
+        const tm = clamp((e.clientX - r.left) / r.width, 0, 1) * this.p.duration();
+        if (isA) this.a = Math.min(tm, this.b - LOOP_MIN_SEC); else this.b = Math.max(tm, this.a + LOOP_MIN_SEC);
+        this.render();
+      },
+      done: (e) => { e.stopPropagation(); this.announce(); },
+      // A cancelled drag leaves the loop as it was.
+      cancel: (st) => { this.a = st.a; this.b = st.b; this.render(); },
     });
-    this.d.listen(hd, 'pointermove', (e) => {
-      if (!drag) return;
-      const r = seek.getBoundingClientRect();
-      const tm = clamp((e.clientX - r.left) / r.width, 0, 1) * this.p.duration();
-      if (isA) this.a = Math.min(tm, this.b - LOOP_MIN_SEC); else this.b = Math.max(tm, this.a + LOOP_MIN_SEC);
-      this.render();
-    });
-    const end = (e) => {
-      if (!drag) return;
-      drag = false;
-      e.stopPropagation();
-      this.announce();
-    };
-    this.d.listen(hd, 'pointerup', end);
-    this.d.listen(hd, 'pointercancel', end);
   }
 
   setA(tm) {

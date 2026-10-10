@@ -50,7 +50,7 @@ class LitePlayer {
     this.ui = { dragging: false };
     this.sync = null;
     this.followerFailed = false;
-    this.frame = new FrameTask(() => this.render());
+    this.frame = new FrameTask(() => this.render(), () => this.host);
     this.d.add(() => this.frame.cancel());
 
     this.sources = lesson.sources;
@@ -316,19 +316,21 @@ class LitePlayer {
   // Re-renders the main PDF view at its new size (after a layout or window change).
   redrawPdf() {
     if (!this.reader || !this.pdfMode) return;
-    requestAnimationFrame(() => {
+    windowOf(this.host).requestAnimationFrame(() => {
       const tg = this.reader.targets.get('main');
-      if (tg && tg.active && this.reader.view >= 0) this.reader.drawInto(tg, this.reader.view);
+      const i = this.reader.currentView();
+      if (tg && tg.active && i >= 0) this.reader.drawInto(tg, i);
     });
   }
 
   renderPdfBar() {
     const rd = this.reader;
     const deck = rd && rd.deck;
-    if (!deck || rd.view < 0) return;
+    const i = rd ? rd.currentView() : -1;
+    if (!deck || i < 0) return;
     this.$('.plabel').textContent = rd.label();
-    this.$('.pprev').disabled = rd.view <= 0;
-    this.$('.pnext').disabled = rd.view >= deck.pages.length - 1;
+    this.$('.pprev').disabled = i <= 0;
+    this.$('.pnext').disabled = i >= deck.pages.length - 1;
     const box = this.$('.pfollow');
     box.textContent = '';
     box.append(rd.followElement(true));
@@ -439,7 +441,7 @@ class LitePlayer {
     this.keys = new KeyboardShortcuts({ $, isDestroyed, wake: () => this.wake(), actions: this.keyActions() }, this.d.child());
     this.popout = new PopoutController({
       $, host: this.host, video: this.video, title: this.lesson.title, onKey: this.keys.onKey, isDestroyed, toast,
-      relayout: () => { this.quality.apply(); this.redrawPdf(); },
+      relayout: () => { this.quality.apply(); this.redrawPdf(); this.render(true); },
     }, this.d.feature('floating window'));
   }
 
@@ -823,7 +825,8 @@ class LitePlayer {
       this.registerTab('slides', this.slidesPane);
     }
     const pct = Math.floor(a.progress * 100);
-    const status = !a.chapters.length && (a.state === 'done' || a.state === 'unavailable') ? tr('slidesNone')
+    const status = a.reason === 'saveData' && !a.chapters.length ? tr('slidesSaveData')
+      : !a.chapters.length && (a.state === 'done' || a.state === 'unavailable') ? tr('slidesNone')
       : a.state === 'done' ? tr('slidesFound', { n: a.chapters.length })
         : a.state === 'thumbnails' ? tr('slidesRough', { pct }) : tr('slidesFinding', { pct });
     this.slidesPane.setChapters(a.chapters, status);
@@ -985,21 +988,20 @@ class LitePlayer {
 
   bindPanelResize() {
     const handle = this.$('.presize');
-    let appRect = null;
-    this.d.listen(handle, 'pointerdown', (e) => {
-      if (e.button !== 0) return;
-      appRect = this.app.getBoundingClientRect();
-      handle.setPointerCapture(e.pointerId);
+    const setWidth = (w) => {
+      this.prefs.panelw = w;
+      this.app.style.setProperty('--panelw', w + 'px');
+    };
+    onDrag(this.d, handle, {
+      start: (e) => {
+        if (e.button !== 0) return null;
+        handle.setPointerCapture(e.pointerId);
+        return { rect: this.app.getBoundingClientRect(), from: this.prefs.panelw };
+      },
+      move: (e, st) => setWidth(Math.round(clamp(st.rect.right - e.clientX, 260, Math.min(640, st.rect.width * 0.6)))),
+      done: () => this.savePrefs(),
+      cancel: (st) => setWidth(st.from),
     });
-    this.d.listen(handle, 'pointermove', (e) => {
-      if (!appRect) return;
-      const max = Math.min(640, appRect.width * 0.6);
-      this.prefs.panelw = Math.round(clamp(appRect.right - e.clientX, 260, max));
-      this.app.style.setProperty('--panelw', this.prefs.panelw + 'px');
-    });
-    const end = () => { if (appRect) { appRect = null; this.savePrefs(); } };
-    this.d.listen(handle, 'pointerup', end);
-    this.d.listen(handle, 'pointercancel', end);
   }
 
   // Keyboard zoom on the main picture (the primary slot), around its centre; 0 resets.

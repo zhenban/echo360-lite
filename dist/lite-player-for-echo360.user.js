@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lite Player for Echo360
 // @namespace    lite-player-for-echo360
-// @version      0.15.2
+// @version      0.15.3
 // @updateURL    https://github.com/zhenban/lite-player-for-echo360/releases/latest/download/lite-player-for-echo360.user.js
 // @downloadURL  https://github.com/zhenban/lite-player-for-echo360/releases/latest/download/lite-player-for-echo360.user.js
 // @description  Unofficial, lightweight player for Echo360 lecture recordings: far lower CPU use, both views side by side, slide chapters, a PDF that follows the lecture. Falls back to the original player automatically if anything is not recognised.
@@ -19,7 +19,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.15.2';
+  const VERSION = '0.15.3';
 
 // ---- 00-util.js ----
 // ===================================================================================
@@ -223,20 +223,26 @@ class Disposer {
 
 // Coalesces repeated render requests into at most one call per animation frame.
 // Nothing is scheduled while the page is hidden; callers re-render on visibility change.
+// nodeOf (optional): a node of what is drawn; its document and window are used (they
+// change when the player moves into the floating window).
 class FrameTask {
-  constructor(fn) {
+  constructor(fn, nodeOf) {
     this.fn = fn;
+    this.nodeOf = nodeOf || (() => null);
     this.id = 0;
+    this.win = null;
     this.run = () => { this.id = 0; this.fn(); };
   }
 
   request() {
-    if (this.id || document.hidden) return;
-    this.id = requestAnimationFrame(this.run);
+    const node = this.nodeOf();
+    if (this.id || hiddenFor(node)) return;
+    this.win = windowOf(node);
+    this.id = this.win.requestAnimationFrame(this.run);
   }
 
   cancel() {
-    if (this.id) cancelAnimationFrame(this.id);
+    if (this.id && this.win) this.win.cancelAnimationFrame(this.id);
     this.id = 0;
   }
 }
@@ -378,6 +384,7 @@ const STRINGS = {
     slidesRough: 'Approximate times from preview pictures. Finding exact changes: {pct}%',
     slidesFound: '{n} slides, found automatically from the screen recording.',
     slidesNone: 'No slide changes were found automatically in this recording.',
+    slidesSaveData: 'Slide chapters are not looked for while the browser\'s Data Saver is on.',
     screenView: 'Screen:',
     viewN: 'View {n}',
     screenUse: 'Find the slides in view {n}',
@@ -848,6 +855,46 @@ async function fetchSyllabus(section) {
   if (!r.ok) throw new Error('HTTP ' + r.status);
   const j = await r.json();
   return j && Array.isArray(j.data) ? j.data : [];
+}
+
+// A drag by one pointer on `target`, owned by the Disposer d. h.start(e) begins it and
+// returns its state (or null: not a drag); h.move(e, state) follows it; h.done(e, state)
+// when that pointer is lifted normally; h.cancel(state) when the browser cancels it (a
+// touch turned into scrolling, the capture lost), which must undo, not complete it.
+// Other pointers (a second finger) are ignored until the first one is done.
+// Pointer events: https://www.w3.org/TR/pointerevents/
+function onDrag(d, target, h) {
+  let cur = null;   // { id, state }
+  d.listen(target, 'pointerdown', (e) => {
+    if (cur) return;
+    const state = h.start(e);
+    if (state != null) cur = { id: e.pointerId, state };
+  });
+  d.listen(target, 'pointermove', (e) => { if (cur && e.pointerId === cur.id && h.move) h.move(e, cur.state); });
+  d.listen(target, 'pointerup', (e) => {
+    if (!cur || e.pointerId !== cur.id) return;
+    const c = cur;
+    cur = null;
+    h.done(e, c.state);
+  });
+  const cancel = (e) => {
+    if (!cur || e.pointerId !== cur.id) return;
+    const c = cur;
+    cur = null;
+    h.cancel(c.state);
+  };
+  d.listen(target, 'pointercancel', cancel);
+  d.listen(target, 'lostpointercapture', cancel);
+}
+
+// The window and visibility of the document a node is in now. The player can move into the
+// floating window (46-popout.js): from then on its parts are drawn by that window, and the
+// page it came from may be hidden (another tab) while the player is in plain view.
+function windowOf(node) {
+  return (node && node.ownerDocument && node.ownerDocument.defaultView) || window;
+}
+function hiddenFor(node) {
+  return !!(node && node.ownerDocument ? node.ownerDocument : document).hidden;
 }
 
 // ---- 04-types.js ----
@@ -1950,6 +1997,9 @@ video, .pdfview { position: absolute; left: 0; top: 0; width: 100%; height: 100%
 .top > * { pointer-events: auto; }
 .bottom { bottom: 0; z-index: 4; padding: 28px 14px 8px; background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.78)); }
 .idle .top, .idle .bottom { opacity: 0; pointer-events: none; }
+/* Hidden controls take no clicks or taps at all: children that re-enable pointer events
+   for themselves (the title bar's buttons, the loop band's handles) must not stay
+   clickable while invisible. (Repeated after every other rule, so it always wins.) */
 .idle { cursor: none; }
 .back { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; color: inherit; text-decoration: none; flex: none; }
 .back:hover { background: rgba(255,255,255,.12); }
@@ -2076,6 +2126,7 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border: 0; bord
   .time { margin: 0 6px; font-size: 12px; }
   .btn { width: 36px; height: 36px; }
 }
+.stage.idle .top *, .stage.idle .bottom * { pointer-events: none; }
 `;
 
 function playerTemplate() {
@@ -2259,7 +2310,8 @@ class Stream {
     // The element says 0 and paused until it gets there, so it cannot be asked (a second
     // reload in that window would start at 0).
     this.starting = null;     // { at, play } or null
-    this.renewedAt = 0;       // when access was last renewed for this stream (see the player's recoverAccess)
+    this.renewedAt = 0;
+    this.nativeMeta = null;   // native HLS: the loadedmetadata handler of the current load       // when access was last renewed for this stream (see the player's recoverAccess)
     this.arrived = null;      // listener clearing `starting`
   }
 
@@ -2397,7 +2449,16 @@ class Stream {
       // stay readable for later Web Audio / canvas features.
       v.crossOrigin = 'use-credentials';
       v.src = uri;
-      v.addEventListener('loadedmetadata', () => { if (startAt) v.currentTime = startAt; if (onReady) onReady(); }, { once: true });
+      // Owned like an hls.js instance: removed when this load is replaced or the stream
+      // ends; it goes to where the stream is meant to be now (a seek while loading).
+      const onMeta = () => {
+        this.nativeMeta = null;
+        const at = this.starting ? this.starting.at : startAt;
+        if (at) v.currentTime = at;
+        if (onReady) onReady();
+      };
+      this.nativeMeta = onMeta;
+      v.addEventListener('loadedmetadata', onMeta, { once: true });
     } else {
       throw new Error('neither MSE (hls.js) nor native HLS is available');
     }
@@ -2455,6 +2516,7 @@ class Stream {
     clearTimeout(this.retryTimer);
     this.clearStarting();
     if (this.pendingRestore) { this.video.removeEventListener('loadedmetadata', this.pendingRestore); this.pendingRestore = null; }
+    if (this.nativeMeta) { this.video.removeEventListener('loadedmetadata', this.nativeMeta); this.nativeMeta = null; }
     if (this.hls) { this.hls.destroy(); this.hls = null; }
   }
 
@@ -2793,7 +2855,7 @@ class LitePlayer {
     this.ui = { dragging: false };
     this.sync = null;
     this.followerFailed = false;
-    this.frame = new FrameTask(() => this.render());
+    this.frame = new FrameTask(() => this.render(), () => this.host);
     this.d.add(() => this.frame.cancel());
 
     this.sources = lesson.sources;
@@ -3059,19 +3121,21 @@ class LitePlayer {
   // Re-renders the main PDF view at its new size (after a layout or window change).
   redrawPdf() {
     if (!this.reader || !this.pdfMode) return;
-    requestAnimationFrame(() => {
+    windowOf(this.host).requestAnimationFrame(() => {
       const tg = this.reader.targets.get('main');
-      if (tg && tg.active && this.reader.view >= 0) this.reader.drawInto(tg, this.reader.view);
+      const i = this.reader.currentView();
+      if (tg && tg.active && i >= 0) this.reader.drawInto(tg, i);
     });
   }
 
   renderPdfBar() {
     const rd = this.reader;
     const deck = rd && rd.deck;
-    if (!deck || rd.view < 0) return;
+    const i = rd ? rd.currentView() : -1;
+    if (!deck || i < 0) return;
     this.$('.plabel').textContent = rd.label();
-    this.$('.pprev').disabled = rd.view <= 0;
-    this.$('.pnext').disabled = rd.view >= deck.pages.length - 1;
+    this.$('.pprev').disabled = i <= 0;
+    this.$('.pnext').disabled = i >= deck.pages.length - 1;
     const box = this.$('.pfollow');
     box.textContent = '';
     box.append(rd.followElement(true));
@@ -3182,7 +3246,7 @@ class LitePlayer {
     this.keys = new KeyboardShortcuts({ $, isDestroyed, wake: () => this.wake(), actions: this.keyActions() }, this.d.child());
     this.popout = new PopoutController({
       $, host: this.host, video: this.video, title: this.lesson.title, onKey: this.keys.onKey, isDestroyed, toast,
-      relayout: () => { this.quality.apply(); this.redrawPdf(); },
+      relayout: () => { this.quality.apply(); this.redrawPdf(); this.render(true); },
     }, this.d.feature('floating window'));
   }
 
@@ -3566,7 +3630,8 @@ class LitePlayer {
       this.registerTab('slides', this.slidesPane);
     }
     const pct = Math.floor(a.progress * 100);
-    const status = !a.chapters.length && (a.state === 'done' || a.state === 'unavailable') ? tr('slidesNone')
+    const status = a.reason === 'saveData' && !a.chapters.length ? tr('slidesSaveData')
+      : !a.chapters.length && (a.state === 'done' || a.state === 'unavailable') ? tr('slidesNone')
       : a.state === 'done' ? tr('slidesFound', { n: a.chapters.length })
         : a.state === 'thumbnails' ? tr('slidesRough', { pct }) : tr('slidesFinding', { pct });
     this.slidesPane.setChapters(a.chapters, status);
@@ -3728,21 +3793,20 @@ class LitePlayer {
 
   bindPanelResize() {
     const handle = this.$('.presize');
-    let appRect = null;
-    this.d.listen(handle, 'pointerdown', (e) => {
-      if (e.button !== 0) return;
-      appRect = this.app.getBoundingClientRect();
-      handle.setPointerCapture(e.pointerId);
+    const setWidth = (w) => {
+      this.prefs.panelw = w;
+      this.app.style.setProperty('--panelw', w + 'px');
+    };
+    onDrag(this.d, handle, {
+      start: (e) => {
+        if (e.button !== 0) return null;
+        handle.setPointerCapture(e.pointerId);
+        return { rect: this.app.getBoundingClientRect(), from: this.prefs.panelw };
+      },
+      move: (e, st) => setWidth(Math.round(clamp(st.rect.right - e.clientX, 260, Math.min(640, st.rect.width * 0.6)))),
+      done: () => this.savePrefs(),
+      cancel: (st) => setWidth(st.from),
     });
-    this.d.listen(handle, 'pointermove', (e) => {
-      if (!appRect) return;
-      const max = Math.min(640, appRect.width * 0.6);
-      this.prefs.panelw = Math.round(clamp(appRect.right - e.clientX, 260, max));
-      this.app.style.setProperty('--panelw', this.prefs.panelw + 'px');
-    });
-    const end = () => { if (appRect) { appRect = null; this.savePrefs(); } };
-    this.d.listen(handle, 'pointerup', end);
-    this.d.listen(handle, 'pointercancel', end);
   }
 
   // Keyboard zoom on the main picture (the primary slot), around its centre; 0 resets.
@@ -3934,34 +3998,42 @@ class SeekBar {
       return f;
     };
     d.listen(seekEl, 'pointerenter', () => { rect = seekEl.getBoundingClientRect(); });
-    d.listen(seekEl, 'pointermove', (e) => {
-      const f = hover(e);
-      if (x.ui.dragging) {
+    d.listen(seekEl, 'pointermove', (e) => { hover(e); });
+    // Dragging: seeks along the way; lifting the finger seeks there (a click next to a
+    // marker jumps exactly to the marked time); a cancelled touch goes back to where
+    // playback was before.
+    onDrag(d, seekEl, {
+      start: (e) => {
+        if (e.button !== 0) return null;
+        rect = seekEl.getBoundingClientRect();
+        seekEl.setPointerCapture(e.pointerId);
+        downX = e.clientX;
+        x.ui.dragging = true;
+        seekEl.classList.add('dragging');
+        seekEl.style.setProperty('--p', hover(e).toFixed(5));
+        return { from: x.clock.position(), moved: false };
+      },
+      move: (e, st) => {
+        const f = frac(e.clientX);
         seekEl.style.setProperty('--p', f.toFixed(5));
         const now = performance.now();
-        if (now - lastSeekAt > DRAG_SEEK_MS) { lastSeekAt = now; x.video.currentTime = f * x.duration(); }
-      }
+        if (now - lastSeekAt > DRAG_SEEK_MS) { lastSeekAt = now; st.moved = true; x.video.currentTime = f * x.duration(); }
+      },
+      done: (e) => {
+        x.ui.dragging = false;
+        seekEl.classList.remove('dragging');
+        if (nearMarker && Math.abs(e.clientX - downX) < 4) x.seek(nearMarker.time);
+        else x.seek(frac(e.clientX) * x.duration());
+        x.armIdle();
+      },
+      cancel: (st) => {
+        x.ui.dragging = false;
+        seekEl.classList.remove('dragging');
+        if (st.moved) x.seek(st.from);
+        this.render(true);
+        x.armIdle();
+      },
     });
-    d.listen(seekEl, 'pointerdown', (e) => {
-      if (e.button !== 0) return;
-      rect = seekEl.getBoundingClientRect();
-      seekEl.setPointerCapture(e.pointerId);
-      downX = e.clientX;
-      x.ui.dragging = true;
-      seekEl.classList.add('dragging');
-      seekEl.style.setProperty('--p', hover(e).toFixed(5));
-    });
-    const endDrag = (e) => {
-      if (!x.ui.dragging) return;
-      x.ui.dragging = false;
-      seekEl.classList.remove('dragging');
-      // A click (not a drag) next to a marker jumps exactly to the marked time.
-      if (nearMarker && Math.abs(e.clientX - downX) < 4) x.seek(nearMarker.time);
-      else x.seek(frac(e.clientX) * x.duration());
-      x.armIdle();
-    };
-    d.listen(seekEl, 'pointerup', endDrag);
-    d.listen(seekEl, 'pointercancel', endDrag);
     d.listen(seekEl, 'keydown', (e) => {
       if (e.key === 'Home') { x.seek(0); e.preventDefault(); }
       if (e.key === 'End') { x.seek(x.duration()); e.preventDefault(); }
@@ -4077,33 +4149,29 @@ class LayoutControls {
 
   bindDivider() {
     const x = this.x;
-    const d = this.d;
     const divider = x.$('.divider');
     let stageRect = null;
-    d.listen(divider, 'pointerdown', (e) => {
-      if (e.button !== 0) return;
-      e.stopPropagation();
-      stageRect = x.stage.getBoundingClientRect();
-      divider.setPointerCapture(e.pointerId);
-      divider.classList.add('dragging');
-      x.ui.dragging = true;
-    });
-    d.listen(divider, 'pointermove', (e) => {
-      if (!divider.classList.contains('dragging')) return;
-      this.setRatio((e.clientX - stageRect.left) / stageRect.width);
-    });
-    const end = () => {
-      if (!divider.classList.contains('dragging')) return;
+    const finish = () => {
       divider.classList.remove('dragging');
       x.ui.dragging = false;
-      x.savePrefs();
-      x.redrawPdf();
       x.armIdle();
     };
-    d.listen(divider, 'pointerup', end);
-    d.listen(divider, 'pointercancel', end);
-    d.listen(divider, 'dblclick', () => { this.setRatio(0.5); x.savePrefs(); });
-    d.listen(divider, 'keydown', (e) => {
+    onDrag(this.d, divider, {
+      start: (e) => {
+        if (e.button !== 0) return null;
+        e.stopPropagation();
+        stageRect = x.stage.getBoundingClientRect();
+        divider.setPointerCapture(e.pointerId);
+        divider.classList.add('dragging');
+        x.ui.dragging = true;
+        return { from: x.prefs.ratio };
+      },
+      move: (e) => this.setRatio((e.clientX - stageRect.left) / stageRect.width),
+      done: () => { finish(); x.savePrefs(); x.redrawPdf(); },
+      cancel: (st) => { this.setRatio(st.from); finish(); },
+    });
+    this.d.listen(divider, 'dblclick', () => { this.setRatio(0.5); x.savePrefs(); });
+    this.d.listen(divider, 'keydown', (e) => {
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         this.setRatio(x.prefs.ratio + (e.key === 'ArrowLeft' ? -0.05 : 0.05));
         x.savePrefs();
@@ -4116,58 +4184,65 @@ class LayoutControls {
   // While dragging, both the frame and the picture in it are moved.
   bindPip() {
     const x = this.x;
-    const d = this.d;
     const st = x.stage;
     const frame = x.$('.pipframe');
     const grip = x.$('.grip');
     const pipEls = () => [frame, x.stage.querySelector('.views [data-slot=secondary]')].filter(Boolean);
-    let drag = null;
-    d.listen(frame, 'pointerdown', (e) => {
-      if (e.button !== 0) return;
-      e.stopPropagation();
-      frame.setPointerCapture(e.pointerId);
-      drag = { x: e.clientX, y: e.clientY, moved: false, resize: e.target === grip, rect: frame.getBoundingClientRect(), stage: st.getBoundingClientRect() };
-      x.ui.dragging = true;
-    });
-    d.listen(frame, 'pointermove', (e) => {
-      if (!drag) return;
-      const dx = e.clientX - drag.x;
-      const dy = e.clientY - drag.y;
-      if (!drag.moved && Math.hypot(dx, dy) < 4) return;
-      drag.moved = true;
-      frame.classList.add('dragging');
-      if (drag.resize) {
-        const c = x.prefs.corner;
-        const r = drag.rect;
-        const w = c === 'br' || c === 'tr' ? r.right - e.clientX : e.clientX - r.left;
-        x.prefs.pipw = clamp(w / drag.stage.width, 0.15, 0.6);
-        st.style.setProperty('--pipw', x.prefs.pipw.toFixed(4));
-      } else {
-        for (const elem of pipEls()) elem.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
-      }
-    });
-    const end = (e) => {
-      if (!drag) return;
-      const was = drag;
-      drag = null;
+    const setWidth = (w) => {
+      x.prefs.pipw = w;
+      st.style.setProperty('--pipw', w.toFixed(4));
+    };
+    const finish = () => {
       x.ui.dragging = false;
       frame.classList.remove('dragging');
-      if (!was.moved) { x.onPipClick(); return; }
-      if (was.resize) x.redrawPdf();
-      else {
-        const cx = was.rect.left + was.rect.width / 2 + (e.clientX - was.x);
-        const cy = was.rect.top + was.rect.height / 2 + (e.clientY - was.y);
-        const right = cx > was.stage.left + was.stage.width / 2;
-        const bottom = cy > was.stage.top + was.stage.height / 2;
-        x.prefs.corner = (bottom ? 'b' : 't') + (right ? 'r' : 'l');
-        for (const elem of pipEls()) elem.style.transform = '';
-        for (const c of CORNERS) st.classList.toggle('c-' + c, c === x.prefs.corner);
-      }
-      x.savePrefs();
-      x.armIdle();
+      for (const elem of pipEls()) elem.style.transform = '';
     };
-    d.listen(frame, 'pointerup', end);
-    d.listen(frame, 'pointercancel', end);
+    onDrag(this.d, frame, {
+      start: (e) => {
+        if (e.button !== 0) return null;
+        e.stopPropagation();
+        frame.setPointerCapture(e.pointerId);
+        x.ui.dragging = true;
+        return { x: e.clientX, y: e.clientY, moved: false, resize: e.target === grip, rect: frame.getBoundingClientRect(), stage: st.getBoundingClientRect(), pipw: x.prefs.pipw };
+      },
+      move: (e, drag) => {
+        const dx = e.clientX - drag.x;
+        const dy = e.clientY - drag.y;
+        if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+        drag.moved = true;
+        frame.classList.add('dragging');
+        if (drag.resize) {
+          const c = x.prefs.corner;
+          const r = drag.rect;
+          const w = c === 'br' || c === 'tr' ? r.right - e.clientX : e.clientX - r.left;
+          setWidth(clamp(w / drag.stage.width, 0.15, 0.6));
+        } else {
+          for (const elem of pipEls()) elem.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+        }
+      },
+      done: (e, was) => {
+        finish();
+        // A tap swaps the two pictures (with the PDF shown: the PDF and the video).
+        if (!was.moved) { x.onPipClick(); return; }
+        if (was.resize) x.redrawPdf();
+        else {
+          const cx = was.rect.left + was.rect.width / 2 + (e.clientX - was.x);
+          const cy = was.rect.top + was.rect.height / 2 + (e.clientY - was.y);
+          const right = cx > was.stage.left + was.stage.width / 2;
+          const bottom = cy > was.stage.top + was.stage.height / 2;
+          x.prefs.corner = (bottom ? 'b' : 't') + (right ? 'r' : 'l');
+          for (const c of CORNERS) st.classList.toggle('c-' + c, c === x.prefs.corner);
+        }
+        x.savePrefs();
+        x.armIdle();
+      },
+      // Cancelled (a touch the browser took over): nothing happened, not a tap.
+      cancel: (was) => {
+        if (was.resize) setWidth(was.pipw);
+        finish();
+        x.armIdle();
+      },
+    });
   }
 }
 
@@ -4531,6 +4606,8 @@ class PopoutController {
     const css = host.style.cssText;
     const keys = (e) => x.onKey(e);
     const resize = () => { if (!x.isDestroyed()) x.relayout(); };
+    // The window's own visibility now decides drawing (the page behind may be hidden).
+    const visible = () => { if (!x.isDestroyed() && !doc.hidden) x.relayout(); };
     // Putting the player back. Registered before anything moves, so a failure half-way
     // (or the window closing at any point) always brings the player back to the page.
     let back = false;
@@ -4538,6 +4615,7 @@ class PopoutController {
       if (back) return;
       back = true;
       doc.removeEventListener('keydown', keys, true);
+      doc.removeEventListener('visibilitychange', visible);
       pip.removeEventListener('resize', resize);
       this.window = null;
       // The player was destroyed meanwhile (handed over to the original player): only the
@@ -4561,6 +4639,7 @@ class PopoutController {
       doc.body.append(host);
       host.classList.add('in-popout');
       doc.addEventListener('keydown', keys, true);
+      doc.addEventListener('visibilitychange', visible);
       pip.addEventListener('resize', resize);
       // Moving can pause the elements in some browsers: carry on as before.
       if (playing && x.video.paused) x.video.play().catch(() => {});
@@ -4891,7 +4970,7 @@ class Zoomer {
     }, { passive: false });
     d.listen(this.host, 'pointerdown', (e) => {
       const elem = this.targetOf(e.target);
-      if (!elem || e.button !== 0 || !this.zoomed(elem)) return;
+      if (!elem || e.button !== 0 || !this.zoomed(elem) || this.drag) return;
       this.drag = { el: elem, x: e.clientX, y: e.clientY, z: this.get(elem), id: e.pointerId };
       this.dragged = false;
     });
@@ -4912,15 +4991,20 @@ class Zoomer {
       const H = g.el.offsetHeight;
       this.set(g.el, g.z.s, g.z.cx - dx / (W * g.z.s), g.z.cy - dy / (H * g.z.s));
     });
-    const end = () => {
-      if (!this.drag) return;
-      this.drag.el.classList.remove('panning');
+    // Only the pointer that started the pan ends it (a second finger does not). A cancelled
+    // pan goes back to where it started.
+    const end = (e, cancelled) => {
+      const g = this.drag;
+      if (!g || e.pointerId !== g.id) return;
+      g.el.classList.remove('panning');
       this.drag = null;
+      if (cancelled && this.dragged) this.set(g.el, g.z.s, g.z.cx, g.z.cy);
       // The click event comes right after; it reads `dragged` and then it is cleared.
       setTimeout(() => { this.dragged = false; }, 0);
     };
-    d.listen(this.host, 'pointerup', end);
-    d.listen(this.host, 'pointercancel', end);
+    d.listen(this.host, 'pointerup', (e) => end(e, false));
+    d.listen(this.host, 'pointercancel', (e) => end(e, true));
+    d.listen(this.host, 'lostpointercapture', (e) => end(e, true));
   }
 }
 
@@ -4995,28 +5079,23 @@ class ABLoop {
   bindHandle(hd) {
     const seek = this.p.rail;
     const isA = hd.classList.contains('la');
-    let drag = false;
-    this.d.listen(hd, 'pointerdown', (e) => {
-      if (e.button !== 0) return;
-      e.stopPropagation();
-      hd.setPointerCapture(e.pointerId);
-      drag = true;
+    onDrag(this.d, hd, {
+      start: (e) => {
+        if (e.button !== 0) return null;
+        e.stopPropagation();
+        hd.setPointerCapture(e.pointerId);
+        return { a: this.a, b: this.b };
+      },
+      move: (e) => {
+        const r = seek.getBoundingClientRect();
+        const tm = clamp((e.clientX - r.left) / r.width, 0, 1) * this.p.duration();
+        if (isA) this.a = Math.min(tm, this.b - LOOP_MIN_SEC); else this.b = Math.max(tm, this.a + LOOP_MIN_SEC);
+        this.render();
+      },
+      done: (e) => { e.stopPropagation(); this.announce(); },
+      // A cancelled drag leaves the loop as it was.
+      cancel: (st) => { this.a = st.a; this.b = st.b; this.render(); },
     });
-    this.d.listen(hd, 'pointermove', (e) => {
-      if (!drag) return;
-      const r = seek.getBoundingClientRect();
-      const tm = clamp((e.clientX - r.left) / r.width, 0, 1) * this.p.duration();
-      if (isA) this.a = Math.min(tm, this.b - LOOP_MIN_SEC); else this.b = Math.max(tm, this.a + LOOP_MIN_SEC);
-      this.render();
-    });
-    const end = (e) => {
-      if (!drag) return;
-      drag = false;
-      e.stopPropagation();
-      this.announce();
-    };
-    this.d.listen(hd, 'pointerup', end);
-    this.d.listen(hd, 'pointercancel', end);
   }
 
   setA(tm) {
@@ -5269,7 +5348,7 @@ class CaptionsView {
   // Called on timeupdate/seeked (about 4 times a second): writes the DOM only when the cue
   // changes.
   update(t) {
-    if (!this.on || !this.index || document.hidden) return;
+    if (!this.on || !this.index || hiddenFor(this.el)) return;
     const k = this.index.active(t);
     this.scheduleNext(t);
     if (k === this.shown) return;
@@ -5350,7 +5429,7 @@ class TranscriptPanel {
   // Called on timeupdate/seeked while the panel is open: moves the highlight when the cue
   // changes and keeps it in view unless the user has scrolled away.
   update(t, force) {
-    if (!this.open || !this.rows || document.hidden) return;
+    if (!this.open || !this.rows || hiddenFor(this.list)) return;
     const k = this.index.started(t);
     if (k === this.current && !force) return;
     if (this.current >= 0 && this.rows[this.current]) this.rows[this.current].classList.remove('cur');
@@ -5670,6 +5749,14 @@ class NotesPane {
     for (const item of shown) frag.append(this.renderItem(item, long));
     this.list.textContent = '';
     this.list.append(frag);
+    // A note being edited stays open with what was typed (the list is redrawn on any
+    // change: a tag, a bookmark, a reload).
+    const ed = this.editing;
+    if (ed) {
+      const item = this.items.find((x) => x.id === ed.id);
+      const card = item && this.list.querySelector('.card[data-id="' + CSS.escape(String(item.id)) + '"]');
+      if (card) this.startEdit(item, card, ed.text); else this.editing = null;
+    }
   }
 
   renderItem(item, long) {
@@ -5698,11 +5785,14 @@ class NotesPane {
     return confirmButton(item.type === 'flag' ? tr('remove') : tr('delete'), (e) => this.remove(e, item));
   }
 
-  startEdit(item, card) {
+  startEdit(item, card, draft) {
     const area = el('textarea.input', { rows: 3, maxLength: 5000 });
-    area.value = item.text;
+    area.value = draft == null ? item.text : draft;
+    const focused = draft == null;
+    this.editing = { id: item.id, text: area.value };
+    area.addEventListener('input', () => { if (this.editing && this.editing.id === item.id) this.editing.text = area.value; });
     const save = el('button.pbtn.primary', { text: tr('save') });
-    const cancel = el('button.pbtn', { text: tr('cancel'), onclick: () => this.render() });
+    const cancel = el('button.pbtn', { text: tr('cancel'), onclick: () => { this.editing = null; this.render(); } });
     save.addEventListener('click', guard((e) => this.once(async () => {
       const text = area.value.trim();
       if (!text) return;
@@ -5710,13 +5800,15 @@ class NotesPane {
       try {
         await this.api.updateNote(e, item, text);
         item.text = text;
+        this.editing = null;
         this.showError('');
         this.changed();
       } catch (err) { save.disabled = false; this.fail(err); }
     })));
     card.querySelector('.ibody').replaceWith(el('div.composer', null, area, el('div.crow', null, el('span.grow'), cancel, save)));
     card.querySelector('.iactions').hidden = true;
-    area.focus();
+    // Focus only when the user opened it (not on a redraw while they work elsewhere).
+    if (focused) area.focus();
   }
 
   // One write at a time for the whole tab (see DiscussionPane.write): a second Ctrl+Enter
@@ -5926,6 +6018,11 @@ class NotesPane {
 
 const TAG_COLORS = ['#f6c343', '#6ea8ff', '#ff6b6b', '#4fd1a5', '#c084fc', '#fb923c', '#94a3b8', '#f472b6'];
 
+// Several tabs can show recordings of the same course (or the same recording) at once, so
+// a change is never saved by writing this page's whole copy back: that would undo what
+// another tab saved meanwhile. Each change is an operation, applied to this page's copy at
+// once and replayed on the stored record in one transaction (idbCache.update); this page
+// then takes the stored result.
 class TagStore {
   constructor(lesson, onChange) {
     this.courseKey = 'tags:' + (lesson.sectionId || 'all');
@@ -5936,18 +6033,23 @@ class TagStore {
     this.ready = false;
   }
 
+  static defaults() {
+    return [
+      { id: 'exam', name: tr('tagExam'), color: TAG_COLORS[0] },
+      { id: 'assignment', name: tr('tagAssignment'), color: TAG_COLORS[1] },
+      { id: 'confused', name: tr('tagConfused'), color: TAG_COLORS[2] },
+    ];
+  }
+
   async load() {
     const rec = await idbCache.get(this.courseKey);
     if (rec && Array.isArray(rec.tags)) {
       this.tags = rec.tags;
     } else {
-      // First use in this course: a few suggestions, which the user may delete.
-      this.tags = [
-        { id: 'exam', name: tr('tagExam'), color: TAG_COLORS[0] },
-        { id: 'assignment', name: tr('tagAssignment'), color: TAG_COLORS[1] },
-        { id: 'confused', name: tr('tagConfused'), color: TAG_COLORS[2] },
-      ];
-      this.saveTags();
+      // First use in this course: a few suggestions, which the user may delete (kept if
+      // another tab has made the list meanwhile).
+      this.tags = TagStore.defaults();
+      this.changeTags(() => {});
     }
     const m = this.mapKey ? await idbCache.get(this.mapKey) : null;
     this.map = m && typeof m === 'object' ? m : {};
@@ -5955,9 +6057,31 @@ class TagStore {
     this.onChange();
   }
 
-  saveTags() { idbCache.put(this.courseKey, { tags: this.tags }); }
+  // op(tags) changes a tag list in place: applied here now, then to the stored list.
+  changeTags(op) {
+    op(this.tags);
+    idbCache.update(this.courseKey, (rec) => {
+      const tags = rec && Array.isArray(rec.tags) ? rec.tags : TagStore.defaults();
+      op(tags);
+      return { tags };
+    }).then((rec) => {
+      // Redraw only if another tab's changes came along (else nothing new to show).
+      if (rec && Array.isArray(rec.tags) && JSON.stringify(rec.tags) !== JSON.stringify(this.tags)) { this.tags = rec.tags; this.onChange(); }
+    }).catch((e) => log.warn('tags:', e));
+  }
 
-  saveMap() { if (this.mapKey) idbCache.put(this.mapKey, this.map); }
+  // op(map) changes this recording's item -> tag ids map in place, the same way.
+  changeMap(op) {
+    if (!this.mapKey) return;
+    op(this.map);
+    idbCache.update(this.mapKey, (rec) => {
+      const map = rec && typeof rec === 'object' ? rec : {};
+      op(map);
+      return map;
+    }).then((rec) => {
+      if (rec && typeof rec === 'object' && JSON.stringify(rec) !== JSON.stringify(this.map)) { this.map = rec; this.onChange(); }
+    }).catch((e) => log.warn('tags:', e));
+  }
 
   byId(id) { return this.tags.find((x) => x.id === id) || null; }
 
@@ -5970,13 +6094,16 @@ class TagStore {
 
   has(itemId, tagId) { return (this.map[itemId] || []).includes(tagId); }
 
+  // Adds or removes a tag on an item. The wanted state is decided here, so replaying it
+  // on the stored map cannot flip back a change another tab made.
   toggle(itemId, tagId) {
     if (!this.ready) return null; // not loaded yet: writing now would overwrite the stored tags
-    const ids = (this.map[itemId] || []).filter((x) => this.byId(x));
-    const i = ids.indexOf(tagId);
-    if (i >= 0) ids.splice(i, 1); else ids.push(tagId);
-    if (ids.length) this.map[itemId] = ids; else delete this.map[itemId];
-    this.saveMap();
+    const on = !this.has(itemId, tagId);
+    this.changeMap((map) => {
+      const ids = (map[itemId] || []).filter((x) => x !== tagId);
+      if (on) ids.push(tagId);
+      if (ids.length) map[itemId] = ids; else delete map[itemId];
+    });
     this.onChange();
   }
 
@@ -5984,8 +6111,7 @@ class TagStore {
   forget(itemId) {
     if (!this.ready) return null; // not loaded yet: writing now would overwrite the stored tags
     if (!this.map[itemId]) return;
-    delete this.map[itemId];
-    this.saveMap();
+    this.changeMap((map) => { delete map[itemId]; });
   }
 
   create(name, color) {
@@ -5995,8 +6121,9 @@ class TagStore {
     const same = this.tags.find((x) => x.name.toLowerCase() === clean.toLowerCase());
     if (same) return same;
     const tag = { id: 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: clean, color: color || TAG_COLORS[this.tags.length % TAG_COLORS.length] };
-    this.tags.push(tag);
-    this.saveTags();
+    this.changeTags((tags) => {
+      if (!tags.some((x) => x.id === tag.id || x.name.toLowerCase() === clean.toLowerCase())) tags.push(tag);
+    });
     this.onChange();
     return tag;
   }
@@ -6006,29 +6133,26 @@ class TagStore {
     const tag = this.byId(id);
     const clean = String(name || '').trim().slice(0, 40);
     if (!tag || !clean || clean === tag.name) return;
-    tag.name = clean;
-    this.saveTags();
+    this.changeTags((tags) => { const t = tags.find((x) => x.id === id); if (t) t.name = clean; });
     this.onChange();
   }
 
   recolor(id, color) {
     if (!this.ready) return null; // not loaded yet: writing now would overwrite the stored tags
-    const tag = this.byId(id);
-    if (!tag) return;
-    tag.color = color;
-    this.saveTags();
+    if (!this.byId(id)) return;
+    this.changeTags((tags) => { const t = tags.find((x) => x.id === id); if (t) t.color = color; });
     this.onChange();
   }
 
   remove(id) {
     if (!this.ready) return null; // not loaded yet: writing now would overwrite the stored tags
-    this.tags = this.tags.filter((x) => x.id !== id);
-    for (const k of Object.keys(this.map)) {
-      this.map[k] = this.map[k].filter((x) => x !== id);
-      if (!this.map[k].length) delete this.map[k];
-    }
-    this.saveTags();
-    this.saveMap();
+    this.changeTags((tags) => { const i = tags.findIndex((x) => x.id === id); if (i >= 0) tags.splice(i, 1); });
+    this.changeMap((map) => {
+      for (const k of Object.keys(map)) {
+        map[k] = map[k].filter((x) => x !== id);
+        if (!map[k].length) delete map[k];
+      }
+    });
     this.onChange();
   }
 }
@@ -6116,6 +6240,7 @@ class DiscussionPane {
     this.dirty = true;
     this.openReplies = new Set();
     this.replyOpen = null;
+    this.replyDrafts = new Map();   // question id -> { text, anon }: unsent replies survive redraws and failures
     this.loadedAt = 0;
     this.d = disposer || new Disposer();   // owned by whoever created this (parent.child())
     this.build();
@@ -6286,17 +6411,24 @@ class DiscussionPane {
   }
 
   renderReplyComposer(q) {
+    // The list is redrawn after every load (refresh, sorting, a write elsewhere): the reply
+    // being written is kept per question, not in the element.
+    const draft = this.replyDrafts.get(q.id) || { text: '', anon: false };
+    this.replyDrafts.set(q.id, draft);
     const area = el('textarea.input', { rows: 2, placeholder: tr('replyPlaceholder'), 'aria-label': tr('replyPlaceholder') });
+    area.value = draft.text;
     const counter = el('span.counter');
     const anon = el('input', { type: 'checkbox' });
+    anon.checked = draft.anon;
+    anon.addEventListener('change', () => { draft.anon = anon.checked; });
     const send = el('button.pbtn.primary', { text: tr('replyPublic') });
     const submit = (e) => {
       const body = area.value.trim();
       if (this.busy || !body || body.length > MAX_POST_LENGTH) return;
       send.disabled = true;
-      this.write(e, () => this.api.reply(e, q.id, { body, anonymous: anon.checked }), () => { this.replyOpen = null; });
+      this.write(e, () => this.api.reply(e, q.id, { body, anonymous: anon.checked }), () => { this.replyOpen = null; this.replyDrafts.delete(q.id); });
     };
-    area.addEventListener('input', guard(() => this.updateCounter(area, counter, send)));
+    area.addEventListener('input', guard(() => { draft.text = area.value; this.updateCounter(area, counter, send); }));
     area.addEventListener('keydown', guard((e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submit(e); } }));
     send.addEventListener('click', guard(submit));
     this.updateCounter(area, counter, send);
@@ -6305,7 +6437,7 @@ class DiscussionPane {
       el('div.pwarn', { role: 'note', text: tr('publicWarning') }),
       area,
       el('div.crow', null, el('label.check', null, anon, el('span', { text: tr('hideName') })), el('span.grow'), counter,
-        el('button.pbtn', { text: tr('cancel'), onclick: () => { this.replyOpen = null; this.render(); } }), send));
+        el('button.pbtn', { text: tr('cancel'), onclick: () => { this.replyOpen = null; this.replyDrafts.delete(q.id); this.render(); } }), send));
   }
 
   async post(e) {
@@ -6338,7 +6470,11 @@ class DiscussionPane {
     } finally {
       this.busy = false;
     }
+    // The list is loaded again either way (what was saved, or what is there now); a write
+    // that failed keeps saying so afterwards (a successful load clears load errors).
+    const failed = ok ? '' : this.errorEl.textContent;
     await this.load();
+    if (failed) this.showError(failed);
     return ok;
   }
 
@@ -7991,6 +8127,7 @@ class SlideAnalyzer {
   }
 
   async run(signal, gate) {
+    this.reason = null;   // why the analysis is unavailable, if it says ('saveData')
     const key = 'slides:' + this.lesson.mediaId;
     const id = this.lesson.mediaId;
     const pick = id ? await idbCache.get('screenpick:' + id) : null;
@@ -8009,6 +8146,9 @@ class SlideAnalyzer {
       this.onChange();
       return;
     }
+    // Data Saver: no downloads at all (finding the screen view already reads keyframes or
+    // preview pictures); only a stored result is used.
+    if (saveDataOn()) { this.reason = 'saveData'; this.state = 'unavailable'; this.onChange(); return; }
     // Which view is the screen is needed early (quality settings are per view).
     const screen = await this.findScreen(signal);
     if (signal.aborted) return;
@@ -8018,7 +8158,7 @@ class SlideAnalyzer {
     this.onChange();
     await gate.wait(BG_START_DELAY_MS); // let playback start first
     if (screen.thumbs) this.fromThumbnails(screen.thumbs, signal, gate);
-    if (!HlsVideoReader.supported() || saveDataOn()) {
+    if (!HlsVideoReader.supported()) {
       if (this.chapters.length) { this.state = 'done'; this.progress = 1; this.onChange(); }
       return;
     }
@@ -8335,6 +8475,7 @@ class SlideReader {
   constructor(player) {
     this.player = player;
     this.view = -1;
+    this.viewKey = null;     // the key of that page (see currentView)
     this.follow = true;
     this.stale = false;
     this.sample = -1;
@@ -8361,7 +8502,8 @@ class SlideReader {
     if (!tg || tg.active === on) return;
     tg.active = on;
     if (on && this.deck) {
-      if (this.view >= 0) this.drawInto(tg, this.view);
+      const i = this.currentView();
+      if (i >= 0) this.drawInto(tg, i);
       this.update(this.player.video.currentTime, true);
     }
   }
@@ -8388,9 +8530,9 @@ class SlideReader {
     for (const tg of this.targets.values()) tg.stage.classList.toggle('stale', stale);
     if (this.follow) {
       const p = deck.pageAt(t);
-      if (p !== this.view || force) this.showPage(p >= 0 ? p : Math.max(0, this.view), force);
+      if (p !== this.currentView() || force) this.showPage(p >= 0 ? p : Math.max(0, this.currentView()), force);
       else if (sample !== this.sample || staleChanged) this.info();
-    } else if (force) this.showPage(this.view, true);
+    } else if (force) this.showPage(Math.max(0, this.currentView()), true);
     this.sample = sample;
   }
 
@@ -8399,7 +8541,7 @@ class SlideReader {
     const deck = this.deck;
     if (!deck) return;
     this.follow = false;
-    this.showPage(clamp(this.view + dir, 0, deck.pages.length - 1), true);
+    this.showPage(clamp(this.currentView() + dir, 0, deck.pages.length - 1), true);
   }
 
   resumeFollow() {
@@ -8407,10 +8549,27 @@ class SlideReader {
     this.update(this.player.video.currentTime, true);
   }
 
+  // The page index shown now, kept valid when the files change (a file removed, replaced
+  // or added): the same page if it is still there (by its key), else the nearest valid
+  // index.
+  currentView() {
+    const pages = this.deck ? this.deck.pages : [];
+    if (this.view < 0 || !pages.length) return -1;
+    const p = pages[this.view];
+    if (p && p.key === this.viewKey) return this.view;
+    const k = pages.findIndex((x) => x.key === this.viewKey);
+    this.view = k >= 0 ? k : Math.min(this.view, pages.length - 1);
+    this.viewKey = pages[this.view].key;
+    return this.view;
+  }
+
   showPage(i, force) {
     if (!this.deck || i < 0) return;
+    i = Math.min(i, this.deck.pages.length - 1);
+    if (i < 0) return;
     const changed = i !== this.view;
     this.view = i;
+    this.viewKey = this.deck.pages[i].key;
     if (changed || force) for (const tg of this.targets.values()) if (tg.active) this.drawInto(tg, i);
     this.info();
   }
@@ -8421,6 +8580,7 @@ class SlideReader {
     const token = ++tg.token;
     const stage = tg.stage;
     const p = deck.pages[i];
+    if (!p) return;
     const dpr = window.devicePixelRatio || 1;
     // As wide as fits the place at the page's aspect ratio.
     const ar = p.ar || PAGE_AR_DEFAULT;
@@ -8436,7 +8596,7 @@ class SlideReader {
       c.getContext('2d').drawImage(src, 0, 0);
       c.className = 'rpage';
       tg.pages.append(c);
-      requestAnimationFrame(() => c.classList.add('in'));
+      windowOf(tg.pages).requestAnimationFrame(() => c.classList.add('in'));
       const old = [...tg.pages.querySelectorAll('canvas')].filter((x) => x !== c);
       setTimeout(() => { for (const x of old) x.remove(); }, 220);
     }).catch((e) => log.warn('render page:', e && e.message ? e.message : e));
@@ -8445,7 +8605,7 @@ class SlideReader {
   // "Page 5 of 21 · file" for the page shown.
   label() {
     const deck = this.deck;
-    const p = deck.pages[this.view];
+    const p = deck.pages[this.currentView()];
     if (!p) return '';
     return tr('pageOfN', { n: p.num, total: deck.pages.filter((x) => x.file === p.file).length })
       + (deck.files.length > 1 ? ' · ' + p.file.replace(/\.pdf$/i, '') : '');
@@ -8617,7 +8777,7 @@ class SlidesPane {
 
   // Called on time updates: the chapter highlight (the reader updates itself).
   update(t, force) {
-    if (!this.visible || document.hidden || !this.cards.length || this.list.hidden) return;
+    if (!this.visible || hiddenFor(this.list) || !this.cards.length || this.list.hidden) return;
     const k = chapterIndexAt(this.chapters, t);
     if (k === this.current && !force) return;
     if (this.cards[this.current]) this.cards[this.current].classList.remove('cur');
@@ -8631,7 +8791,7 @@ class SlidesPane {
   renderPageInfo() {
     const deck = this.deck;
     const rd = this.reader;
-    const i = rd.view;
+    const i = deck ? rd.currentView() : -1;
     const p = deck && deck.pages[i];
     if (!p) return;
     this.pageLabel.textContent = rd.label();
@@ -9645,16 +9805,22 @@ class SlideDeckController {
     this.state = 'loading';
     this.onChange();
     try {
+      // Replaced by a newer load, or the player is gone: checked after every wait, before
+      // anything is made (a Worker made after closing would never be ended).
+      const gone = () => this.job !== job || this.ac.signal.aborted;
       const lib = await loadPdfJs();
+      if (gone()) return;
       const pages = [];
       for (const f of this.files) {
         const blob = await idbCache.get('deckfile:' + f.hash);
+        if (gone()) return;
         if (!blob) continue;
+        const data = new Uint8Array(await blob.arrayBuffer());
+        if (gone()) return;
         if (!this.pdfWorker) this.pdfWorker = makePdfWorker(lib);
-        const task = lib.getDocument({ data: new Uint8Array(await blob.arrayBuffer()), worker: this.pdfWorker.pdf });
+        const task = lib.getDocument({ data, worker: this.pdfWorker.pdf });
         const doc = await task.promise;
-        // Replaced by a newer load, or the player is gone: this document is not kept.
-        if (this.job !== job || this.ac.signal.aborted) { task.destroy().catch(() => {}); return; }
+        if (gone()) { task.destroy().catch(() => {}); return; }
         this.docs.push(task);
         for (let n = 1; n <= doc.numPages; n++) {
           const page = await doc.getPage(n);
@@ -9781,22 +9947,30 @@ class SlideDeckController {
   // Page i rendered `width` pixels wide. Kept for reuse within a pixel budget (pages can
   // be 4096 pixels wide when zoomed in): only the newest size of each page, and the least
   // recently used pages go first.
+  // Kept by the page's key (file and page number), not its index: an index means another
+  // page once the files change, and a render still running for a removed file must not be
+  // kept for whatever page has its index now.
   async render(i, width) {
     const w = Math.round(width);
-    const hit = this.rendered.get(i);
+    const pg = this.pages[i];
+    if (!pg) throw new Error('no page ' + i);
+    const hit = this.rendered.get(pg.key);
     if (hit && hit.width === w) {
-      this.rendered.delete(i);
-      this.rendered.set(i, hit);
+      this.rendered.delete(pg.key);
+      this.rendered.set(pg.key, hit);
       return hit;
     }
-    const page = await this.pages[i].doc.getPage(this.pages[i].num);
+    const page = await pg.doc.getPage(pg.num);
     const c = await renderPdfPage(page, width);
-    this.rendered.delete(i);
-    this.rendered.set(i, c);
+    // The files changed meanwhile: the picture is not kept (the caller checks whether it
+    // still wants it).
+    if (!this.pages.includes(pg)) return c;
+    this.rendered.delete(pg.key);
+    this.rendered.set(pg.key, c);
     let px = 0;
     for (const x of this.rendered.values()) px += x.width * x.height;
     for (const [k, x] of this.rendered) {
-      if (px <= DECK_RENDER_BUDGET || k === i) break;
+      if (px <= DECK_RENDER_BUDGET || k === pg.key) break;
       px -= x.width * x.height;
       x.width = 0; // releases the canvas memory now
       this.rendered.delete(k);

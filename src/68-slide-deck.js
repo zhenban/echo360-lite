@@ -226,16 +226,22 @@ class SlideDeckController {
     this.state = 'loading';
     this.onChange();
     try {
+      // Replaced by a newer load, or the player is gone: checked after every wait, before
+      // anything is made (a Worker made after closing would never be ended).
+      const gone = () => this.job !== job || this.ac.signal.aborted;
       const lib = await loadPdfJs();
+      if (gone()) return;
       const pages = [];
       for (const f of this.files) {
         const blob = await idbCache.get('deckfile:' + f.hash);
+        if (gone()) return;
         if (!blob) continue;
+        const data = new Uint8Array(await blob.arrayBuffer());
+        if (gone()) return;
         if (!this.pdfWorker) this.pdfWorker = makePdfWorker(lib);
-        const task = lib.getDocument({ data: new Uint8Array(await blob.arrayBuffer()), worker: this.pdfWorker.pdf });
+        const task = lib.getDocument({ data, worker: this.pdfWorker.pdf });
         const doc = await task.promise;
-        // Replaced by a newer load, or the player is gone: this document is not kept.
-        if (this.job !== job || this.ac.signal.aborted) { task.destroy().catch(() => {}); return; }
+        if (gone()) { task.destroy().catch(() => {}); return; }
         this.docs.push(task);
         for (let n = 1; n <= doc.numPages; n++) {
           const page = await doc.getPage(n);
@@ -362,22 +368,30 @@ class SlideDeckController {
   // Page i rendered `width` pixels wide. Kept for reuse within a pixel budget (pages can
   // be 4096 pixels wide when zoomed in): only the newest size of each page, and the least
   // recently used pages go first.
+  // Kept by the page's key (file and page number), not its index: an index means another
+  // page once the files change, and a render still running for a removed file must not be
+  // kept for whatever page has its index now.
   async render(i, width) {
     const w = Math.round(width);
-    const hit = this.rendered.get(i);
+    const pg = this.pages[i];
+    if (!pg) throw new Error('no page ' + i);
+    const hit = this.rendered.get(pg.key);
     if (hit && hit.width === w) {
-      this.rendered.delete(i);
-      this.rendered.set(i, hit);
+      this.rendered.delete(pg.key);
+      this.rendered.set(pg.key, hit);
       return hit;
     }
-    const page = await this.pages[i].doc.getPage(this.pages[i].num);
+    const page = await pg.doc.getPage(pg.num);
     const c = await renderPdfPage(page, width);
-    this.rendered.delete(i);
-    this.rendered.set(i, c);
+    // The files changed meanwhile: the picture is not kept (the caller checks whether it
+    // still wants it).
+    if (!this.pages.includes(pg)) return c;
+    this.rendered.delete(pg.key);
+    this.rendered.set(pg.key, c);
     let px = 0;
     for (const x of this.rendered.values()) px += x.width * x.height;
     for (const [k, x] of this.rendered) {
-      if (px <= DECK_RENDER_BUDGET || k === i) break;
+      if (px <= DECK_RENDER_BUDGET || k === pg.key) break;
       px -= x.width * x.height;
       x.width = 0; // releases the canvas memory now
       this.rendered.delete(k);

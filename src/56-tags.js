@@ -10,6 +10,11 @@
 
 const TAG_COLORS = ['#f6c343', '#6ea8ff', '#ff6b6b', '#4fd1a5', '#c084fc', '#fb923c', '#94a3b8', '#f472b6'];
 
+// Several tabs can show recordings of the same course (or the same recording) at once, so
+// a change is never saved by writing this page's whole copy back: that would undo what
+// another tab saved meanwhile. Each change is an operation, applied to this page's copy at
+// once and replayed on the stored record in one transaction (idbCache.update); this page
+// then takes the stored result.
 class TagStore {
   constructor(lesson, onChange) {
     this.courseKey = 'tags:' + (lesson.sectionId || 'all');
@@ -20,18 +25,23 @@ class TagStore {
     this.ready = false;
   }
 
+  static defaults() {
+    return [
+      { id: 'exam', name: tr('tagExam'), color: TAG_COLORS[0] },
+      { id: 'assignment', name: tr('tagAssignment'), color: TAG_COLORS[1] },
+      { id: 'confused', name: tr('tagConfused'), color: TAG_COLORS[2] },
+    ];
+  }
+
   async load() {
     const rec = await idbCache.get(this.courseKey);
     if (rec && Array.isArray(rec.tags)) {
       this.tags = rec.tags;
     } else {
-      // First use in this course: a few suggestions, which the user may delete.
-      this.tags = [
-        { id: 'exam', name: tr('tagExam'), color: TAG_COLORS[0] },
-        { id: 'assignment', name: tr('tagAssignment'), color: TAG_COLORS[1] },
-        { id: 'confused', name: tr('tagConfused'), color: TAG_COLORS[2] },
-      ];
-      this.saveTags();
+      // First use in this course: a few suggestions, which the user may delete (kept if
+      // another tab has made the list meanwhile).
+      this.tags = TagStore.defaults();
+      this.changeTags(() => {});
     }
     const m = this.mapKey ? await idbCache.get(this.mapKey) : null;
     this.map = m && typeof m === 'object' ? m : {};
@@ -39,9 +49,31 @@ class TagStore {
     this.onChange();
   }
 
-  saveTags() { idbCache.put(this.courseKey, { tags: this.tags }); }
+  // op(tags) changes a tag list in place: applied here now, then to the stored list.
+  changeTags(op) {
+    op(this.tags);
+    idbCache.update(this.courseKey, (rec) => {
+      const tags = rec && Array.isArray(rec.tags) ? rec.tags : TagStore.defaults();
+      op(tags);
+      return { tags };
+    }).then((rec) => {
+      // Redraw only if another tab's changes came along (else nothing new to show).
+      if (rec && Array.isArray(rec.tags) && JSON.stringify(rec.tags) !== JSON.stringify(this.tags)) { this.tags = rec.tags; this.onChange(); }
+    }).catch((e) => log.warn('tags:', e));
+  }
 
-  saveMap() { if (this.mapKey) idbCache.put(this.mapKey, this.map); }
+  // op(map) changes this recording's item -> tag ids map in place, the same way.
+  changeMap(op) {
+    if (!this.mapKey) return;
+    op(this.map);
+    idbCache.update(this.mapKey, (rec) => {
+      const map = rec && typeof rec === 'object' ? rec : {};
+      op(map);
+      return map;
+    }).then((rec) => {
+      if (rec && typeof rec === 'object' && JSON.stringify(rec) !== JSON.stringify(this.map)) { this.map = rec; this.onChange(); }
+    }).catch((e) => log.warn('tags:', e));
+  }
 
   byId(id) { return this.tags.find((x) => x.id === id) || null; }
 
@@ -54,13 +86,16 @@ class TagStore {
 
   has(itemId, tagId) { return (this.map[itemId] || []).includes(tagId); }
 
+  // Adds or removes a tag on an item. The wanted state is decided here, so replaying it
+  // on the stored map cannot flip back a change another tab made.
   toggle(itemId, tagId) {
     if (!this.ready) return null; // not loaded yet: writing now would overwrite the stored tags
-    const ids = (this.map[itemId] || []).filter((x) => this.byId(x));
-    const i = ids.indexOf(tagId);
-    if (i >= 0) ids.splice(i, 1); else ids.push(tagId);
-    if (ids.length) this.map[itemId] = ids; else delete this.map[itemId];
-    this.saveMap();
+    const on = !this.has(itemId, tagId);
+    this.changeMap((map) => {
+      const ids = (map[itemId] || []).filter((x) => x !== tagId);
+      if (on) ids.push(tagId);
+      if (ids.length) map[itemId] = ids; else delete map[itemId];
+    });
     this.onChange();
   }
 
@@ -68,8 +103,7 @@ class TagStore {
   forget(itemId) {
     if (!this.ready) return null; // not loaded yet: writing now would overwrite the stored tags
     if (!this.map[itemId]) return;
-    delete this.map[itemId];
-    this.saveMap();
+    this.changeMap((map) => { delete map[itemId]; });
   }
 
   create(name, color) {
@@ -79,8 +113,9 @@ class TagStore {
     const same = this.tags.find((x) => x.name.toLowerCase() === clean.toLowerCase());
     if (same) return same;
     const tag = { id: 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: clean, color: color || TAG_COLORS[this.tags.length % TAG_COLORS.length] };
-    this.tags.push(tag);
-    this.saveTags();
+    this.changeTags((tags) => {
+      if (!tags.some((x) => x.id === tag.id || x.name.toLowerCase() === clean.toLowerCase())) tags.push(tag);
+    });
     this.onChange();
     return tag;
   }
@@ -90,29 +125,26 @@ class TagStore {
     const tag = this.byId(id);
     const clean = String(name || '').trim().slice(0, 40);
     if (!tag || !clean || clean === tag.name) return;
-    tag.name = clean;
-    this.saveTags();
+    this.changeTags((tags) => { const t = tags.find((x) => x.id === id); if (t) t.name = clean; });
     this.onChange();
   }
 
   recolor(id, color) {
     if (!this.ready) return null; // not loaded yet: writing now would overwrite the stored tags
-    const tag = this.byId(id);
-    if (!tag) return;
-    tag.color = color;
-    this.saveTags();
+    if (!this.byId(id)) return;
+    this.changeTags((tags) => { const t = tags.find((x) => x.id === id); if (t) t.color = color; });
     this.onChange();
   }
 
   remove(id) {
     if (!this.ready) return null; // not loaded yet: writing now would overwrite the stored tags
-    this.tags = this.tags.filter((x) => x.id !== id);
-    for (const k of Object.keys(this.map)) {
-      this.map[k] = this.map[k].filter((x) => x !== id);
-      if (!this.map[k].length) delete this.map[k];
-    }
-    this.saveTags();
-    this.saveMap();
+    this.changeTags((tags) => { const i = tags.findIndex((x) => x.id === id); if (i >= 0) tags.splice(i, 1); });
+    this.changeMap((map) => {
+      for (const k of Object.keys(map)) {
+        map[k] = map[k].filter((x) => x !== id);
+        if (!map[k].length) delete map[k];
+      }
+    });
     this.onChange();
   }
 }

@@ -108,7 +108,7 @@ class CaptionsView {
   // Called on timeupdate/seeked (about 4 times a second): writes the DOM only when the cue
   // changes.
   update(t) {
-    if (!this.on || !this.index || document.hidden) return;
+    if (!this.on || !this.index || hiddenFor(this.el)) return;
     const k = this.index.active(t);
     this.scheduleNext(t);
     if (k === this.shown) return;
@@ -189,7 +189,7 @@ class TranscriptPanel {
   // Called on timeupdate/seeked while the panel is open: moves the highlight when the cue
   // changes and keeps it in view unless the user has scrolled away.
   update(t, force) {
-    if (!this.open || !this.rows || document.hidden) return;
+    if (!this.open || !this.rows || hiddenFor(this.list)) return;
     const k = this.index.started(t);
     if (k === this.current && !force) return;
     if (this.current >= 0 && this.rows[this.current]) this.rows[this.current].classList.remove('cur');

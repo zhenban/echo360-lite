@@ -636,6 +636,7 @@ class SlideAnalyzer {
   }
 
   async run(signal, gate) {
+    this.reason = null;   // why the analysis is unavailable, if it says ('saveData')
     const key = 'slides:' + this.lesson.mediaId;
     const id = this.lesson.mediaId;
     const pick = id ? await idbCache.get('screenpick:' + id) : null;
@@ -654,6 +655,9 @@ class SlideAnalyzer {
       this.onChange();
       return;
     }
+    // Data Saver: no downloads at all (finding the screen view already reads keyframes or
+    // preview pictures); only a stored result is used.
+    if (saveDataOn()) { this.reason = 'saveData'; this.state = 'unavailable'; this.onChange(); return; }
     // Which view is the screen is needed early (quality settings are per view).
     const screen = await this.findScreen(signal);
     if (signal.aborted) return;
@@ -663,7 +667,7 @@ class SlideAnalyzer {
     this.onChange();
     await gate.wait(BG_START_DELAY_MS); // let playback start first
     if (screen.thumbs) this.fromThumbnails(screen.thumbs, signal, gate);
-    if (!HlsVideoReader.supported() || saveDataOn()) {
+    if (!HlsVideoReader.supported()) {
       if (this.chapters.length) { this.state = 'done'; this.progress = 1; this.onChange(); }
       return;
     }

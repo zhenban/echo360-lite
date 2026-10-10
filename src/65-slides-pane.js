@@ -17,6 +17,7 @@ class SlideReader {
   constructor(player) {
     this.player = player;
     this.view = -1;
+    this.viewKey = null;     // the key of that page (see currentView)
     this.follow = true;
     this.stale = false;
     this.sample = -1;
@@ -43,7 +44,8 @@ class SlideReader {
     if (!tg || tg.active === on) return;
     tg.active = on;
     if (on && this.deck) {
-      if (this.view >= 0) this.drawInto(tg, this.view);
+      const i = this.currentView();
+      if (i >= 0) this.drawInto(tg, i);
       this.update(this.player.video.currentTime, true);
     }
   }
@@ -70,9 +72,9 @@ class SlideReader {
     for (const tg of this.targets.values()) tg.stage.classList.toggle('stale', stale);
     if (this.follow) {
       const p = deck.pageAt(t);
-      if (p !== this.view || force) this.showPage(p >= 0 ? p : Math.max(0, this.view), force);
+      if (p !== this.currentView() || force) this.showPage(p >= 0 ? p : Math.max(0, this.currentView()), force);
       else if (sample !== this.sample || staleChanged) this.info();
-    } else if (force) this.showPage(this.view, true);
+    } else if (force) this.showPage(Math.max(0, this.currentView()), true);
     this.sample = sample;
   }
 
@@ -81,7 +83,7 @@ class SlideReader {
     const deck = this.deck;
     if (!deck) return;
     this.follow = false;
-    this.showPage(clamp(this.view + dir, 0, deck.pages.length - 1), true);
+    this.showPage(clamp(this.currentView() + dir, 0, deck.pages.length - 1), true);
   }
 
   resumeFollow() {
@@ -89,10 +91,27 @@ class SlideReader {
     this.update(this.player.video.currentTime, true);
   }
 
+  // The page index shown now, kept valid when the files change (a file removed, replaced
+  // or added): the same page if it is still there (by its key), else the nearest valid
+  // index.
+  currentView() {
+    const pages = this.deck ? this.deck.pages : [];
+    if (this.view < 0 || !pages.length) return -1;
+    const p = pages[this.view];
+    if (p && p.key === this.viewKey) return this.view;
+    const k = pages.findIndex((x) => x.key === this.viewKey);
+    this.view = k >= 0 ? k : Math.min(this.view, pages.length - 1);
+    this.viewKey = pages[this.view].key;
+    return this.view;
+  }
+
   showPage(i, force) {
     if (!this.deck || i < 0) return;
+    i = Math.min(i, this.deck.pages.length - 1);
+    if (i < 0) return;
     const changed = i !== this.view;
     this.view = i;
+    this.viewKey = this.deck.pages[i].key;
     if (changed || force) for (const tg of this.targets.values()) if (tg.active) this.drawInto(tg, i);
     this.info();
   }
@@ -103,6 +122,7 @@ class SlideReader {
     const token = ++tg.token;
     const stage = tg.stage;
     const p = deck.pages[i];
+    if (!p) return;
     const dpr = window.devicePixelRatio || 1;
     // As wide as fits the place at the page's aspect ratio.
     const ar = p.ar || PAGE_AR_DEFAULT;
@@ -118,7 +138,7 @@ class SlideReader {
       c.getContext('2d').drawImage(src, 0, 0);
       c.className = 'rpage';
       tg.pages.append(c);
-      requestAnimationFrame(() => c.classList.add('in'));
+      windowOf(tg.pages).requestAnimationFrame(() => c.classList.add('in'));
       const old = [...tg.pages.querySelectorAll('canvas')].filter((x) => x !== c);
       setTimeout(() => { for (const x of old) x.remove(); }, 220);
     }).catch((e) => log.warn('render page:', e && e.message ? e.message : e));
@@ -127,7 +147,7 @@ class SlideReader {
   // "Page 5 of 21 · file" for the page shown.
   label() {
     const deck = this.deck;
-    const p = deck.pages[this.view];
+    const p = deck.pages[this.currentView()];
     if (!p) return '';
     return tr('pageOfN', { n: p.num, total: deck.pages.filter((x) => x.file === p.file).length })
       + (deck.files.length > 1 ? ' · ' + p.file.replace(/\.pdf$/i, '') : '');
@@ -299,7 +319,7 @@ class SlidesPane {
 
   // Called on time updates: the chapter highlight (the reader updates itself).
   update(t, force) {
-    if (!this.visible || document.hidden || !this.cards.length || this.list.hidden) return;
+    if (!this.visible || hiddenFor(this.list) || !this.cards.length || this.list.hidden) return;
     const k = chapterIndexAt(this.chapters, t);
     if (k === this.current && !force) return;
     if (this.cards[this.current]) this.cards[this.current].classList.remove('cur');
@@ -313,7 +333,7 @@ class SlidesPane {
   renderPageInfo() {
     const deck = this.deck;
     const rd = this.reader;
-    const i = rd.view;
+    const i = deck ? rd.currentView() : -1;
     const p = deck && deck.pages[i];
     if (!p) return;
     this.pageLabel.textContent = rd.label();

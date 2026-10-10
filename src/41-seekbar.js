@@ -132,34 +132,42 @@ class SeekBar {
       return f;
     };
     d.listen(seekEl, 'pointerenter', () => { rect = seekEl.getBoundingClientRect(); });
-    d.listen(seekEl, 'pointermove', (e) => {
-      const f = hover(e);
-      if (x.ui.dragging) {
+    d.listen(seekEl, 'pointermove', (e) => { hover(e); });
+    // Dragging: seeks along the way; lifting the finger seeks there (a click next to a
+    // marker jumps exactly to the marked time); a cancelled touch goes back to where
+    // playback was before.
+    onDrag(d, seekEl, {
+      start: (e) => {
+        if (e.button !== 0) return null;
+        rect = seekEl.getBoundingClientRect();
+        seekEl.setPointerCapture(e.pointerId);
+        downX = e.clientX;
+        x.ui.dragging = true;
+        seekEl.classList.add('dragging');
+        seekEl.style.setProperty('--p', hover(e).toFixed(5));
+        return { from: x.clock.position(), moved: false };
+      },
+      move: (e, st) => {
+        const f = frac(e.clientX);
         seekEl.style.setProperty('--p', f.toFixed(5));
         const now = performance.now();
-        if (now - lastSeekAt > DRAG_SEEK_MS) { lastSeekAt = now; x.video.currentTime = f * x.duration(); }
-      }
+        if (now - lastSeekAt > DRAG_SEEK_MS) { lastSeekAt = now; st.moved = true; x.video.currentTime = f * x.duration(); }
+      },
+      done: (e) => {
+        x.ui.dragging = false;
+        seekEl.classList.remove('dragging');
+        if (nearMarker && Math.abs(e.clientX - downX) < 4) x.seek(nearMarker.time);
+        else x.seek(frac(e.clientX) * x.duration());
+        x.armIdle();
+      },
+      cancel: (st) => {
+        x.ui.dragging = false;
+        seekEl.classList.remove('dragging');
+        if (st.moved) x.seek(st.from);
+        this.render(true);
+        x.armIdle();
+      },
     });
-    d.listen(seekEl, 'pointerdown', (e) => {
-      if (e.button !== 0) return;
-      rect = seekEl.getBoundingClientRect();
-      seekEl.setPointerCapture(e.pointerId);
-      downX = e.clientX;
-      x.ui.dragging = true;
-      seekEl.classList.add('dragging');
-      seekEl.style.setProperty('--p', hover(e).toFixed(5));
-    });
-    const endDrag = (e) => {
-      if (!x.ui.dragging) return;
-      x.ui.dragging = false;
-      seekEl.classList.remove('dragging');
-      // A click (not a drag) next to a marker jumps exactly to the marked time.
-      if (nearMarker && Math.abs(e.clientX - downX) < 4) x.seek(nearMarker.time);
-      else x.seek(frac(e.clientX) * x.duration());
-      x.armIdle();
-    };
-    d.listen(seekEl, 'pointerup', endDrag);
-    d.listen(seekEl, 'pointercancel', endDrag);
     d.listen(seekEl, 'keydown', (e) => {
       if (e.key === 'Home') { x.seek(0); e.preventDefault(); }
       if (e.key === 'End') { x.seek(x.duration()); e.preventDefault(); }
