@@ -13,6 +13,7 @@ const ICON = {
   back10: '<path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4.5 4v4h4"/><text x="12.2" y="15.6" font-size="7.5" font-weight="600" text-anchor="middle" fill="currentColor" stroke="none" font-family="system-ui,sans-serif">10</text>',
   fwd10: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4v4h-4"/><text x="11.8" y="15.6" font-size="7.5" font-weight="600" text-anchor="middle" fill="currentColor" stroke="none" font-family="system-ui,sans-serif">10</text>',
   volume: '<path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>',
+  volumeLow: '<path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M15.5 9a4 4 0 0 1 0 6"/>',
   muted: '<path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M16 9.5l5 5m0-5l-5 5"/>',
   fullscreen: '<path d="M4 9V4.5h4.5M20 9V4.5h-4.5M4 15v4.5h4.5M20 15v4.5h-4.5"/>',
   exitFullscreen: '<path d="M8.5 4v4.5H4M15.5 4v4.5H20M8.5 20v-4.5H4M15.5 20v-4.5H20"/>',
@@ -67,7 +68,7 @@ const PLAYER_CSS = `
   --line: rgba(255,255,255,.10); --fill: rgba(255,255,255,.10); --fill-2: rgba(255,255,255,.16);
   --text: #ECEDEF; --text-2: #A8ABB2; --text-3: #8A8D94;
   --accent: #3DBEC4; --on-accent: #0B2E30; --accent-soft: rgba(61,190,196,.16);
-  --scrim: rgba(0,0,0,.72); --overlay: rgba(24,25,27,.92); --cap-bg: rgba(0,0,0,.78); --backdrop: rgba(0,0,0,.6);
+  --volw: ${VOLUME_SLIDER_PX}px; --scrim: rgba(0,0,0,.72); --overlay: rgba(24,25,27,.92); --cap-bg: rgba(0,0,0,.78); --backdrop: rgba(0,0,0,.6);
   --hl: rgba(255,196,0,.40); --warn-bg: rgba(255,170,0,.14); --warn-text: #FFD38A;
   --danger: #FF8A80; --danger-bg: rgba(255,82,82,.14); --shadow: 0 8px 28px rgba(0,0,0,.5);
   --mk-note: #7FA8FF; --mk-bookmark: #FF9F43; --mk-flag: #FF7A93; --mk-comment: #C3A1FF; --mk-last: #FFFFFF;
@@ -143,8 +144,22 @@ svg { width: 24px; height: 24px; display: block; flex: none; }
   font-size: 12px; pointer-events: none; }
 .bottom.compact .time .sep { display: none; }
 .vol { display: flex; align-items: center; }
-.vol input { width: 72px; margin: 0 var(--sp2) 0 0; }
-@media (pointer: coarse) { .vol input { display: none; } }
+/* The slider opens to the right of the speaker while a mouse is over the control or the
+   keyboard focus is in it, and closes after a short pause; the time beside it slides along
+   (width transition) instead of jumping. Touch screens never show it. */
+.vol input { width: 0; margin: 0; opacity: 0; visibility: hidden;
+  transition: width var(--t) var(--ease) var(--t-fast), margin var(--t) var(--ease) var(--t-fast), opacity var(--t-fast) linear var(--t-fast), visibility 0s linear calc(var(--t) + var(--t-fast)); }
+@media (hover: hover) {
+  .vol:hover input, .vol:has(:focus-visible) input, .vol input:active {
+    width: var(--volw); margin: 0 var(--sp2) 0 var(--sp1); opacity: 1; visibility: visible;
+    transition: width var(--t) var(--ease), margin var(--t) var(--ease), opacity var(--t-fast) linear, visibility 0s; }
+  /* MenuBar.fitBar measures the bar with the slider open, so opening it never overflows. */
+  .row.measure .vol input { width: var(--volw); margin: 0 var(--sp2) 0 var(--sp1); transition: none; }
+}
+.volosd { position: absolute; z-index: 6; left: 50%; top: 18%; transform: translateX(-50%); padding: var(--sp2) var(--sp4); border-radius: var(--r2);
+  background: var(--overlay); color: var(--text); font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; pointer-events: none;
+  opacity: 0; transition: opacity var(--t) var(--ease); }
+.volosd.on { opacity: 1; transition: none; }
 input[type=range] { -webkit-appearance: none; appearance: none; height: 4px; border-radius: 2px; cursor: pointer;
   background: linear-gradient(to right, var(--text) var(--v, 100%), var(--fill-2) var(--v, 100%)); }
 input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%; background: var(--text); }
@@ -620,6 +635,7 @@ function playerTemplate() {
   <div class="endnote" hidden role="status"><span>${tr('contentEnded')}</span>
     <button class="endskip">${tr('contentEndSkip')}</button><button class="endstop">${tr('contentEndStop')}</button>
     <button class="endclose" aria-label="${tr('close')}">${svg('close')}</button></div>
+  <div class="volosd" role="status"></div>
   <div class="toast" hidden role="status"><span class="msg"></span><button class="act"></button></div>
   <div class="dropzone" hidden>${tr('dropSlides')}</div>
   <div class="error" hidden><div class="dialog" role="alertdialog"><h2></h2><p></p><div class="actions"></div></div></div>

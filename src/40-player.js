@@ -15,7 +15,7 @@
 // through a child of the player's Disposer (released with it, or alone if it fails):
 //   Popovers and Tooltips (32), SeekBar (41), KeyboardShortcuts (42), LayoutControls (43),
 //   QualityController (44), MenuBar (45), PopoutController (46), SilenceUi (47),
-//   SpeedControl (48); and the features: captions and
+//   SpeedControl (48), VolumeControl (49); and the features: captions and
 //   transcript (53), side panel (54), notes (55), discussion (57), slides (64-68),
 //   zoom (50), A-B loop (51), watched parts (52), audio tools (60).
 // ===================================================================================
@@ -224,7 +224,7 @@ class LitePlayer {
     v.defaultPlaybackRate = this.prefs.rate;
     v.volume = clamp(this.prefs.volume, 0, 1);
     v.muted = !!this.prefs.muted;
-    this.renderVolume();
+    this.volumeCtl.render();
     this.clock.quality = this.quality.qualityFor(pos);
     this.clock.priority = this.quality.roleOf(pos) === 'camera' ? 'low' : 'high';
     this.clock.load(source.av, startAt, () => {
@@ -493,6 +493,7 @@ class LitePlayer {
       },
     }, this.d.child());
     this.menus.captionsAvailable(tr('captionsLoading'));
+    this.volumeCtl = new VolumeControl({ $, video: this.video }, this.d.child());
     this.speed = new SpeedControl({ $, pops: this.pops, rate: () => this.video.playbackRate || this.prefs.rate, setRate: (r) => this.setRate(r) }, this.d.child());
     this.keys = new KeyboardShortcuts({ $, isDestroyed, wake: () => this.wake(), actions: this.keyActions() }, this.d.child());
     this.popout = new PopoutController({
@@ -509,7 +510,7 @@ class LitePlayer {
       togglePlay: () => this.togglePlay(),
       seekBy: (s) => this.seek(this.clock.position() + s),
       stepChapter: (dir) => this.stepChapter(dir),
-      volumeBy: (dv) => { if (dv > 0) v.muted = false; v.volume = clamp(v.volume + dv, 0, 1); },
+      volumeBy: (dv) => this.volumeCtl.by(dv, true),
       toggleMute: () => { v.muted = !v.muted; },
       fullscreen: () => this.toggleFullscreen(),
       swap: () => this.swapViews(),
@@ -590,7 +591,7 @@ class LitePlayer {
     on('durationchange', () => { this.render(true); if (this.loop) this.loop.render(); this.renderWatched(); this.updateMarkers(); if (this.silence) this.silence.update(); this.renderChapterMarks(); });
     on('ratechange', () => this.speed.render(v.playbackRate));
     on('volumechange', () => {
-      this.renderVolume();
+      this.volumeCtl.render();
       this.prefs.volume = v.volume;
       this.prefs.muted = v.muted;
       this.savePrefs();
@@ -623,16 +624,6 @@ class LitePlayer {
     b.innerHTML = svg(icon);
     b.setAttribute('aria-label', label);
     b.dataset.tip = tip;
-  }
-
-  renderVolume() {
-    const v = this.video;
-    const level = v.muted ? 0 : v.volume;
-    const silent = v.muted || v.volume === 0;
-    this.setButton('.mute', silent ? 'muted' : 'volume', tr(silent ? 'unmute' : 'mute'), tr(silent ? 'unmuteKey' : 'muteKey'));
-    const input = this.$('.volume');
-    input.value = String(level);
-    input.style.setProperty('--v', level * 100 + '%');
   }
 
   savePrefs() {
@@ -710,10 +701,6 @@ class LitePlayer {
     d.listen($('.play'), 'click', () => this.togglePlay());
     d.listen($('.rew'), 'click', () => this.seek(this.clock.position() - 10));
     d.listen($('.fwd'), 'click', () => this.seek(this.clock.position() + 10));
-    d.listen($('.mute'), 'click', () => {
-      if (v.muted || v.volume === 0) { v.muted = false; if (v.volume === 0) v.volume = 0.5; } else v.muted = true;
-    });
-    d.listen($('.volume'), 'input', (e) => { v.volume = +e.target.value; v.muted = v.volume === 0; });
     d.listen($('.fs'), 'click', () => this.toggleFullscreen());
     d.listen($('.swapdot'), 'click', (e) => { e.stopPropagation(); this.swapViews(); });
     d.listen($('.layout'), 'click', () => this.setLayout(this.nextLayout()));

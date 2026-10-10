@@ -20,6 +20,8 @@ const STRINGS = {
     unmute: 'Unmute',
     unmuteKey: 'Unmute (M)',
     volume: 'Volume',
+    volumeLevel: 'Volume {pct}%',
+    muted: 'Muted',
     swapViews: 'Swap views',
     swapViewsKey: 'Swap views (S)',
     layout: 'Layout',

@@ -22,7 +22,7 @@ const KEY_HELP = [
 const KEY_ACTIONS = {
   ' ': ['togglePlay'], k: ['togglePlay'],
   ArrowLeft: ['seekBy', -5], ArrowRight: ['seekBy', 5], j: ['seekBy', -10], l: ['seekBy', 10],
-  ArrowUp: ['volumeBy', 0.05], ArrowDown: ['volumeBy', -0.05], m: ['toggleMute'],
+  ArrowUp: ['volumeBy', VOLUME_STEP], ArrowDown: ['volumeBy', -VOLUME_STEP], m: ['toggleMute'],
   f: ['fullscreen'], s: ['swap'], c: ['captions'], t: ['transcript'],
   b: ['bookmark'], u: ['flag'], g: ['tag'], p: ['copyFrame'], a: ['copyCaptions'],
   Escape: ['escape'], '?': ['help'],
@@ -53,6 +53,8 @@ class KeyboardShortcuts {
     if (target && target.closest && target.closest('.pop') && e.key !== 'Escape') return;
     let entry = KEY_ACTIONS[e.key] || KEY_ACTIONS[e.key.length === 1 ? e.key.toLowerCase() : ''];
     if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && e.shiftKey) entry = ['stepChapter', e.key === 'ArrowLeft' ? -1 : 1];
+    // On the volume slider every arrow changes the volume (left and right do not seek).
+    if (target && target.type === 'range' && /^Arrow(Left|Right)$/.test(e.key) && !e.shiftKey) entry = ['volumeBy', e.key === 'ArrowLeft' ? -VOLUME_STEP : VOLUME_STEP];
     if (e.key === '?') entry = ['help'];
     if (!entry) return;
     const [name, arg] = entry;

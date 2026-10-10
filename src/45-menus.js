@@ -79,10 +79,12 @@ class MenuBar {
     const btns = BAR_OVERFLOW.map((k) => this.x.root.querySelector('.row [data-bar=' + k + ']'));
     for (const b of btns) b.classList.remove('out');
     bottom.classList.remove('compact');
+    row.classList.add('measure');
     const over = () => row.scrollWidth > row.clientWidth + 1;
     let n = 0;
     while (n < btns.length && over()) btns[n++].classList.add('out');
     if (over()) bottom.classList.add('compact');
+    row.classList.remove('measure');
     this.out = BAR_OVERFLOW.slice(0, n).filter((k, i) => !btns[i].hidden);
     this.refresh();
   }

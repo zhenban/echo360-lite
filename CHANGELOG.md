@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.17.1
+- **Volume**: the control bar now shows only the speaker; a press mutes or unmutes, and the icon shows muted, low or high. With a mouse, the slider opens to the right while the pointer is over the speaker (or the keyboard focus is on it) and closes when it leaves; the time beside it slides along instead of jumping. Scrolling over the speaker changes the volume one step per notch. On touch screens there is no slider (use the device's volume keys).
+- Changing the volume with the arrow keys or the wheel shows the level on the picture ("Volume 70%") for about a second.
+- On the volume slider, the left and right arrow keys change the volume instead of seeking.
+
 ## 0.17.0
 A redesign of the controls (the language setting comes in a later version).
 - **Control bar**: play, back and forward 10 seconds, volume and time on the left; speed, captions, bookmark, copy picture, copy text, layout and full screen on the right. In a narrow window, copy text, then copy picture, then bookmark move into the ⋮ menu; on a phone the time moves above the progress bar.

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lite Player for Echo360
 // @namespace    lite-player-for-echo360
-// @version      0.17.0
+// @version      0.17.1
 // @updateURL    https://github.com/zhenban/lite-player-for-echo360/releases/latest/download/lite-player-for-echo360.user.js
 // @downloadURL  https://github.com/zhenban/lite-player-for-echo360/releases/latest/download/lite-player-for-echo360.user.js
 // @description  Unofficial, lightweight player for Echo360 lecture recordings: far lower CPU use, both views side by side, slide chapters, a PDF that follows the lecture. Falls back to the original player automatically if anything is not recognised.
@@ -19,7 +19,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.17.0';
+  const VERSION = '0.17.1';
 
 // ---- 00-util.js ----
 // ===================================================================================
@@ -269,6 +269,8 @@ const STRINGS = {
     unmute: 'Unmute',
     unmuteKey: 'Unmute (M)',
     volume: 'Volume',
+    volumeLevel: 'Volume {pct}%',
+    muted: 'Muted',
     swapViews: 'Swap views',
     swapViewsKey: 'Swap views (S)',
     layout: 'Layout',
@@ -798,13 +800,18 @@ const DOUBLE_CLICK_MS = 200;           // a click is single once no second one f
 const DRAG_SEEK_MS = 200;              // seeking at most this often while dragging the progress bar
 const RESUME_END_SEC = 10;             // a resume point this close to the end starts over instead (nothing left to watch)
 
-// ---- menus and buttons (32-ui-kit.js, 48-speed.js, 55-notes.js) ----
+// ---- menus and buttons (32-ui-kit.js, 48-speed.js, 49-volume.js, 55-notes.js) ----
 const POP_GAP = 8;                     // px between a popover and its button
 const POP_MARGIN = 8;                  // px kept free at the edges of the player
 const SHEET_BELOW = 600;               // player narrower than this (px, a phone held upright): popovers are bottom sheets
 const TIP_DELAY_MS = 500;              // hover time before a tooltip shows (a passing mouse shows none)
 const SPEED_SNAP = 0.06;               // a speed this close to a stop takes the stop (so a finger can hit 1.5x)
 const FLAG_CONFIRM_MS = 4000;          // "Didn't understand": time to press again to confirm
+const VOLUME_STEP = 0.05;              // one arrow key press or wheel step (common players use 5%)
+const VOLUME_WHEEL_PX = 50;            // wheel distance for one volume step; a single event counts at most this much, so
+                                       // one mouse notch (53-120 px in Chromium by platform, 3 lines in Firefox) is one step
+const VOLUME_OSD_MS = 1000;            // the level shown on the picture after a key or wheel change
+const VOLUME_SLIDER_PX = 64;           // width of the volume slider when it is shown
 
 // ---- session (36-session.js) ----
 const SESSION_RETRY_MS = [2000, 5000]; // waits before the two retries of a failed renewal
@@ -1797,6 +1804,7 @@ const ICON = {
   back10: '<path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4.5 4v4h4"/><text x="12.2" y="15.6" font-size="7.5" font-weight="600" text-anchor="middle" fill="currentColor" stroke="none" font-family="system-ui,sans-serif">10</text>',
   fwd10: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4v4h-4"/><text x="11.8" y="15.6" font-size="7.5" font-weight="600" text-anchor="middle" fill="currentColor" stroke="none" font-family="system-ui,sans-serif">10</text>',
   volume: '<path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>',
+  volumeLow: '<path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M15.5 9a4 4 0 0 1 0 6"/>',
   muted: '<path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M16 9.5l5 5m0-5l-5 5"/>',
   fullscreen: '<path d="M4 9V4.5h4.5M20 9V4.5h-4.5M4 15v4.5h4.5M20 15v4.5h-4.5"/>',
   exitFullscreen: '<path d="M8.5 4v4.5H4M15.5 4v4.5H20M8.5 20v-4.5H4M15.5 20v-4.5H20"/>',
@@ -1851,7 +1859,7 @@ const PLAYER_CSS = `
   --line: rgba(255,255,255,.10); --fill: rgba(255,255,255,.10); --fill-2: rgba(255,255,255,.16);
   --text: #ECEDEF; --text-2: #A8ABB2; --text-3: #8A8D94;
   --accent: #3DBEC4; --on-accent: #0B2E30; --accent-soft: rgba(61,190,196,.16);
-  --scrim: rgba(0,0,0,.72); --overlay: rgba(24,25,27,.92); --cap-bg: rgba(0,0,0,.78); --backdrop: rgba(0,0,0,.6);
+  --volw: ${VOLUME_SLIDER_PX}px; --scrim: rgba(0,0,0,.72); --overlay: rgba(24,25,27,.92); --cap-bg: rgba(0,0,0,.78); --backdrop: rgba(0,0,0,.6);
   --hl: rgba(255,196,0,.40); --warn-bg: rgba(255,170,0,.14); --warn-text: #FFD38A;
   --danger: #FF8A80; --danger-bg: rgba(255,82,82,.14); --shadow: 0 8px 28px rgba(0,0,0,.5);
   --mk-note: #7FA8FF; --mk-bookmark: #FF9F43; --mk-flag: #FF7A93; --mk-comment: #C3A1FF; --mk-last: #FFFFFF;
@@ -1927,8 +1935,22 @@ svg { width: 24px; height: 24px; display: block; flex: none; }
   font-size: 12px; pointer-events: none; }
 .bottom.compact .time .sep { display: none; }
 .vol { display: flex; align-items: center; }
-.vol input { width: 72px; margin: 0 var(--sp2) 0 0; }
-@media (pointer: coarse) { .vol input { display: none; } }
+/* The slider opens to the right of the speaker while a mouse is over the control or the
+   keyboard focus is in it, and closes after a short pause; the time beside it slides along
+   (width transition) instead of jumping. Touch screens never show it. */
+.vol input { width: 0; margin: 0; opacity: 0; visibility: hidden;
+  transition: width var(--t) var(--ease) var(--t-fast), margin var(--t) var(--ease) var(--t-fast), opacity var(--t-fast) linear var(--t-fast), visibility 0s linear calc(var(--t) + var(--t-fast)); }
+@media (hover: hover) {
+  .vol:hover input, .vol:has(:focus-visible) input, .vol input:active {
+    width: var(--volw); margin: 0 var(--sp2) 0 var(--sp1); opacity: 1; visibility: visible;
+    transition: width var(--t) var(--ease), margin var(--t) var(--ease), opacity var(--t-fast) linear, visibility 0s; }
+  /* MenuBar.fitBar measures the bar with the slider open, so opening it never overflows. */
+  .row.measure .vol input { width: var(--volw); margin: 0 var(--sp2) 0 var(--sp1); transition: none; }
+}
+.volosd { position: absolute; z-index: 6; left: 50%; top: 18%; transform: translateX(-50%); padding: var(--sp2) var(--sp4); border-radius: var(--r2);
+  background: var(--overlay); color: var(--text); font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; pointer-events: none;
+  opacity: 0; transition: opacity var(--t) var(--ease); }
+.volosd.on { opacity: 1; transition: none; }
 input[type=range] { -webkit-appearance: none; appearance: none; height: 4px; border-radius: 2px; cursor: pointer;
   background: linear-gradient(to right, var(--text) var(--v, 100%), var(--fill-2) var(--v, 100%)); }
 input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%; background: var(--text); }
@@ -2404,6 +2426,7 @@ function playerTemplate() {
   <div class="endnote" hidden role="status"><span>${tr('contentEnded')}</span>
     <button class="endskip">${tr('contentEndSkip')}</button><button class="endstop">${tr('contentEndStop')}</button>
     <button class="endclose" aria-label="${tr('close')}">${svg('close')}</button></div>
+  <div class="volosd" role="status"></div>
   <div class="toast" hidden role="status"><span class="msg"></span><button class="act"></button></div>
   <div class="dropzone" hidden>${tr('dropSlides')}</div>
   <div class="error" hidden><div class="dialog" role="alertdialog"><h2></h2><p></p><div class="actions"></div></div></div>
@@ -3359,7 +3382,7 @@ const BACKUP_LOCAL = [
 // through a child of the player's Disposer (released with it, or alone if it fails):
 //   Popovers and Tooltips (32), SeekBar (41), KeyboardShortcuts (42), LayoutControls (43),
 //   QualityController (44), MenuBar (45), PopoutController (46), SilenceUi (47),
-//   SpeedControl (48); and the features: captions and
+//   SpeedControl (48), VolumeControl (49); and the features: captions and
 //   transcript (53), side panel (54), notes (55), discussion (57), slides (64-68),
 //   zoom (50), A-B loop (51), watched parts (52), audio tools (60).
 // ===================================================================================
@@ -3568,7 +3591,7 @@ class LitePlayer {
     v.defaultPlaybackRate = this.prefs.rate;
     v.volume = clamp(this.prefs.volume, 0, 1);
     v.muted = !!this.prefs.muted;
-    this.renderVolume();
+    this.volumeCtl.render();
     this.clock.quality = this.quality.qualityFor(pos);
     this.clock.priority = this.quality.roleOf(pos) === 'camera' ? 'low' : 'high';
     this.clock.load(source.av, startAt, () => {
@@ -3837,6 +3860,7 @@ class LitePlayer {
       },
     }, this.d.child());
     this.menus.captionsAvailable(tr('captionsLoading'));
+    this.volumeCtl = new VolumeControl({ $, video: this.video }, this.d.child());
     this.speed = new SpeedControl({ $, pops: this.pops, rate: () => this.video.playbackRate || this.prefs.rate, setRate: (r) => this.setRate(r) }, this.d.child());
     this.keys = new KeyboardShortcuts({ $, isDestroyed, wake: () => this.wake(), actions: this.keyActions() }, this.d.child());
     this.popout = new PopoutController({
@@ -3853,7 +3877,7 @@ class LitePlayer {
       togglePlay: () => this.togglePlay(),
       seekBy: (s) => this.seek(this.clock.position() + s),
       stepChapter: (dir) => this.stepChapter(dir),
-      volumeBy: (dv) => { if (dv > 0) v.muted = false; v.volume = clamp(v.volume + dv, 0, 1); },
+      volumeBy: (dv) => this.volumeCtl.by(dv, true),
       toggleMute: () => { v.muted = !v.muted; },
       fullscreen: () => this.toggleFullscreen(),
       swap: () => this.swapViews(),
@@ -3934,7 +3958,7 @@ class LitePlayer {
     on('durationchange', () => { this.render(true); if (this.loop) this.loop.render(); this.renderWatched(); this.updateMarkers(); if (this.silence) this.silence.update(); this.renderChapterMarks(); });
     on('ratechange', () => this.speed.render(v.playbackRate));
     on('volumechange', () => {
-      this.renderVolume();
+      this.volumeCtl.render();
       this.prefs.volume = v.volume;
       this.prefs.muted = v.muted;
       this.savePrefs();
@@ -3967,16 +3991,6 @@ class LitePlayer {
     b.innerHTML = svg(icon);
     b.setAttribute('aria-label', label);
     b.dataset.tip = tip;
-  }
-
-  renderVolume() {
-    const v = this.video;
-    const level = v.muted ? 0 : v.volume;
-    const silent = v.muted || v.volume === 0;
-    this.setButton('.mute', silent ? 'muted' : 'volume', tr(silent ? 'unmute' : 'mute'), tr(silent ? 'unmuteKey' : 'muteKey'));
-    const input = this.$('.volume');
-    input.value = String(level);
-    input.style.setProperty('--v', level * 100 + '%');
   }
 
   savePrefs() {
@@ -4054,10 +4068,6 @@ class LitePlayer {
     d.listen($('.play'), 'click', () => this.togglePlay());
     d.listen($('.rew'), 'click', () => this.seek(this.clock.position() - 10));
     d.listen($('.fwd'), 'click', () => this.seek(this.clock.position() + 10));
-    d.listen($('.mute'), 'click', () => {
-      if (v.muted || v.volume === 0) { v.muted = false; if (v.volume === 0) v.volume = 0.5; } else v.muted = true;
-    });
-    d.listen($('.volume'), 'input', (e) => { v.volume = +e.target.value; v.muted = v.volume === 0; });
     d.listen($('.fs'), 'click', () => this.toggleFullscreen());
     d.listen($('.swapdot'), 'click', (e) => { e.stopPropagation(); this.swapViews(); });
     d.listen($('.layout'), 'click', () => this.setLayout(this.nextLayout()));
@@ -4643,7 +4653,7 @@ const KEY_HELP = [
 const KEY_ACTIONS = {
   ' ': ['togglePlay'], k: ['togglePlay'],
   ArrowLeft: ['seekBy', -5], ArrowRight: ['seekBy', 5], j: ['seekBy', -10], l: ['seekBy', 10],
-  ArrowUp: ['volumeBy', 0.05], ArrowDown: ['volumeBy', -0.05], m: ['toggleMute'],
+  ArrowUp: ['volumeBy', VOLUME_STEP], ArrowDown: ['volumeBy', -VOLUME_STEP], m: ['toggleMute'],
   f: ['fullscreen'], s: ['swap'], c: ['captions'], t: ['transcript'],
   b: ['bookmark'], u: ['flag'], g: ['tag'], p: ['copyFrame'], a: ['copyCaptions'],
   Escape: ['escape'], '?': ['help'],
@@ -4674,6 +4684,8 @@ class KeyboardShortcuts {
     if (target && target.closest && target.closest('.pop') && e.key !== 'Escape') return;
     let entry = KEY_ACTIONS[e.key] || KEY_ACTIONS[e.key.length === 1 ? e.key.toLowerCase() : ''];
     if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && e.shiftKey) entry = ['stepChapter', e.key === 'ArrowLeft' ? -1 : 1];
+    // On the volume slider every arrow changes the volume (left and right do not seek).
+    if (target && target.type === 'range' && /^Arrow(Left|Right)$/.test(e.key) && !e.shiftKey) entry = ['volumeBy', e.key === 'ArrowLeft' ? -VOLUME_STEP : VOLUME_STEP];
     if (e.key === '?') entry = ['help'];
     if (!entry) return;
     const [name, arg] = entry;
@@ -5003,10 +5015,12 @@ class MenuBar {
     const btns = BAR_OVERFLOW.map((k) => this.x.root.querySelector('.row [data-bar=' + k + ']'));
     for (const b of btns) b.classList.remove('out');
     bottom.classList.remove('compact');
+    row.classList.add('measure');
     const over = () => row.scrollWidth > row.clientWidth + 1;
     let n = 0;
     while (n < btns.length && over()) btns[n++].classList.add('out');
     if (over()) bottom.classList.add('compact');
+    row.classList.remove('measure');
     this.out = BAR_OVERFLOW.slice(0, n).filter((k, i) => !btns[i].hidden);
     this.refresh();
   }
@@ -5582,6 +5596,92 @@ class SpeedControl {
     this.track.setAttribute('aria-valuetext', text);
     SPEED_STOPS.forEach((s, i) => this.stops[i].classList.toggle('on', Math.abs(s - rate) < 0.001));
     for (const b of this.labels) b.classList.toggle('on', Math.abs(+b.dataset.rate - rate) < 0.001);
+  }
+}
+
+// ---- 49-volume.js ----
+// ===================================================================================
+// The volume control: a speaker button that mutes and unmutes (its icon follows the
+// level: muted, low, high), and a slider that the stylesheet shows only while a mouse is
+// over the control or the keyboard focus is on it (touch screens never show it; devices
+// there have volume keys). The mouse wheel over the control changes the volume; changes
+// by the wheel or the arrow keys show the level on the picture for a moment.
+//
+// deps: { $, video }
+// ===================================================================================
+
+class VolumeControl {
+  constructor(deps, disposer) {
+    this.x = deps;
+    this.d = disposer;
+    this.button = deps.$('.mute');
+    this.input = deps.$('.volume');
+    this.osd = deps.$('.volosd');
+    this.wheelSum = 0;
+    this.osdTimer = 0;
+    disposer.add(() => clearTimeout(this.osdTimer));
+    const v = deps.video;
+    disposer.listen(this.button, 'click', () => this.toggleMute());
+    disposer.listen(this.input, 'input', () => { v.volume = +this.input.value; v.muted = v.volume === 0; });
+    disposer.listen(deps.$('.vol'), 'wheel', (e) => this.onWheel(e), { passive: false });
+    this.render();
+  }
+
+  // A muted (or zero) volume comes back at the last level, or half when there is none.
+  toggleMute() {
+    const v = this.x.video;
+    if (v.muted || v.volume === 0) {
+      v.muted = false;
+      if (v.volume === 0) v.volume = 0.5;
+    } else v.muted = true;
+  }
+
+  // Changes the volume by dv; show: put the new level on the picture (keys and wheel).
+  by(dv, show) {
+    const v = this.x.video;
+    if (dv > 0) v.muted = false;
+    v.volume = clamp(Math.round((v.volume + dv) * 100) / 100, 0, 1);
+    if (show) this.showLevel();
+  }
+
+  // One mouse-wheel notch is one step, whatever distance the browser reports for it (53 to
+  // 120 px, or 3 lines); a touchpad's many small deltas add up to VOLUME_WHEEL_PX per step.
+  // Up is louder.
+  onWheel(e) {
+    e.preventDefault();
+    const raw = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1);
+    const px = clamp(raw, -VOLUME_WHEEL_PX, VOLUME_WHEEL_PX);
+    if (Math.sign(px) !== Math.sign(this.wheelSum)) this.wheelSum = 0;
+    this.wheelSum += px;
+    const steps = Math.trunc(this.wheelSum / VOLUME_WHEEL_PX);
+    if (!steps) return;
+    this.wheelSum -= steps * VOLUME_WHEEL_PX;
+    this.by(-steps * VOLUME_STEP, true);
+  }
+
+  level() {
+    const v = this.x.video;
+    return v.muted ? 0 : v.volume;
+  }
+
+  showLevel() {
+    const level = this.level();
+    this.osd.textContent = level ? tr('volumeLevel', { pct: Math.round(level * 100) }) : tr('muted');
+    this.osd.classList.add('on');
+    clearTimeout(this.osdTimer);
+    this.osdTimer = setTimeout(guard(() => this.osd.classList.remove('on')), VOLUME_OSD_MS);
+  }
+
+  render() {
+    const level = this.level();
+    const silent = level === 0;
+    const b = this.button;
+    b.innerHTML = svg(silent ? 'muted' : level < 0.5 ? 'volumeLow' : 'volume');
+    b.setAttribute('aria-label', tr(silent ? 'unmute' : 'mute'));
+    b.dataset.tip = tr(silent ? 'unmuteKey' : 'muteKey');
+    this.input.value = String(level);
+    this.input.setAttribute('aria-valuetext', Math.round(level * 100) + '%');
+    this.input.style.setProperty('--v', level * 100 + '%');
   }
 }
 

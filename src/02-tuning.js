@@ -176,13 +176,18 @@ const DOUBLE_CLICK_MS = 200;           // a click is single once no second one f
 const DRAG_SEEK_MS = 200;              // seeking at most this often while dragging the progress bar
 const RESUME_END_SEC = 10;             // a resume point this close to the end starts over instead (nothing left to watch)
 
-// ---- menus and buttons (32-ui-kit.js, 48-speed.js, 55-notes.js) ----
+// ---- menus and buttons (32-ui-kit.js, 48-speed.js, 49-volume.js, 55-notes.js) ----
 const POP_GAP = 8;                     // px between a popover and its button
 const POP_MARGIN = 8;                  // px kept free at the edges of the player
 const SHEET_BELOW = 600;               // player narrower than this (px, a phone held upright): popovers are bottom sheets
 const TIP_DELAY_MS = 500;              // hover time before a tooltip shows (a passing mouse shows none)
 const SPEED_SNAP = 0.06;               // a speed this close to a stop takes the stop (so a finger can hit 1.5x)
 const FLAG_CONFIRM_MS = 4000;          // "Didn't understand": time to press again to confirm
+const VOLUME_STEP = 0.05;              // one arrow key press or wheel step (common players use 5%)
+const VOLUME_WHEEL_PX = 50;            // wheel distance for one volume step; a single event counts at most this much, so
+                                       // one mouse notch (53-120 px in Chromium by platform, 3 lines in Firefox) is one step
+const VOLUME_OSD_MS = 1000;            // the level shown on the picture after a key or wheel change
+const VOLUME_SLIDER_PX = 64;           // width of the volume slider when it is shown
 
 // ---- session (36-session.js) ----
 const SESSION_RETRY_MS = [2000, 5000]; // waits before the two retries of a failed renewal

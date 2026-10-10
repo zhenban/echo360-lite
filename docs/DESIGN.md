@@ -30,6 +30,10 @@ Quality reference: the calm, precise feel of YouTube's player, IINA and the Appl
 - Play/pause, -10/+10 s, volume, time; then speed, captions, bookmark, copy picture, copy text, layout, fullscreen.
 - Priority overflow: when the bar is too narrow, the lowest-priority buttons (copy text, copy picture, bookmark, in that order) move into the ⋮ menu automatically, and come back when there is room. Define the priority order in one place.
 - Speed: the button shows the current speed ("1.5×"). It is the only bottom-bar button that opens a popover. Do not build it as a row of cramped boxes: design a single horizontal control, for example a track with snap points at 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5 and 3, labels under the main stops, a thumb that can also move in 0.05 steps, and the current value shown large. It must work with a finger and with the keyboard ([ and ] step between snap points).
+- Volume: normally only the speaker icon shows; a press mutes or unmutes it (it is a toggle like the other bar buttons). The icon follows the level: muted, low, high.
+  - Desktop: while the mouse is over the icon or the keyboard focus is on it, the slider opens to its right, and it closes when the pointer or focus leaves. The mouse wheel over the icon changes the volume. Opening and closing are smooth, and the time to the right must not jump.
+  - Touch: no slider; a press only mutes or unmutes (devices have hardware volume keys).
+  - When the volume changes by the arrow keys (up and down) or the wheel, the picture shows the level briefly (for example "Volume 70%") and fades out after about a second.
 - Captions: one press turns captions on or off; disabled with a reason when the recording has none. Caption options live in the settings menu.
 - Layout: the icon shows the current layout; the tooltip says what the next press switches to; direct choice is in the settings menu. Define how the cycle changes when the PDF view is open.
 - "Flag for instructor" is visible to the instructor: it does not live in the bottom bar; it lives in the Notes tab, is labelled as instructor-visible and asks for confirmation.

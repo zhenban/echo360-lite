@@ -9,7 +9,7 @@ import { Window } from 'happy-dom';
 
 const src = new URL('../src/', import.meta.url);
 const code = readdirSync(src).filter((f) => f.endsWith('.js') && f !== '90-main.js').sort().map((f) => readFileSync(new URL(f, src), 'utf8')).join('\n');
-const names = 'Disposer,Popovers,BAR_OVERFLOW,SPEED_STOPS,SettingsMenu,Tooltips,SpeedControl,MenuBar,setUnavailable,nextSpeed,snapSpeed,TranscriptPanel,Stream,TagStore,idbCache,SlideReader,DiscussionPane,NotesPane,LayoutControls,CaptionsView,FrameTask,SlideAnalyzer,HlsVideoReader,SeekBar,SlideDeckController,ABLoop,Zoomer,playerTemplate,PLAYER_CSS,'
+const names = 'Disposer,Popovers,BAR_OVERFLOW,SPEED_STOPS,VolumeControl,KeyboardShortcuts,VOLUME_STEP,VOLUME_WHEEL_PX,VOLUME_OSD_MS,SettingsMenu,Tooltips,SpeedControl,MenuBar,setUnavailable,nextSpeed,snapSpeed,TranscriptPanel,Stream,TagStore,idbCache,SlideReader,DiscussionPane,NotesPane,LayoutControls,CaptionsView,FrameTask,SlideAnalyzer,HlsVideoReader,SeekBar,SlideDeckController,ABLoop,Zoomer,playerTemplate,PLAYER_CSS,'
   + 'setPdfLib: (lib) => { pdfjsPromise = Promise.resolve(lib); }';
 
 // The sources in a page of their own; nothing reaches the network.
@@ -451,4 +451,94 @@ test('unavailable control: dimmed with a reason, which is also its tooltip; usab
   assert.equal(b.getAttribute('aria-disabled'), 'false');
   assert.equal(b.dataset.tip, 'Captions (C)');
   assert.equal(b.dataset.reason, '');
+}));
+
+function volumeStage(w, m, volume, muted) {
+  const root = w.document.createElement('div');
+  root.innerHTML = '<div class="vol"><button class="mute"></button><input class="volume" type="range" min="0" max="1" step="0.01"></div><div class="volosd"></div>'
+    + '<div class="keyhelp" hidden><button class="khclose"></button><div class="khlist"></div></div>';
+  w.document.body.append(root);
+  const video = new w.EventTarget();
+  Object.assign(video, { volume, muted });
+  const d = new m.Disposer();
+  const $ = (s) => root.querySelector(s);
+  const vol = new m.VolumeControl({ $, video }, d);
+  return { root, video, d, $, vol };
+}
+
+test('volume: the speaker mutes and unmutes; its icon and name follow the level', async () => withPage(async (w, m) => {
+  const { video, d, $, vol } = volumeStage(w, m, 0.8, false);
+  const icon = () => $('.mute svg').innerHTML;
+  const high = icon();
+  assert.equal($('.mute').getAttribute('aria-label'), 'Mute');
+  $('.mute').click();
+  assert.equal(video.muted, true);
+  vol.render();
+  assert.notEqual(icon(), high);
+  assert.equal($('.mute').getAttribute('aria-label'), 'Unmute');
+  const mutedIcon = icon();
+  $('.mute').click();
+  assert.equal(video.muted, false);
+  assert.equal(video.volume, 0.8, 'comes back at the old level');
+  video.volume = 0.3;
+  vol.render();
+  assert.ok(icon() !== high && icon() !== mutedIcon, 'a low level has its own icon');
+  video.volume = 0;
+  vol.render();
+  assert.equal(icon(), mutedIcon, 'zero looks muted');
+  $('.mute').click();
+  assert.equal(video.volume, 0.5, 'unmuting from zero gives half');
+  d.dispose();
+}));
+
+test('volume: wheel steps add up, up is louder; key and wheel changes show the level for a moment', async () => withPage(async (w, m) => {
+  const { video, d, $ } = volumeStage(w, m, 0.5, false);
+  const wheel = (deltaY, deltaMode = 0) => {
+    const e = new w.WheelEvent('wheel', { deltaY, deltaMode, bubbles: true, cancelable: true });
+    $('.mute').dispatchEvent(e);
+    return e;
+  };
+  const e = wheel(-m.VOLUME_WHEEL_PX / 2);
+  assert.equal(e.defaultPrevented, true, 'the page does not scroll');
+  assert.equal(video.volume, 0.5, 'half a notch: nothing yet');
+  wheel(-m.VOLUME_WHEEL_PX / 2);
+  assert.equal(video.volume, 0.5 + m.VOLUME_STEP, 'a full notch: one step up');
+  assert.ok($('.volosd').classList.contains('on'));
+  assert.equal($('.volosd').textContent, 'Volume 55%');
+  wheel(3, 1);   // Firefox: one notch is three lines
+  assert.equal(video.volume, 0.5, 'line-based wheels count too');
+  wheel(120);   // a large notch (Windows) is still one step
+  assert.equal(video.volume, 0.45);
+  wheel(-120);
+  await new Promise((r) => setTimeout(r, m.VOLUME_OSD_MS + 50));
+  assert.equal($('.volosd').classList.contains('on'), false, 'fades after about a second');
+  for (let i = 0; i < 30; i++) wheel(m.VOLUME_WHEEL_PX);
+  assert.equal(video.volume, 0, 'never below zero');
+  assert.equal($('.volosd').textContent, 'Muted');
+  d.dispose();
+}));
+
+test('volume: arrow keys change it with the level shown; on the slider left and right do not seek', async () => withPage(async (w, m) => {
+  const { root, video, d, $, vol } = volumeStage(w, m, 0.5, true);
+  const seeks = [];
+  new m.KeyboardShortcuts({ $, isDestroyed: () => false, wake() {}, actions: { volumeBy: (dv) => vol.by(dv, true), seekBy: (s) => seeks.push(s) } }, d);
+  const key = (target, k) => target.dispatchEvent(new w.KeyboardEvent('keydown', { key: k, bubbles: true, composed: true, cancelable: true }));
+  key(w.document.body, 'ArrowUp');
+  assert.equal(video.muted, false, 'louder unmutes');
+  assert.equal(video.volume, 0.5 + m.VOLUME_STEP);
+  assert.ok($('.volosd').classList.contains('on'));
+  key(root.querySelector('.volume'), 'ArrowLeft');
+  assert.equal(video.volume, 0.5, 'on the slider: quieter');
+  assert.deepEqual(seeks, []);
+  key(w.document.body, 'ArrowLeft');
+  assert.equal(seeks.length, 1, 'elsewhere left still seeks');
+  d.dispose();
+}));
+
+test('volume slider: shown only for a mouse or the keyboard, never on touch screens', async () => withPage(async (w, m) => {
+  const css = m.PLAYER_CSS;
+  const at = css.indexOf('.vol:hover input');
+  assert.ok(at > 0);
+  assert.ok(css.lastIndexOf('@media (hover: hover)', at) > css.lastIndexOf('}\n}', at), 'the open state is inside (hover: hover)');
+  assert.match(css, /\.vol input \{ width: 0;[^}]*visibility: hidden/);
 }));
