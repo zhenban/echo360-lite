@@ -78,7 +78,9 @@ svg { width: 24px; height: 24px; display: block; }
 .trow .ts { flex: none; width: 4.4em; padding-top: 2px; font-size: 12px; font-variant-numeric: tabular-nums; opacity: .5; }
 .trow.cur { background: rgba(79,140,255,.16); }
 .trow.cur .ts { color: var(--accent); opacity: 1; }
-.trow.hit .tx { background: linear-gradient(transparent 62%, rgba(255,196,0,.45) 62%); }
+/* Only the matched characters are marked (a background on the whole text, a block here,
+   fell on its last lines whatever line the match was on). */
+.trow .tx mark { background: rgba(255,196,0,.45); color: inherit; border-radius: 2px; }
 .tback { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); height: 32px; padding: 0 14px; border-radius: 16px;
   background: var(--accent); color: #fff; font-size: 13px; box-shadow: 0 4px 16px rgba(0,0,0,.4); }
 .tback[hidden] { display: none; }

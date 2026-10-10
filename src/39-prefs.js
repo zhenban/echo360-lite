@@ -15,7 +15,8 @@ function prefDefaults() {
   return {
     primary: null, layout: 'side', ratio: 0.5, pipw: 0.26, corner: 'br', rate: 1, volume: 1, muted: false,
     captions: false, capSize: 'm', capHidePaused: true, panel: false, tab: 'transcript', panelw: 360,
-    audio: { level: false, voice: false, mono: false },
+    // Levelling is on unless the user turned it off (levelChosen: they set it themselves).
+    audio: { level: true, levelChosen: false, voice: false, mono: false },
     silence: { auto: false, min: 30, sens: 'normal' },
     copySpan: 60,
     pdfMain: false, pdfFirst: false,
@@ -49,7 +50,13 @@ function sanitizePrefs(raw) {
     panel: bool(r.panel, d.panel),
     tab: oneOf(r.tab, SIDEBAR_TABS, d.tab),
     panelw: num(r.panelw, 260, 2000, d.panelw),
-    audio: { level: bool(audio.level, false), voice: bool(audio.voice, false), mono: bool(audio.mono, false) },
+    audio: {
+      // A stored "off" from before levelling was on by default is not a choice: only one made
+      // since (levelChosen) is kept.
+      level: audio.levelChosen === true ? bool(audio.level, d.audio.level) : d.audio.level,
+      levelChosen: audio.levelChosen === true,
+      voice: bool(audio.voice, false), mono: bool(audio.mono, false),
+    },
     silence: {
       auto: bool(silence.auto, false),
       min: oneOf(silence.min, SILENCE_MIN_CHOICES, d.silence.min),

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.16.1
+- Fix: transcript search marked the wrong place: a cue spread over several lines got the mark under its last lines, whatever line the match was on. Now exactly the matched characters are marked (for "exam", the "exam" in "example").
+- Volume levelling is now on by default (when the browser supports it; otherwise it stays off quietly). Turning it off is remembered. An "off" saved by an earlier version cannot be told apart from the old default, so it is turned on once; turn it off again if you prefer it off.
+
 ## 0.16.0
 Under the hood (first part of the 1.0 release work): everything that depends on how the player is run — where settings and files are kept, where pdf.js and Tesseract are loaded from, hls.js, saving files — now goes through one small layer, so a browser extension can later be built from the same code. Nothing should look or work differently; please report anything that does.
 

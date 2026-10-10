@@ -1169,7 +1169,7 @@ test('E2: settings are validated field by field; damaged values fall back to def
   assert.equal(p.layout, 'side');
   assert.equal(p.capSize, 'xl');
   assert.equal(p.muted, false);
-  assert.equal(JSON.stringify(p.audio), '{"level":true,"voice":false,"mono":false}');
+  assert.equal(JSON.stringify(p.audio), '{"level":true,"levelChosen":false,"voice":false,"mono":false}');
   assert.equal(JSON.stringify(p.silence), '{"auto":false,"min":60,"sens":"normal"}');
   assert.equal(JSON.stringify(p.quality), '{"screen":720,"camera":"auto"}');
   assert.equal(p.copySpan, 120);
@@ -1474,4 +1474,14 @@ test('platform: settings, backups and libraries go through whatever platform is 
   await m.loadTesseract();
   assert.equal(asked.length, 2);
   assert.ok(asked.every((p) => /^[@a-z][\w.@/-]+\.m?js$/.test(p) && !p.includes('//')), asked.join(' '));
+});
+
+test('levelling is on by default; only an "off" chosen since then is kept', () => {
+  const m = loadSources(['00-util', '39-prefs', '53-captions', '54-sidebar', '62-silence']);
+  const level = (raw) => m.sanitizePrefs(raw).audio.level;
+  assert.equal(level(null), true, 'new user');
+  assert.equal(level({ audio: { level: false, voice: true } }), true, 'saved before the change: not a choice');
+  assert.equal(level({ audio: { level: false, levelChosen: true } }), false, 'turned off by the user');
+  assert.equal(level({ audio: { level: true, levelChosen: true } }), true);
+  assert.equal(m.sanitizePrefs({ audio: { level: false, voice: true } }).audio.voice, true, 'other audio settings kept');
 });

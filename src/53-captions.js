@@ -119,6 +119,35 @@ class CaptionsView {
   }
 }
 
+// What the transcript search looks for: the words as typed, ignoring case. Matched in the
+// original text (not a lower-cased copy, whose length can differ, e.g. for a dotted
+// capital I), so the marked positions are exactly the matched characters.
+function searchPattern(q) {
+  return new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'giu');
+}
+
+// Puts `text` into `elem` with every match of `re` (a global pattern) in a <mark>.
+// Returns whether anything matched; with no match, `elem` is left as it is.
+function markMatches(elem, text, re) {
+  re.lastIndex = 0;
+  let m = re.exec(text);
+  if (!m) return false;
+  const frag = document.createDocumentFragment();
+  let at = 0;
+  for (; m; m = re.exec(text)) {
+    if (!m[0]) { re.lastIndex++; continue; }
+    if (m.index > at) frag.append(text.slice(at, m.index));
+    const mark = document.createElement('mark');
+    mark.textContent = m[0];
+    frag.append(mark);
+    at = m.index + m[0].length;
+  }
+  if (at < text.length) frag.append(text.slice(at));
+  elem.textContent = '';
+  elem.append(frag);
+  return true;
+}
+
 // Transcript tab of the side panel. The list is built once, on first show; rows use
 // `content-visibility: auto`, so off-screen rows cost no layout or paint.
 class TranscriptPanel {
@@ -132,7 +161,6 @@ class TranscriptPanel {
     this.countEl = elem.querySelector('.tcount');
     this.backBtn = elem.querySelector('.tback');
     this.cues = [];
-    this.lower = null;
     this.index = null;
     this.rows = null;
     this.current = -1;
@@ -148,7 +176,6 @@ class TranscriptPanel {
   setCues(cues) {
     this.cues = cues;
     this.index = new CueIndex(cues);
-    this.lower = null;
     if (this.rows) { this.list.textContent = ''; this.rows = null; }
   }
 
@@ -249,14 +276,20 @@ class TranscriptPanel {
   }
 
   runSearch() {
-    const q = this.search.value.trim().toLowerCase();
-    for (const i of this.hits) if (this.rows && this.rows[i]) this.rows[i].classList.remove('hit');
+    const q = this.search.value.trim();
+    for (const i of this.hits) {
+      const row = this.rows && this.rows[i];
+      if (row) { row.classList.remove('hit'); row.querySelector('.tx').textContent = this.cues[i].text; }
+    }
     this.hits = [];
     this.hitPos = -1;
-    if (q) {
-      if (!this.lower) this.lower = this.cues.map((c) => c.text.toLowerCase());
-      for (let i = 0; i < this.lower.length; i++) if (this.lower[i].includes(q)) this.hits.push(i);
-      for (const i of this.hits) this.rows[i].classList.add('hit');
+    if (q && this.rows) {
+      const re = searchPattern(q);
+      for (let i = 0; i < this.cues.length; i++) {
+        if (!markMatches(this.rows[i].querySelector('.tx'), this.cues[i].text, re)) continue;
+        this.hits.push(i);
+        this.rows[i].classList.add('hit');
+      }
     }
     this.countEl.textContent = q ? tr('searchCount', { n: this.hits.length }) : '';
     this.renderMarks();

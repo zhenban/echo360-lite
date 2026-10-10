@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lite Player for Echo360
 // @namespace    lite-player-for-echo360
-// @version      0.16.0
+// @version      0.16.1
 // @updateURL    https://github.com/zhenban/lite-player-for-echo360/releases/latest/download/lite-player-for-echo360.user.js
 // @downloadURL  https://github.com/zhenban/lite-player-for-echo360/releases/latest/download/lite-player-for-echo360.user.js
 // @description  Unofficial, lightweight player for Echo360 lecture recordings: far lower CPU use, both views side by side, slide chapters, a PDF that follows the lecture. Falls back to the original player automatically if anything is not recognised.
@@ -19,7 +19,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.16.0';
+  const VERSION = '0.16.1';
 
 // ---- 00-util.js ----
 // ===================================================================================
@@ -1810,7 +1810,9 @@ svg { width: 24px; height: 24px; display: block; }
 .trow .ts { flex: none; width: 4.4em; padding-top: 2px; font-size: 12px; font-variant-numeric: tabular-nums; opacity: .5; }
 .trow.cur { background: rgba(79,140,255,.16); }
 .trow.cur .ts { color: var(--accent); opacity: 1; }
-.trow.hit .tx { background: linear-gradient(transparent 62%, rgba(255,196,0,.45) 62%); }
+/* Only the matched characters are marked (a background on the whole text, a block here,
+   fell on its last lines whatever line the match was on). */
+.trow .tx mark { background: rgba(255,196,0,.45); color: inherit; border-radius: 2px; }
 .tback { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); height: 32px; padding: 0 14px; border-radius: 16px;
   background: var(--accent); color: #fff; font-size: 13px; box-shadow: 0 4px 16px rgba(0,0,0,.4); }
 .tback[hidden] { display: none; }
@@ -2794,7 +2796,8 @@ function prefDefaults() {
   return {
     primary: null, layout: 'side', ratio: 0.5, pipw: 0.26, corner: 'br', rate: 1, volume: 1, muted: false,
     captions: false, capSize: 'm', capHidePaused: true, panel: false, tab: 'transcript', panelw: 360,
-    audio: { level: false, voice: false, mono: false },
+    // Levelling is on unless the user turned it off (levelChosen: they set it themselves).
+    audio: { level: true, levelChosen: false, voice: false, mono: false },
     silence: { auto: false, min: 30, sens: 'normal' },
     copySpan: 60,
     pdfMain: false, pdfFirst: false,
@@ -2828,7 +2831,13 @@ function sanitizePrefs(raw) {
     panel: bool(r.panel, d.panel),
     tab: oneOf(r.tab, SIDEBAR_TABS, d.tab),
     panelw: num(r.panelw, 260, 2000, d.panelw),
-    audio: { level: bool(audio.level, false), voice: bool(audio.voice, false), mono: bool(audio.mono, false) },
+    audio: {
+      // A stored "off" from before levelling was on by default is not a choice: only one made
+      // since (levelChosen) is kept.
+      level: audio.levelChosen === true ? bool(audio.level, d.audio.level) : d.audio.level,
+      levelChosen: audio.levelChosen === true,
+      voice: bool(audio.voice, false), mono: bool(audio.mono, false),
+    },
     silence: {
       auto: bool(silence.auto, false),
       min: oneOf(silence.min, SILENCE_MIN_CHOICES, d.silence.min),
@@ -3608,8 +3617,7 @@ class LitePlayer {
     const a = new AudioChain(this.video);
     this.audio = a;
     this.d.add(() => a.dispose());
-    if (!this.prefs.audio || typeof this.prefs.audio !== 'object') this.prefs.audio = { level: false, voice: false, mono: false };
-    a.settings = Object.assign({}, a.settings, this.prefs.audio);
+    a.settings = { level: !!this.prefs.audio.level, voice: !!this.prefs.audio.voice, mono: !!this.prefs.audio.mono };
     for (const b of this.all('.audiomenu [data-audio]')) {
       this.d.listen(b, 'click', (e) => {
         e.stopPropagation();
@@ -3618,7 +3626,7 @@ class LitePlayer {
         a.build();
         a.resume();
         a.set({ [k]: !a.settings[k] });
-        this.prefs.audio = Object.assign({}, a.settings);
+        this.prefs.audio = Object.assign({}, a.settings, { levelChosen: this.prefs.audio.levelChosen || k === 'level' });
         this.savePrefs();
         this.renderAudioMenu();
       });
@@ -3643,7 +3651,7 @@ class LitePlayer {
     why.hidden = !a.reason;
     why.textContent = a.reason === 'noWebAudio' ? tr('audioNoWebAudio') : a.reason ? tr('audioNativeHls') : '';
     for (const b of this.all('.audiomenu [data-audio]')) {
-      const on = !!a.settings[b.dataset.audio];
+      const on = !a.reason && !!a.settings[b.dataset.audio];   // unsupported: shown as off
       b.setAttribute('aria-checked', String(on));
       b.setAttribute('aria-disabled', String(!!a.reason));
       b.querySelector('.state').textContent = on ? tr('on') : tr('off');
@@ -5412,6 +5420,35 @@ class CaptionsView {
   }
 }
 
+// What the transcript search looks for: the words as typed, ignoring case. Matched in the
+// original text (not a lower-cased copy, whose length can differ, e.g. for a dotted
+// capital I), so the marked positions are exactly the matched characters.
+function searchPattern(q) {
+  return new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'giu');
+}
+
+// Puts `text` into `elem` with every match of `re` (a global pattern) in a <mark>.
+// Returns whether anything matched; with no match, `elem` is left as it is.
+function markMatches(elem, text, re) {
+  re.lastIndex = 0;
+  let m = re.exec(text);
+  if (!m) return false;
+  const frag = document.createDocumentFragment();
+  let at = 0;
+  for (; m; m = re.exec(text)) {
+    if (!m[0]) { re.lastIndex++; continue; }
+    if (m.index > at) frag.append(text.slice(at, m.index));
+    const mark = document.createElement('mark');
+    mark.textContent = m[0];
+    frag.append(mark);
+    at = m.index + m[0].length;
+  }
+  if (at < text.length) frag.append(text.slice(at));
+  elem.textContent = '';
+  elem.append(frag);
+  return true;
+}
+
 // Transcript tab of the side panel. The list is built once, on first show; rows use
 // `content-visibility: auto`, so off-screen rows cost no layout or paint.
 class TranscriptPanel {
@@ -5425,7 +5462,6 @@ class TranscriptPanel {
     this.countEl = elem.querySelector('.tcount');
     this.backBtn = elem.querySelector('.tback');
     this.cues = [];
-    this.lower = null;
     this.index = null;
     this.rows = null;
     this.current = -1;
@@ -5441,7 +5477,6 @@ class TranscriptPanel {
   setCues(cues) {
     this.cues = cues;
     this.index = new CueIndex(cues);
-    this.lower = null;
     if (this.rows) { this.list.textContent = ''; this.rows = null; }
   }
 
@@ -5542,14 +5577,20 @@ class TranscriptPanel {
   }
 
   runSearch() {
-    const q = this.search.value.trim().toLowerCase();
-    for (const i of this.hits) if (this.rows && this.rows[i]) this.rows[i].classList.remove('hit');
+    const q = this.search.value.trim();
+    for (const i of this.hits) {
+      const row = this.rows && this.rows[i];
+      if (row) { row.classList.remove('hit'); row.querySelector('.tx').textContent = this.cues[i].text; }
+    }
     this.hits = [];
     this.hitPos = -1;
-    if (q) {
-      if (!this.lower) this.lower = this.cues.map((c) => c.text.toLowerCase());
-      for (let i = 0; i < this.lower.length; i++) if (this.lower[i].includes(q)) this.hits.push(i);
-      for (const i of this.hits) this.rows[i].classList.add('hit');
+    if (q && this.rows) {
+      const re = searchPattern(q);
+      for (let i = 0; i < this.cues.length; i++) {
+        if (!markMatches(this.rows[i].querySelector('.tx'), this.cues[i].text, re)) continue;
+        this.hits.push(i);
+        this.rows[i].classList.add('hit');
+      }
     }
     this.countEl.textContent = q ? tr('searchCount', { n: this.hits.length }) : '';
     this.renderMarks();

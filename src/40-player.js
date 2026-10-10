@@ -750,8 +750,7 @@ class LitePlayer {
     const a = new AudioChain(this.video);
     this.audio = a;
     this.d.add(() => a.dispose());
-    if (!this.prefs.audio || typeof this.prefs.audio !== 'object') this.prefs.audio = { level: false, voice: false, mono: false };
-    a.settings = Object.assign({}, a.settings, this.prefs.audio);
+    a.settings = { level: !!this.prefs.audio.level, voice: !!this.prefs.audio.voice, mono: !!this.prefs.audio.mono };
     for (const b of this.all('.audiomenu [data-audio]')) {
       this.d.listen(b, 'click', (e) => {
         e.stopPropagation();
@@ -760,7 +759,7 @@ class LitePlayer {
         a.build();
         a.resume();
         a.set({ [k]: !a.settings[k] });
-        this.prefs.audio = Object.assign({}, a.settings);
+        this.prefs.audio = Object.assign({}, a.settings, { levelChosen: this.prefs.audio.levelChosen || k === 'level' });
         this.savePrefs();
         this.renderAudioMenu();
       });
@@ -785,7 +784,7 @@ class LitePlayer {
     why.hidden = !a.reason;
     why.textContent = a.reason === 'noWebAudio' ? tr('audioNoWebAudio') : a.reason ? tr('audioNativeHls') : '';
     for (const b of this.all('.audiomenu [data-audio]')) {
-      const on = !!a.settings[b.dataset.audio];
+      const on = !a.reason && !!a.settings[b.dataset.audio];   // unsupported: shown as off
       b.setAttribute('aria-checked', String(on));
       b.setAttribute('aria-disabled', String(!!a.reason));
       b.querySelector('.state').textContent = on ? tr('on') : tr('off');

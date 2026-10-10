@@ -9,7 +9,7 @@ import { Window } from 'happy-dom';
 
 const src = new URL('../src/', import.meta.url);
 const code = readdirSync(src).filter((f) => f.endsWith('.js') && f !== '90-main.js').sort().map((f) => readFileSync(new URL(f, src), 'utf8')).join('\n');
-const names = 'Disposer,Stream,TagStore,idbCache,SlideReader,DiscussionPane,NotesPane,LayoutControls,CaptionsView,FrameTask,SlideAnalyzer,HlsVideoReader,SeekBar,SlideDeckController,ABLoop,Zoomer,playerTemplate,PLAYER_CSS,'
+const names = 'Disposer,TranscriptPanel,Stream,TagStore,idbCache,SlideReader,DiscussionPane,NotesPane,LayoutControls,CaptionsView,FrameTask,SlideAnalyzer,HlsVideoReader,SeekBar,SlideDeckController,ABLoop,Zoomer,playerTemplate,PLAYER_CSS,'
   + 'setPdfLib: (lib) => { pdfjsPromise = Promise.resolve(lib); }';
 
 // The sources in a page of their own; nothing reaches the network.
@@ -279,5 +279,34 @@ test('audit 6b: other drags (zoom pan, loop handle) ignore a second finger and u
   assert.equal(loop.a, 25, 'a second finger does not move it');
   hd.dispatchEvent(pointer(w, 'pointercancel', { pointerId: 1 }));
   assert.equal(loop.a, 10, 'cancelled: back to where it was');
+  d.dispose();
+}));
+
+test('transcript search marks exactly the matched characters, in every line of a cue', async () => withPage(async (w, m) => {
+  const pane = w.document.createElement('div');
+  pane.innerHTML = '<input class="tsearch"><span class="tcount"></span><button class="tback"></button><button class="tprev"></button><button class="tnext"></button><div class="tlist"></div>';
+  const cues = [
+    { start: 1, end: 5, text: 'so for example, this is the thing we need but kind of let it go and like, essentially, move on' },
+    { start: 6, end: 9, text: 'İstanbul EXAM tips: C++ and exams' },   // a dotted capital I is 2 characters lower-cased
+    { start: 10, end: 12, text: 'nothing here' },
+  ];
+  const d = new m.Disposer();
+  const t = new m.TranscriptPanel({ duration: () => 100, video: { currentTime: 0 }, seek() {} }, pane, w.document.createElement('div'), d);
+  t.setCues(cues);
+  t.build();
+  const marks = (i) => [...t.rows[i].querySelectorAll('mark')].map((x) => x.textContent);
+  t.search.value = 'exam';
+  t.runSearch();
+  assert.deepEqual([...t.hits], [0, 1]);
+  assert.deepEqual(marks(0), ['exam'], 'inside "example", not a later line');
+  assert.equal(t.rows[0].querySelector('.tx').textContent, cues[0].text, 'the text itself is unchanged');
+  assert.deepEqual(marks(1), ['EXAM', 'exam'], 'positions stay right after a character whose lower case is longer');
+  t.search.value = 'c++';
+  t.runSearch();
+  assert.deepEqual(marks(1), ['C++'], 'typed characters are not a pattern');
+  t.search.value = '';
+  t.runSearch();
+  assert.equal(pane.querySelectorAll('mark').length, 0);
+  assert.equal(t.rows[1].querySelector('.tx').textContent, cues[1].text);
   d.dispose();
 }));
